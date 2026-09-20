@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskPhone } from './logSafe';
 
 export interface EncuestaNutria {
   whatsapp: string;
@@ -62,7 +63,13 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     timeStyle: 'short',
   });
 
-  const whatsappAnon = data.whatsapp;
+  // El número se guarda COMPLETO en el Sheet privado, a propósito: la
+  // campaña contacta a quien marcó "contacto: Sí". La variable se llamaba
+  // `whatsappAnon`, que era mentira, y esa mentira sostenía la idea de que
+  // la fila era anónima: sobre esa idea se publicó el endpoint de lectura
+  // sin autenticación. Quien lo exponga hacia fuera lo enmascara en la
+  // ruta (ver `routes/tools/nutria.ts`).
+  const whatsapp = data.whatsapp;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
@@ -72,7 +79,7 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     requestBody: {
       values: [[
         ahora,
-        whatsappAnon,
+        whatsapp,
         data.edad,
         data.genero,
         data.tiempoCelular,
@@ -98,7 +105,7 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     },
   });
 
-  console.log('[nutria] encuesta guardada:', whatsappAnon, data.edad, data.genero);
+  console.log('[nutria] encuesta guardada:', maskPhone(whatsapp), data.edad, data.genero);
 }
 
 /**
