@@ -1,5 +1,13 @@
 import axios from 'axios';
 import { config } from '../config';
+import {
+  BroadcastValidationError,
+  validarTemplateName, validarLanguage, clasificarDestinatarios,
+} from './broadcastValidation';
+import { describeError } from './logSafe';
+
+// Re-exportados para que la ruta valide el formato sin tocar la API de Meta.
+export { BroadcastValidationError, validarTemplateName, validarLanguage };
 
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
 
@@ -67,40 +75,62 @@ export function clearTemplateCache(): void {
 export interface BroadcastResult {
   enviados: string[];
   fallidos: { numero: string; error: string }[];
+  solicitados: number;
+  duplicadosOmitidos: number;
 }
 
 /**
- * Envía un template aprobado a una lista de números.
+ * Envía un template APROBADO a una lista de números. Nunca texto libre: fuera
+ * de la ventana de 24 h de Meta solo un template aprobado puede iniciar la
+ * conversación, y este servicio no ofrece otro formato.
  *
  * Limitación documentada: solo templates SIN placeholders {{1}} por ahora.
  * Si el template requiere parámetros, la API de Meta responderá error;
  * ese caso se reporta en `fallidos` sin tumbar el resto.
  *
- * Cada número se intenta independientemente (sin fail-fast).
+ * Cada número se intenta independientemente (sin fail-fast): los números con
+ * formato inválido van directo a `fallidos` con el motivo, sin bloquear a los
+ * demás. Solo se cuenta `enviado` tras la confirmación de Meta, nunca antes.
  * Delay de ~300ms entre envíos para no golpear rate limits de golpe.
+ *
+ * Privacidad: acá no se loguea ningún teléfono ni payload. El detalle por
+ * número vuelve en el resultado (visible solo para el admin que emite) y la
+ * ruta solo registra template + conteos.
  */
 export async function sendBroadcast(
   templateName: string,
   language: string,
   recipients: string[],
 ): Promise<BroadcastResult> {
-  const { token, phoneNumberId } = config.metaCloud;
-  if (!token || !phoneNumberId) {
-    throw new Error('Faltan credenciales de Meta (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)');
+  const name = validarTemplateName(templateName);
+  const lang = validarLanguage(language);
+  // Normaliza (dígitos), valida E.164, deduplica y aplica el tope de lote.
+  // Los inválidos ya vienen clasificados para el resumen parcial.
+  const { validos, invalidos, solicitados, duplicadosOmitidos } = clasificarDestinatarios(recipients);
+  if (validos.length === 0) {
+    return { enviados: [], fallidos: invalidos, solicitados, duplicadosOmitidos };
   }
-  if (!templateName || !language) {
-    throw new Error('templateName y language son requeridos');
+  const { token, phoneNumberId, wabaId } = config.metaCloud;
+  if (!token || !phoneNumberId || !wabaId) {
+    throw new Error('Faltan credenciales de Meta (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_WABA_ID)');
   }
-  if (!recipients.length) {
-    throw new Error('La lista de destinatarios está vacía');
+
+  // Preflight único: evita intentar hasta 200 envíos con un template que no
+  // existe, no está aprobado para el idioma o exige parámetros no soportados.
+  const approved = (await listApprovedTemplates()).find(t => t.name === name && t.language === lang);
+  if (!approved) {
+    throw new BroadcastValidationError(`El template ${name} (${lang}) no está aprobado o no existe`);
+  }
+  if (JSON.stringify(approved.components).includes('{{')) {
+    throw new BroadcastValidationError('Ese template requiere parámetros y todavía no es compatible con envíos masivos');
   }
 
   const url = `${GRAPH_URL}/${phoneNumberId}/messages`;
   const enviados: string[] = [];
-  const fallidos: { numero: string; error: string }[] = [];
+  const fallidos: { numero: string; error: string }[] = [...invalidos];
 
-  for (let i = 0; i < recipients.length; i++) {
-    const to = recipients[i];
+  for (let i = 0; i < validos.length; i++) {
+    const to = validos[i];
     // Delay entre envíos (excepto el primero) para no saturar rate limit
     if (i > 0) {
       await new Promise<void>(resolve => setTimeout(resolve, 300));
@@ -112,7 +142,7 @@ export async function sendBroadcast(
           messaging_product: 'whatsapp',
           to,
           type: 'template',
-          template: { name: templateName, language: { code: language } },
+          template: { name, language: { code: lang } },
         },
         {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -126,7 +156,7 @@ export async function sendBroadcast(
     }
   }
 
-  return { enviados, fallidos };
+  return { enviados, fallidos, solicitados, duplicadosOmitidos };
 }
 
 function extractError(err: unknown): string {
@@ -134,10 +164,9 @@ function extractError(err: unknown): string {
     const data = err.response?.data as Record<string, unknown> | undefined;
     // Forma real de error de Meta: { error: { message, error_user_msg, code } }
     const metaErr = data?.error as Record<string, unknown> | undefined;
-    if (metaErr?.message) return String(metaErr.message);
-    if (data?.error) return String(data.error);
-    if (err.message) return err.message;
+    if (metaErr?.message) return describeError(String(metaErr.message));
+    if (data?.error) return describeError(String(data.error));
+    if (err.message) return describeError(err);
   }
-  if (err instanceof Error) return err.message;
-  return String(err);
+  return describeError(err);
 }

@@ -56,7 +56,9 @@ export function parseFecha(valor: string | number): number {
   );
 
   if (typeof valor === 'number') {
-    if (!Number.isFinite(valor)) throw invalida();
+    // Un epoch fraccionario o negativo no es un instante programable sensato:
+    // se rechaza acá en vez de dejar que el worker lo dispare de inmediato.
+    if (!Number.isInteger(valor) || valor < 0) throw invalida();
     return valor;
   }
 
@@ -72,6 +74,22 @@ export function parseFecha(valor: string | number): number {
   const diasDelMes = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
   if (mes < 1 || mes > 12 || dia < 1 || dia > diasDelMes || hora > 23 || minuto > 59) {
     throw invalida();
+  }
+
+  // Los segundos también los normaliza en silencio: Date.parse('...T10:00:99')
+  // no siempre falla según el motor. Se validan explícitos cuando vienen.
+  const segMatch = /:(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}:?\d{2})?$/.exec(texto.slice(16));
+  if (segMatch && Number(segMatch[1]) > 59) throw invalida();
+
+  // El offset de zona tiene rango real máximo ±14:00. Un offset mayor no lo
+  // rechaza Date.parse en todos los motores: lo desplaza en silencio y el
+  // recordatorio queda a una hora que nadie pidió.
+  const tzMatch = /(Z|[+-]\d{2}:?\d{2})$/.exec(texto);
+  if (tzMatch && tzMatch[1] !== 'Z') {
+    const digitos = tzMatch[1].slice(1).replace(':', '');
+    const tzHora = Number(digitos.slice(0, 2));
+    const tzMin = Number(digitos.slice(2, 4));
+    if (tzHora > 14 || tzMin > 59 || (tzHora === 14 && tzMin !== 0)) throw invalida();
   }
 
   const ms = Date.parse(texto);

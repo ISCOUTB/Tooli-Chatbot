@@ -6,6 +6,8 @@ import { Router } from 'express';
 import { AuthedRequest, requireAdmin } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { Response } from 'express';
+import { describeError } from '../../services/logSafe';
+import { BroadcastValidationError } from '../../services/broadcastValidation';
 
 export const broadcastRouter = Router();
 
@@ -21,9 +23,8 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
     const templates = await listApprovedTemplates();
     res.json({ templates });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/broadcast/templates] error:', msg);
-    res.status(502).json({ error: 'templates_error', message: msg });
+    console.error('[tools/broadcast/templates] error:', describeError(err));
+    res.status(502).json({ error: 'templates_error', message: 'No se pudieron consultar los templates de Meta' });
   }
 });
 
@@ -33,30 +34,44 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
     res.status(400).json({ error: 'missing_fields', message: 'Se requiere { templateName, language, telefonos: string[] }' });
     return;
   }
-  const cleanTemplate = String(templateName).trim();
-  const cleanLang = String(language).trim();
-  const nums: string[] = (telefonos as unknown[])
-    .map(v => String(v ?? '').replace(/\D/g, ''))
-    .filter(v => v.length >= 8);
-  if (nums.length === 0) {
+  // Filtro grueso acá; la normalización fina (dígitos, E.164, dedupe) vive en
+  // el servicio para que cada número inválido llegue al resumen de `fallidos`
+  // en vez de desaparecer en silencio.
+  const rawNums: string[] = (telefonos as unknown[])
+    .map(v => String(v ?? '').trim());
+  if (telefonos.length === 0) {
     res.status(400).json({ error: 'no_telefonos_validos' });
     return;
   }
-  if (nums.length > 200) {
+  if (rawNums.length > 200) {
     res.status(400).json({ error: 'too_many_recipients', message: 'Máximo 200 destinatarios por envío' });
     return;
   }
-  const unique = [...new Set(nums)];
   try {
-    const { sendBroadcast } = await import('../../services/broadcastService');
-    const result = await sendBroadcast(cleanTemplate, cleanLang, unique);
-    await logAudit(req.user!.username, 'broadcast_enviado', `${cleanTemplate} · ${result.enviados.length}/${unique.length}`);
-    console.log(`[asesor] ${req.user?.username} broadcast "${cleanTemplate}" (${cleanLang}) → ${result.enviados.length}/${unique.length} enviados`);
-    res.json({ ok: true, template: cleanTemplate, language: cleanLang, total: unique.length, ...result });
+    const { sendBroadcast, validarTemplateName, validarLanguage } =
+      await import('../../services/broadcastService');
+    // Formato de template/idioma validado antes de tocar la API de Meta.
+    const cleanTemplate = validarTemplateName(templateName);
+    const cleanLang = validarLanguage(language);
+    const result = await sendBroadcast(cleanTemplate, cleanLang, rawNums);
+    const total = result.solicitados;
+    // Auditoría y log solo con template + conteos: jamás teléfonos ni payloads.
+    if (result.enviados.length) {
+      await logAudit(req.user!.username, 'broadcast_enviado', `${cleanTemplate} · ${result.enviados.length}/${total}`);
+    }
+    console.log(`[asesor] ${req.user?.username} broadcast "${cleanTemplate}" (${cleanLang}) → ${result.enviados.length}/${total} enviados`);
+    res.json({ ok: result.enviados.length > 0, template: cleanTemplate, language: cleanLang, total, ...result });
   } catch (err: unknown) {
+    if (err instanceof BroadcastValidationError) {
+      res.status(400).json({ error: 'validation_error', message: err.message });
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
-    const isValidation = /requeridos|credenciales|vacía/.test(msg);
-    console.error('[tools/broadcast/send] error:', msg);
-    res.status(isValidation ? 400 : 502).json({ error: isValidation ? 'validation_error' : 'send_failed', message: msg });
+    console.error('[tools/broadcast/send] error:', describeError(err));
+    if (/credenciales/.test(msg)) {
+      res.status(503).json({ error: 'service_unavailable', message: 'El canal de Meta no está configurado' });
+      return;
+    }
+    res.status(502).json({ error: 'send_failed', message: 'Meta no pudo completar el envío' });
   }
 });
