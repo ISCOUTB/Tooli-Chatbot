@@ -1,7 +1,8 @@
 import { setSession } from '../services/session';
 import { guardarRegistroProspecto } from '../services/registroService';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu } from './shared';
+import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
+import { parseGlobalCommand } from './commands';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -12,16 +13,27 @@ const PROGRAMAS_OPCIONES: Record<string, string> = {
   '4': 'Aún no lo sé',
 };
 
+async function salirDelRegistro(from: string, text: string): Promise<boolean> {
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return true;
+  }
+  if (command === 'volver') {
+    await setSession(from, { step: 'menu_posgrado', data: {} });
+    await sendMenuPosgrado(from);
+    return true;
+  }
+  return false;
+}
+
 /** Paso 1: pedir nombre */
 export async function handleRegistroNombre(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
-  if (nombre.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelRegistro(from, text)) return;
 
   if (nombre.length < 3) {
     await messaging.sendText({
@@ -45,13 +57,10 @@ export async function handleRegistroNombre(ctx: FlowContext): Promise<void> {
 /** Paso 2: pedir email */
 export async function handleRegistroEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const email = text.trim().toLowerCase();
 
-  if (email === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelRegistro(from, text)) return;
+
+  const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
@@ -91,11 +100,7 @@ export async function handleRegistroPrograma(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
 
-  if (input.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelRegistro(from, text)) return;
 
   const programa = PROGRAMAS_OPCIONES[input];
   if (!programa) {
@@ -106,7 +111,8 @@ export async function handleRegistroPrograma(ctx: FlowContext): Promise<void> {
         '*1.* 📚 Especialización\n' +
         '*2.* 🎓 Maestría\n' +
         '*3.* 🔬 Doctorado\n' +
-        '*4.* 🤷 Aún no lo sé',
+        '*4.* 🤷 Aún no lo sé\n\n' +
+        '_Escribe *menu* para cancelar._',
     });
     return;
   }

@@ -1,6 +1,7 @@
 import { setSession } from '../services/session';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado, sendAreaPrompt } from './shared';
+import { parseGlobalCommand } from './commands';
 import { iniciarConsultaDeNotas } from './notas';
 import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
@@ -22,6 +23,12 @@ export async function handleMenu(ctx: FlowContext): Promise<void> {
     return;
   }
 
+  if (parseGlobalCommand(text) === null) {
+    await messaging.sendText({
+      to: from,
+      text: 'No reconocí esa opción 🤔\n\nElige *1* para Pregrado o *2* para Posgrado.',
+    });
+  }
   await track('menu_shown');
   await sendMenu(from);
 }
@@ -31,7 +38,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
   const { from, text } = ctx;
   const input = text.trim();
 
-  if (input === '0') {
+  if (input === '0' || parseGlobalCommand(text) !== null) {
     await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
@@ -113,6 +120,10 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
     return;
   }
 
+  await messaging.sendText({
+    to: from,
+    text: 'No reconocí esa opción 🤔\n\nElige un número de la lista, o escribe *menu* para volver al inicio.',
+  });
   await track('menu_shown');
   await sendMenuPosgrado(from);
 }
@@ -123,7 +134,7 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   const { from, text } = ctx;
   const input = text.trim();
 
-  if (input === '0') {
+  if (input === '0' || parseGlobalCommand(text) !== null) {
     await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
@@ -207,6 +218,10 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
     return;
   }
 
+  await messaging.sendText({
+    to: from,
+    text: 'No reconocí esa opción 🤔\n\nElige un número de la lista, o escribe *menu* para volver al inicio.',
+  });
   await track('menu_pregrado_shown');
   await sendMenuPregrado(from);
 }

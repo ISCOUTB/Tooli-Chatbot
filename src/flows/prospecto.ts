@@ -2,19 +2,37 @@ import { setSession } from '../services/session';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
 import { config } from '../config';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu } from './shared';
+import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
+import { parseGlobalCommand } from './commands';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function salirDelProspecto(from: string, text: string): Promise<boolean> {
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return true;
+  }
+  if (command === 'volver') {
+    await setSession(from, { step: 'menu_posgrado', data: {} });
+    await sendMenuPosgrado(from);
+    return true;
+  }
+  return false;
+}
 
 /** Paso 1: recoger nombre */
 export async function handleProspectoNombre(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
+  if (await salirDelProspecto(from, text)) return;
+
   if (nombre.length < 3) {
     await messaging.sendText({
       to: from,
-      text: 'Por favor escribe tu nombre completo (mínimo 3 caracteres).',
+      text: 'Por favor escribe tu nombre completo (mínimo 3 caracteres).\n\n_Escribe *menu* para cancelar._',
     });
     return;
   }
@@ -26,19 +44,22 @@ export async function handleProspectoNombre(ctx: FlowContext): Promise<void> {
 
   await messaging.sendText({
     to: from,
-    text: `Gracias, *${nombre}* 👋\n\n¿Cuál es tu *correo electrónico*?`,
+    text: `Gracias, *${nombre}* 👋\n\n¿Cuál es tu *correo electrónico*?\n\n_Escribe *menu* para cancelar._`,
   });
 }
 
 /** Paso 2: recoger email */
 export async function handleProspectoEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+
+  if (await salirDelProspecto(from, text)) return;
+
   const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
       to: from,
-      text: 'El correo no parece válido. Por favor escríbelo de nuevo.\n_Ejemplo: nombre@gmail.com_',
+      text: 'El correo no parece válido. Por favor escríbelo de nuevo.\n_Ejemplo: nombre@gmail.com_\n\n_Escribe *menu* para cancelar._',
     });
     return;
   }
@@ -52,13 +73,17 @@ export async function handleProspectoEmail(ctx: FlowContext): Promise<void> {
     to: from,
     text:
       '¿Qué programa o área de posgrado te interesa?\n\n' +
-      '_Puedes ser específico (ej: "MBA", "Maestría en Ciberseguridad") o general (ej: "algo de ingeniería", "no sé aún")._',
+      '_Puedes ser específico (ej: "MBA", "Maestría en Ciberseguridad") o general (ej: "algo de ingeniería", "no sé aún")._\n\n' +
+      '_Escribe *menu* para cancelar._',
   });
 }
 
 /** Paso 3: recoger programa de interés → conectar a Chatwoot */
 export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+
+  if (await salirDelProspecto(from, text)) return;
+
   const programa = text.trim();
   const data = session?.data ?? {};
 

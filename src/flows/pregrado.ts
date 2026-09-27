@@ -3,9 +3,25 @@ import { guardarRegistroProspecto } from '../services/registroService';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
 import { config } from '../config';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu } from './shared';
+import { FlowContext, messaging, sendMenu, sendMenuPregrado } from './shared';
+import { parseGlobalCommand } from './commands';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function salirDelPregrado(from: string, text: string): Promise<boolean> {
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return true;
+  }
+  if (command === 'volver') {
+    await setSession(from, { step: 'menu_pregrado', data: {} });
+    await sendMenuPregrado(from);
+    return true;
+  }
+  return false;
+}
 
 /* ===== Registro de interés (guarda en el mismo sheet que posgrado,
    distinguido por la columna "área" — ver registroService.ts) =====
@@ -17,11 +33,7 @@ export async function handlePregradoRegistroNombre(ctx: FlowContext): Promise<vo
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
-  if (nombre.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (nombre.length < 3) {
     await messaging.sendText({
@@ -40,13 +52,10 @@ export async function handlePregradoRegistroNombre(ctx: FlowContext): Promise<vo
 
 export async function handlePregradoRegistroEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const email = text.trim().toLowerCase();
 
-  if (email === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
@@ -67,11 +76,7 @@ export async function handlePregradoRegistroCarrera(ctx: FlowContext): Promise<v
   const { from, text, session } = ctx;
   const carrera = text.trim();
 
-  if (carrera.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (carrera.length < 2) {
     await messaging.sendText({
@@ -114,11 +119,7 @@ export async function handlePregradoProspectoNombre(ctx: FlowContext): Promise<v
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
-  if (nombre.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (nombre.length < 3) {
     await messaging.sendText({
@@ -137,13 +138,10 @@ export async function handlePregradoProspectoNombre(ctx: FlowContext): Promise<v
 
 export async function handlePregradoProspectoEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const email = text.trim().toLowerCase();
 
-  if (email === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
@@ -164,11 +162,7 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
   const { from, text, session } = ctx;
   const carrera = text.trim();
 
-  if (carrera.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (carrera.length < 2) {
     await messaging.sendText({

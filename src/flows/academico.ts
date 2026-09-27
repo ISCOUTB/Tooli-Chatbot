@@ -15,6 +15,7 @@
 import { setSession } from '../services/session';
 import { MetricEvent, track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado } from './shared';
+import { parseGlobalCommand } from './commands';
 import { AreaRecurso, getRecursos } from '../services/academicoLinks';
 import { iniciarConsultaDeNotas } from './notas';
 
@@ -32,8 +33,10 @@ const EVENTO_POR_RECURSO: Record<string, MetricEvent> = {
 };
 
 /** El área desde la que entró, para saber a qué menú devolverlo con "0". */
-function areaDeSesion(data: Record<string, string> | undefined): AreaRecurso {
-  return data?.area === 'posgrado' ? 'posgrado' : 'pregrado';
+function areaDeSesion(data: Record<string, string> | undefined): AreaRecurso | null {
+  if (data?.area === 'posgrado') return 'posgrado';
+  if (data?.area === 'pregrado') return 'pregrado';
+  return null;
 }
 
 async function volverAlMenuDeArea(from: string, area: AreaRecurso): Promise<void> {
@@ -82,15 +85,23 @@ export async function sendMenuAcademico(to: string, area: AreaRecurso): Promise<
 export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  const area = areaDeSesion(session?.data);
+  const command = parseGlobalCommand(text);
 
-  if (input.toLowerCase() === 'menu') {
+  if (command === 'menu' || command === 'salir') {
     await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
   }
 
-  if (input === '0') {
+  const area = areaDeSesion(session?.data);
+
+  if (!area) {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return;
+  }
+
+  if (input === '0' || command === 'volver') {
     await volverAlMenuDeArea(from, area);
     return;
   }

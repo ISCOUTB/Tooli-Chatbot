@@ -1,4 +1,4 @@
-import { getSession } from '../services/session';
+import { getSession, setSession } from '../services/session';
 import { FlowContext, sendMenu } from './shared';
 import { handleMenu, handleMenuPosgrado, handleMenuPregrado } from './menu';
 import { handleProgramasCategoria, handleProgramasDetalle } from './programas';
@@ -81,7 +81,8 @@ export async function handleMessage(from: string, text: string): Promise<void> {
 
   const handler = HANDLERS[step];
   if (!handler) {
-    console.warn(`[flows] step desconocido "${step}", mostrando menú`);
+    console.warn(`[flows] step desconocido "${step}", recuperando al menú`);
+    await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
   }
