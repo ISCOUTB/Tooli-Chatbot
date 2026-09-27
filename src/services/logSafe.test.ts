@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { maskPhone, maskCode, describeText } from './logSafe';
+import { describeError, describeId, maskEmail, maskPhone, maskCode, describeText } from './logSafe';
 
 /**
  * Estas funciones son la barrera que impide que las conversaciones de los
@@ -25,10 +25,18 @@ describe('maskPhone', () => {
   });
 
   it('nunca devuelve el número completo, ni siendo corto', () => {
-    for (const entrada of ['1', '12', '123', '1234', '12345', '573001234567']) {
-      assert.ok(!maskPhone(entrada).includes(entrada) || entrada.length <= 4,
+    for (const entrada of ['1', '12', '123', '1234']) {
+      assert.equal(maskPhone(entrada), '****');
+    }
+    for (const entrada of ['12345', '573001234567']) {
+      assert.ok(!maskPhone(entrada).includes(entrada),
         `filtró el número completo para "${entrada}"`);
     }
+  });
+
+  it('enmascara JIDs de Evolution', () => {
+    assert.equal(maskPhone('573001234567@s.whatsapp.net'), '****4567');
+    assert.equal(maskPhone('573001234567@lid'), '****4567');
   });
 });
 
@@ -69,5 +77,80 @@ describe('describeText', () => {
   it('trata texto ausente como texto vacío', () => {
     assert.equal(describeText(undefined), '0 chars');
     assert.equal(describeText(null), '0 chars');
+  });
+
+  it('cuenta emoji sin partir el par sustituto', () => {
+    assert.equal(describeText('hola 👋'), '6 chars');
+    assert.equal(describeText('👋👋👋', 2), '3 chars: "👋👋…"');
+  });
+
+  it('describe objetos inesperados sin serializarlos', () => {
+    assert.equal(describeText({ text: 'contenido privado' }), 'non-string object');
+    assert.equal(describeText(12345), 'non-string number');
+  });
+
+  it('limita incluso una vista previa pedida con un valor enorme', () => {
+    const salida = describeText('a'.repeat(200), 5_000);
+    assert.ok(salida.startsWith('200 chars: "'));
+    assert.ok(salida.endsWith('…"'));
+    assert.ok(salida.length < 200);
+  });
+});
+
+describe('maskEmail', () => {
+  it('oculta el buzón y conserva el dominio', () => {
+    assert.equal(maskEmail('juan.perez@utb.edu.co'), '***@utb.edu.co');
+  });
+
+  it('no revela entradas rotas o ausentes', () => {
+    assert.equal(maskEmail('sin-arroba'), '****');
+    assert.equal(maskEmail(undefined), '****');
+  });
+});
+
+describe('describeId', () => {
+  it('no deja un messageId reutilizable', () => {
+    const id = 'wamid.HBgNNTczMDAwMTIzNDU2NyIBAgM';
+    const salida = describeId(id);
+    assert.ok(!salida.includes(id));
+    assert.ok(salida.includes(`(${id.length} chars)`));
+  });
+
+  it('oculta completamente IDs cortos', () => {
+    assert.equal(describeId('abc123'), '**** (6 chars)');
+    assert.equal(describeId(undefined), 'noid');
+  });
+});
+
+describe('describeError', () => {
+  it('resume un AxiosError sin serializar payload, headers o config', () => {
+    const token = 'tok-secreto-xyz';
+    const telefono = '573001234567';
+    const err = {
+      name: 'AxiosError',
+      code: 'ERR_BAD_RESPONSE',
+      message: 'Request failed with status code 502',
+      response: {
+        status: 502,
+        data: { token, telefono, mensajes: ['hola'] },
+        headers: { apikey: token },
+      },
+      config: { headers: { apikey: token } },
+    };
+    const salida = describeError(err);
+    assert.ok(salida.includes('status=502'));
+    assert.ok(salida.includes('ERR_BAD_RESPONSE'));
+    assert.ok(!salida.includes(token));
+    assert.ok(!salida.includes(telefono));
+    assert.ok(!salida.includes('hola'));
+  });
+
+  it('redacta teléfono y correo dentro del mensaje y lo deja en una línea', () => {
+    const salida = describeError(new Error('falló 573001234567 para juan@utb.edu.co\nsegunda línea'));
+    assert.ok(!salida.includes('573001234567'));
+    assert.ok(!salida.includes('juan@utb.edu.co'));
+    assert.ok(salida.includes('****4567'));
+    assert.ok(salida.includes('***@utb.edu.co'));
+    assert.ok(!salida.includes('\n'));
   });
 });

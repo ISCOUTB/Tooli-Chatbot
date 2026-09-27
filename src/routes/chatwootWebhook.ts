@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { MediaKind } from '../adapters/messaging/IMessagingAdapter';
 import { getSession, setSession } from '../services/session';
+import { describeError, maskPhone } from '../services/logSafe';
 import { messaging } from '../flows/shared';
 
 export const chatwootWebhookRouter = Router();
@@ -37,7 +38,7 @@ chatwootWebhookRouter.post('/', async (req: Request, res: Response) => {
       return;
     }
   } catch (err) {
-    console.error('[chatwoot-webhook] error:', err);
+    console.error('[chatwoot-webhook] error:', describeError(err));
   }
 });
 
@@ -63,7 +64,7 @@ async function handleMessageCreated(payload: any): Promise<void> {
     return;
   }
 
-  console.log('[chatwoot-webhook] reenviando a WhatsApp:', phone.slice(-4), 'attachments:', attachments.length);
+  console.log('[chatwoot-webhook] reenviando a WhatsApp:', maskPhone(phone), 'attachments:', attachments.length);
 
   if (conversationId) {
     await setSession(phone, {
@@ -102,7 +103,7 @@ async function handleMessageCreated(payload: any): Promise<void> {
           caption: kind === 'audio' ? undefined : captionForThis,
         });
       } catch (err) {
-        console.error('[chatwoot-webhook] error enviando attachment:', err);
+        console.error('[chatwoot-webhook] error enviando attachment:', describeError(err));
         await messaging.sendText({
           to: phone,
           text: `*Asesor:* (envió un archivo que no pude entregar) ${url}`,

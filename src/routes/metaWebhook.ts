@@ -4,7 +4,7 @@ import { claimMessageId } from '../services/session';
 import { checkUserRateLimit } from '../services/rateLimit';
 import { track } from '../services/metrics';
 import { isBanned, recordActivity } from '../services/botUserService';
-import { describeText, maskPhone } from '../services/logSafe';
+import { describeError, describeId, describeText, maskPhone } from '../services/logSafe';
 import { config } from '../config';
 import { messaging } from '../flows/shared';
 import { handleMessage } from '../flows';
@@ -52,12 +52,12 @@ metaWebhookRouter.post('/', async (req: Request, res: Response) => {
   console.log('[meta-webhook] inbound:', {
     from: maskPhone(inbound.from),
     text: describeText(inbound.text),
-    id: inbound.messageId,
+    id: describeId(inbound.messageId),
   });
 
   const isNew = await claimMessageId(inbound.messageId);
   if (!isNew) {
-    console.log('[meta-webhook] mensaje duplicado, ignorado:', inbound.messageId);
+    console.log('[meta-webhook] mensaje duplicado, ignorado:', describeId(inbound.messageId));
     await track('duplicate_message');
     return;
   }
@@ -66,7 +66,7 @@ metaWebhookRouter.post('/', async (req: Request, res: Response) => {
   const from = inbound.from;
 
   if (await isBanned(from)) {
-    console.warn('[meta-webhook] usuario baneado, ignorando:', from.slice(-4));
+    console.warn('[meta-webhook] usuario baneado, ignorando:', maskPhone(from));
     return;
   }
 
@@ -74,7 +74,7 @@ metaWebhookRouter.post('/', async (req: Request, res: Response) => {
 
   const limit = await checkUserRateLimit(from);
   if (!limit.allowed) {
-    console.warn('[meta-webhook] rate limit alcanzado para', from.slice(-4));
+    console.warn('[meta-webhook] rate limit alcanzado para', maskPhone(from));
     await track('rate_limited');
     if (limit.firstBlock) {
       await messaging
@@ -92,21 +92,21 @@ metaWebhookRouter.post('/', async (req: Request, res: Response) => {
 
   if (isNutria) {
     handleNutriaMessage(from, inbound.text, inbound).catch(err => {
-      console.error('[meta-webhook] error en handleNutriaMessage para', from.slice(-4), err);
+      console.error('[meta-webhook] error en handleNutriaMessage para', maskPhone(from), describeError(err));
     });
   } else if (config.evento.activo) {
     // Flujo temporal del evento Talento Tech (reemplaza el menú clásico mientras esté activo)
     handleEventoMessage(from, inbound.text, inbound).catch(err => {
-      console.error('[meta-webhook] error en handleEventoMessage para', from.slice(-4), err);
+      console.error('[meta-webhook] error en handleEventoMessage para', maskPhone(from), describeError(err));
     });
   } else if (config.posgradosEvento.activo) {
     // Flujo temporal del evento de Posgrados (sábado)
     handlePosgradoMessage(from, inbound.text, inbound).catch(err => {
-      console.error('[meta-webhook] error en handlePosgradoMessage para', from.slice(-4), err);
+      console.error('[meta-webhook] error en handlePosgradoMessage para', maskPhone(from), describeError(err));
     });
   } else {
     handleMessage(from, inbound.text).catch(err => {
-      console.error('[meta-webhook] error en handleMessage para', from.slice(-4), err);
+      console.error('[meta-webhook] error en handleMessage para', maskPhone(from), describeError(err));
     });
   }
 });
