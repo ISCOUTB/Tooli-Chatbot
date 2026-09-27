@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskEmail, maskPhone } from './logSafe';
 
 export interface RegistroPosgrado {
   whatsapp: string;
@@ -32,8 +33,11 @@ function getSheetsClient(readonly = false) {
 export async function guardarRegistroPosgrado(data: RegistroPosgrado): Promise<number> {
   const sheetId = config.posgradosEvento.sheetId;
   if (!sheetId) {
-    console.warn('[posgrados] POSGRADOS_EVENTO_SHEET_ID no configurado — guardando solo en logs');
-    console.log('[posgrados] REGISTRO:', JSON.stringify(data));
+    console.warn('[posgrados] POSGRADOS_EVENTO_SHEET_ID no configurado — registro no persistido', {
+      whatsapp: maskPhone(data.whatsapp),
+      correo: maskEmail(data.correo),
+      interesFinanciacion: data.interesFinanciacion,
+    });
     return 0;
   }
 
@@ -62,7 +66,7 @@ export async function guardarRegistroPosgrado(data: RegistroPosgrado): Promise<n
     },
   });
 
-  console.log('[posgrados] registro guardado:', data.nombre, '·', data.correo);
+  console.log('[posgrados] registro guardado:', maskPhone(data.whatsapp), '·', maskEmail(data.correo));
 
   const updatedRange = res.data.updates?.updatedRange ?? '';
   const match = updatedRange.match(/![A-Z]+(\d+):/);

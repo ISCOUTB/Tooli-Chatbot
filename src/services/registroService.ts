@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskEmail, maskPhone } from './logSafe';
 
 export interface RegistroProspecto {
   nombre: string;
@@ -22,8 +23,11 @@ export interface RegistroProspecto {
 export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<void> {
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) {
-    console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — registro solo en logs');
-    console.log('[registro] PROSPECTO:', data);
+    console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — prospecto no persistido', {
+      whatsapp: maskPhone(data.whatsapp),
+      email: maskEmail(data.email),
+      area: data.area ?? 'Posgrado',
+    });
     return;
   }
 
@@ -57,7 +61,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
     },
   });
 
-  console.log('[registro] prospecto guardado en Sheets:', data.nombre, data.email);
+  console.log('[registro] prospecto guardado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email), data.area ?? 'Posgrado');
 }
 
 /**

@@ -45,8 +45,10 @@ export interface EncuestaNutria {
 export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void> {
   const sheetId = config.nutria.sheetId;
   if (!sheetId) {
-    console.warn('[nutria] NUTRIA_SHEET_ID no configurado — guardando solo en logs');
-    console.log('[nutria] ENCUESTA:', JSON.stringify(data));
+    console.warn('[nutria] NUTRIA_SHEET_ID no configurado — encuesta no persistida', {
+      whatsapp: maskPhone(data.whatsapp),
+      contacto: data.contacto,
+    });
     return;
   }
 
