@@ -27,6 +27,7 @@
  */
 
 import { Router } from 'express';
+import { requireAdmin } from '../../middleware/auth';
 import { maskCode, maskPhone } from '../../services/logSafe';
 import { canjearCodigoNutria, getCanjesRecientes, getCodigoNutria } from '../../services/nutriaCodigoService';
 import { filaSinTelefono } from '../../services/nutriaPrivacidad';
@@ -40,9 +41,9 @@ nutriaRouter.get('/nutria/encuestas', async (_req, res) => {
   try {
     const rows = await leerEncuestasNutria();
     res.json({ rows: rows.map(filaSinTelefono) });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[tools/nutria/encuestas] error:', err);
-    res.status(500).json({ error: 'internal_error', message: err?.message });
+    res.status(500).json({ error: 'internal_error', message: 'No se pudieron cargar las encuestas' });
   }
 });
 
@@ -103,7 +104,7 @@ export const nutriaRouterProtegido = Router();
  * Nadie la llama desde la landing. Ahora exige sesión de asesor, y con eso
  * la clave sobra.
  */
-nutriaRouterProtegido.post('/nutria/encuestas/seed', async (_req, res) => {
+nutriaRouterProtegido.post('/nutria/encuestas/seed', requireAdmin, async (_req, res) => {
   try {
     await guardarEncuestaNutria({
       whatsapp:           'seed-test',
@@ -129,8 +130,8 @@ nutriaRouterProtegido.post('/nutria/encuestas/seed', async (_req, res) => {
       contacto:           'Sí',
     });
     res.json({ ok: true, message: 'Fila de prueba guardada en Google Sheets ✅' });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[tools/nutria/seed] error:', err);
-    res.status(500).json({ error: 'internal_error', message: err?.message });
+    res.status(500).json({ error: 'internal_error', message: 'No se pudo crear la fila de prueba' });
   }
 });

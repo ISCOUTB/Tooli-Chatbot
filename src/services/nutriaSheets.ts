@@ -63,12 +63,8 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     timeStyle: 'short',
   });
 
-  // El número se guarda COMPLETO en el Sheet privado, a propósito: la
-  // campaña contacta a quien marcó "contacto: Sí". La variable se llamaba
-  // `whatsappAnon`, que era mentira, y esa mentira sostenía la idea de que
-  // la fila era anónima: sobre esa idea se publicó el endpoint de lectura
-  // sin autenticación. Quien lo exponga hacia fuera lo enmascara en la
-  // ruta (ver `routes/tools/nutria.ts`).
+  // El número se conserva en el Sheet privado porque la campaña contacta a
+  // quien dio su consentimiento. Toda salida pública debe enmascararlo.
   const whatsapp = data.whatsapp;
 
   await sheets.spreadsheets.values.append({
