@@ -221,7 +221,8 @@ const MAX_HISTORY = 10;
 export async function preguntarAI(
   area: AIArea,
   question: string,
-  history: ChatTurn[] = []
+  history: ChatTurn[] = [],
+  guidanceContext?: string,
 ): Promise<AIResponse> {
   if (!openai) {
     throw new AIUnavailableError('not_configured');
@@ -240,6 +241,9 @@ export async function preguntarAI(
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
+    ...(area === 'posgrados' && guidanceContext
+      ? [{ role: 'system' as const, content: `Contexto de navegación anterior del usuario: ${guidanceContext} Usa este contexto solo si ayuda a responder; no supongas que ya eligió un programa.` }]
+      : []),
     ...trimmedHistory.map(t => ({ role: t.role, content: t.content })),
     { role: 'user', content: question },
   ];

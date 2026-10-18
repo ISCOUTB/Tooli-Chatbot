@@ -13,6 +13,7 @@ import { ActionSheet } from '../ui/sheet.js';
    dice explícitamente en vez de simularlo. */
 const REM_ESTADOS = {
   programado: { label: 'Programado', icon: '⏰', color: '#0284c7' },
+  procesando: { label: 'En proceso', icon: '⌛', color: '#a16207' },
   enviado:    { label: 'Enviado',    icon: '✅', color: '#16a34a' },
   fallido:    { label: 'Falló',      icon: '⚠️', color: '#dc2626' },
   cancelado:  { label: 'Cancelado',  icon: '✖️', color: '#64748b' },

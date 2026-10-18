@@ -1,17 +1,24 @@
 import { setSession } from '../services/session';
 import { consultarTurno } from '../services/turnosService';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, isMenuCommand, CODIGO_REGEX } from './shared';
+import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen, CODIGO_REGEX } from './shared';
+import { parseGlobalCommand, returnMenuStep } from './commands';
 
 export async function handleEsperandoCodigo(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
-  const input = text.trim().toUpperCase();
+  const { from, text, session } = ctx;
+  const command = parseGlobalCommand(text);
 
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
     return;
   }
+
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
+    return;
+  }
+
+  const input = text.trim().toUpperCase();
 
   if (!CODIGO_REGEX.test(input)) {
     await messaging.sendText({
@@ -44,5 +51,6 @@ export async function handleEsperandoCodigo(ctx: FlowContext): Promise<void> {
     });
   }
 
-  await setSession(from, { step: 'menu', data: {} });
+  // Al terminar vuelve al área de origen (fallback: raíz en sesiones legacy).
+  await setSession(from, { step: returnMenuStep(session?.data), data: {} });
 }

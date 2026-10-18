@@ -1,8 +1,33 @@
 import { api } from '../core/api.js';
-import { $, loadScript } from '../core/dom.js';
+import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+
+/* ============= LÓGICA PURA DE POSGRADOS (probada en posgrados.test.js) ======
+   Serie del endpoint real `/api/tools/metrics/range` (contadores en Redis,
+   ver src/services/metrics.ts): objeto fecha → { evento: "conteo" }. Las
+   claves que faltan cuentan como 0: el mock local no emite las de posgrado. */
+function resumirPosgrado(series) {
+  const s = series ?? {};
+  const dateKeys = Object.keys(s).sort();
+  const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
+  const sumAll = (ev) => dateKeys.reduce((a, d) => a + numv(s[d], ev), 0);
+  const prospectos = sumAll('prospecto_completado');
+  const prospInicio = sumAll('prospecto_iniciado');
+  const registros = sumAll('registro_completado');
+  const regInicio = sumAll('registro_iniciado');
+  const especs = sumAll('programas_especializaciones');
+  const maestrias = sumAll('programas_maestrias');
+  const doctorados = sumAll('programas_doctorados');
+  return {
+    dateKeys,
+    prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados,
+    conv: prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : 0,
+    regConv: regInicio > 0 ? Math.round(registros / regInicio * 100) : 0,
+  };
+}
 
 /* ============= POSGRADOS ============= */
 let pgCharts = [];
@@ -53,24 +78,19 @@ async function renderPosgrados(main) {
     try {
       const r = await api(`/api/tools/metrics/range?days=${days}`);
       const { days: series } = await r.json();
-      const dateKeys = Object.keys(series).sort();
-
+      const { dateKeys, prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados, conv, regConv } = resumirPosgrado(series ?? {});
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
-      const sumAll = (ev) => dateKeys.reduce((a, d) => a + numv(series[d], ev), 0);
       const daily  = (ev) => dateKeys.map(d => numv(series[d], ev));
       const fmtDay = d => d.slice(5);
 
-      const prospectos  = sumAll('prospecto_completado');
-      const prospInicio = sumAll('prospecto_iniciado');
-      const registros   = sumAll('registro_completado');
-      const regInicio   = sumAll('registro_iniciado');
-      const especs      = sumAll('programas_especializaciones');
-      const maestrias   = sumAll('programas_maestrias');
-      const doctorados  = sumAll('programas_doctorados');
-      const conv = prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : 0;
-      const regConv = regInicio > 0 ? Math.round(registros / regInicio * 100) : 0;
-
       $('#pgContent').innerHTML = `
+        <div class="card op-contexto" style="margin-bottom:16px;">
+          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${conv}% conversión) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConv}% conversión). El detalle por persona está en el CRM y en el evento.</div>
+          <div class="op-contexto-acciones">
+            <button type="button" class="btn btn-secondary" id="pgVerCrm">Ver CRM</button>
+            <button type="button" class="btn btn-secondary" id="pgVerEvento">Ver evento</button>
+          </div>
+        </div>
         <div class="stats-grid" style="margin-bottom:20px;">
           <div class="stat-card">
             <div class="label">Prospectos</div>
@@ -112,6 +132,9 @@ async function renderPosgrados(main) {
           </div>
         </div>
       `;
+
+      $('#pgVerCrm')?.addEventListener('click', () => navigate('registros'));
+      $('#pgVerEvento')?.addEventListener('click', () => navigate('evento-posgrado'));
 
       await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
 
@@ -166,4 +189,4 @@ async function renderPosgrados(main) {
   loadPg();
 }
 
-export { renderPosgrados };
+export { renderPosgrados, resumirPosgrado };

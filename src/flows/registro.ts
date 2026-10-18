@@ -122,10 +122,16 @@ export async function handleRegistroPrograma(ctx: FlowContext): Promise<void> {
 
   try {
     await guardarRegistroProspecto({ nombre, email, whatsapp: from, programa });
-    await track('registro_completado');
-  } catch (err) {
-    console.error('[registro] error guardando en Sheets:', err);
+  } catch {
+    console.error('[registro] no se pudo confirmar el guardado en Sheets');
+    await messaging.sendText({
+      to: from,
+      text: 'No pude confirmar que tu registro se haya guardado. Por favor vuelve a enviar el número del programa para intentarlo de nuevo, o escribe *menu* para salir.',
+    });
+    return;
   }
+
+  await track('registro_completado');
 
   await setSession(from, { step: 'menu', data: {} });
 

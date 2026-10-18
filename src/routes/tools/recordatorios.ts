@@ -12,7 +12,7 @@ import { describeError } from '../../services/logSafe';
 
 export const recordatoriosRouter = Router();
 
-const ESTADOS_VALIDOS = ['programado', 'enviado', 'fallido', 'cancelado'] as const;
+const ESTADOS_VALIDOS = ['programado', 'procesando', 'enviado', 'fallido', 'cancelado'] as const;
 
 /**
  * Redis caído no es un 500 genérico: es transitorio y reintentable. Se
@@ -51,7 +51,11 @@ recordatoriosRouter.post('/recordatorio', async (req: AuthedRequest, res: Respon
   }
   try {
     const result = await enviarRecordatorio({ telefono: String(telefono), mensaje: String(mensaje) });
-    await logAudit(req.user!.username, 'recordatorio_enviado', result.to.slice(-4));
+    try {
+      await logAudit(req.user!.username, 'recordatorio_enviado', result.to.slice(-4));
+    } catch (auditError) {
+      console.error('[tools/recordatorio] auditoría no disponible:', describeError(auditError));
+    }
     res.json(result);
   } catch (err: any) {
     const msg = err?.message ?? 'internal_error';
@@ -82,11 +86,15 @@ recordatoriosRouter.post('/recordatorios', async (req: AuthedRequest, res: Respo
         scheduledAt: scheduledAt ?? '',
         createdBy: req.user!.username,
       });
-      await logAudit(
-        req.user!.username,
-        'recordatorio_programado',
-        `${reminder.telefono.slice(-4)} · ${new Date(reminder.scheduledAt).toISOString()}`
-      );
+      try {
+        await logAudit(
+          req.user!.username,
+          'recordatorio_programado',
+          `${reminder.telefono.slice(-4)} · ${new Date(reminder.scheduledAt).toISOString()}`
+        );
+      } catch (auditError) {
+        console.error('[tools/recordatorios] auditoría no disponible:', describeError(auditError));
+      }
       res.json({ ok: true, reminder });
     } catch (err: unknown) {
       if (err instanceof ReminderValidationError) {
@@ -114,7 +122,7 @@ recordatoriosRouter.get('/recordatorios', async (req: AuthedRequest, res: Respon
       return;
     }
     const reminders = await listReminders({
-      estado: estado as 'programado' | 'enviado' | 'fallido' | 'cancelado' | undefined,
+      estado: estado as 'programado' | 'procesando' | 'enviado' | 'fallido' | 'cancelado' | undefined,
       limit: Math.max(1, Math.min(200, parseInt(String(req.query.limit ?? '50')) || 50)),
     });
     res.json({ reminders });
@@ -144,7 +152,11 @@ recordatoriosRouter.delete('/recordatorios/:id', async (req: AuthedRequest, res:
       });
       return;
     }
-    await logAudit(req.user!.username, 'recordatorio_cancelado', result.reminder.telefono.slice(-4));
+    try {
+      await logAudit(req.user!.username, 'recordatorio_cancelado', result.reminder.telefono.slice(-4));
+    } catch (auditError) {
+      console.error('[tools/recordatorios] auditoría no disponible:', describeError(auditError));
+    }
     res.json({ ok: true, reminder: result.reminder });
   } catch (err: unknown) {
     responderFalloServicio(res, '[tools/recordatorios] error al cancelar:', err);

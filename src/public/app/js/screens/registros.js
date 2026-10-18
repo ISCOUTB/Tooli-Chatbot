@@ -11,21 +11,52 @@ import { previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
 import { contextSheet } from '../ui/sheet.js';
 
-function exportarCrmCsv() {
-  const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
-  const filas = crmRows.filter((row) => {
-    if (crmFilter !== 'todos' && crmCategoria(row) !== crmFilter) return false;
-    if (crmEtapa !== 'todas' && (crmFichas[row[3]]?.estado ?? 'nuevo') !== crmEtapa) return false;
-    if (crmSoloMios && crmFichas[row[3]]?.asignadoA !== sesion.user?.username) return false;
-    if (!q) return true;
-    return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(q));
-  });
+/* ============= LÓGICA PURA DEL CRM (probada en registros.test.js) =============
+   Filas del endpoint real `/api/tools/registros-posgrado` (ver
+   src/services/registroService.ts): [fecha, nombre, email, whatsapp,
+   programa, área]. La columna de área se agregó después: las filas viejas la
+   traen vacía y `areaOf` las trata como Posgrado. */
+const CRM_CSV_CABECERA = ['Fecha de registro', 'Nombre', 'Correo', 'WhatsApp', 'Programa de interés', 'Área', 'Etapa', 'Asesor', 'Etiquetas', 'Notas'];
 
-  if (!filas.length) { toast('No hay nada que exportar con estos filtros'); haptic([20, 30, 20]); return; }
+/** ¿La fila pasa los filtros activos? No muta nada: solo decide. */
+function crmPasaFiltros(row, filtros) {
+  const { segmento = 'todos', etapa = 'todas', soloMios = false, usuario = null, q = '', fichas = {} } = filtros ?? {};
+  if (segmento !== 'todos' && crmCategoria(row) !== segmento) return false;
+  if (etapa !== 'todas' && (fichas[row[3]]?.estado ?? 'nuevo') !== etapa) return false;
+  if (soloMios && fichas[row[3]]?.asignadoA !== usuario) return false;
+  const query = (q ?? '').trim().toLowerCase();
+  if (!query) return true;
+  return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(query));
+}
 
-  const cabecera = ['Fecha de registro', 'Nombre', 'Correo', 'WhatsApp', 'Programa de interés', 'Área', 'Etapa', 'Asesor', 'Etiquetas', 'Notas'];
-  const datos = filas.map((row) => {
-    const f = crmFichas[row[3]];
+/** Filtra sin mutar: devuelve [{ row, idx }] para conservar el índice real
+   (la selección múltiple y el contextSheet trabajan sobre `crmRows[idx]`). */
+function filtrarCrmRows(rows, filtros) {
+  return (rows ?? []).map((row, idx) => ({ row, idx })).filter(({ row }) => crmPasaFiltros(row, filtros));
+}
+
+/** Conteos por segmento sobre las filas ya cargadas — nada inventado. */
+function resumirSegmentos(rows) {
+  const resumen = { total: 0, pregrado: 0, posgrado: 0 };
+  for (const row of rows ?? []) {
+    resumen.total += 1;
+    if (areaOf(row) === 'Pregrado') resumen.pregrado += 1;
+    else resumen.posgrado += 1;
+  }
+  return resumen;
+}
+
+/** Texto del resumen visible: totales por segmento + cuántos se están viendo. */
+function textoResumenSegmentos(resumen, visibles) {
+  const base = `${resumen.total} prospecto${resumen.total === 1 ? '' : 's'} · ${resumen.pregrado} Pregrado · ${resumen.posgrado} Posgrado`;
+  if (visibles !== resumen.total) return `${base} · viendo ${visibles}`;
+  return base;
+}
+
+/** Filas de datos para el CSV a partir de filas ya filtradas. */
+function filasCrmParaCsv(pares, fichas) {
+  return (pares ?? []).map(({ row }) => {
+    const f = fichas?.[row[3]];
     return [
       fechaParaCsv(row[0]), row[1], row[2], row[3], row[4], areaOf(row),
       crmEstadoMeta(f?.estado ?? 'nuevo').label,
@@ -34,8 +65,49 @@ function exportarCrmCsv() {
       f?.notas?.length ?? 0,
     ];
   });
+}
 
-  descargarCsv(`prospectos-${new Date().toISOString().slice(0, 10)}.csv`, cabecera, datos);
+/* Hace accesible el segmentado de buildSegmented (core, no modificable):
+   radiogroup con etiqueta + radios con aria-checked sincronizado. */
+function hacerSegmentadoAccesible(wrap, etiqueta) {
+  if (!wrap) return;
+  wrap.setAttribute('role', 'radiogroup');
+  wrap.setAttribute('aria-label', etiqueta);
+  const botones = Array.from(wrap.querySelectorAll('button[data-value]'));
+  const sincronizar = () => botones.forEach(b => {
+    b.setAttribute('role', 'radio');
+    const activo = b.classList.contains('active');
+    b.setAttribute('aria-checked', activo ? 'true' : 'false');
+    b.tabIndex = activo ? 0 : -1;
+  });
+  sincronizar();
+  requestAnimationFrame(sincronizar);
+  botones.forEach(b => b.addEventListener('click', () => requestAnimationFrame(sincronizar)));
+  wrap.addEventListener('keydown', (event) => {
+    if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) return;
+    const actual = botones.indexOf(document.activeElement);
+    if (actual < 0) return;
+    event.preventDefault();
+    const avance = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+    const siguiente = botones[(actual + avance + botones.length) % botones.length];
+    siguiente.click();
+    siguiente.focus();
+  });
+}
+
+function exportarCrmCsv() {
+  const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
+  const pares = filtrarCrmRows(crmRows, {
+    segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+    usuario: sesion.user?.username, q, fichas: crmFichas,
+  });
+  const filas = pares.map(({ row }) => row);
+
+  if (!filas.length) { toast('No hay nada que exportar con estos filtros'); haptic([20, 30, 20]); return; }
+
+  const datos = filasCrmParaCsv(pares, crmFichas);
+
+  descargarCsv(`prospectos-${new Date().toISOString().slice(0, 10)}.csv`, CRM_CSV_CABECERA, datos);
   toast(`${filas.length} prospecto${filas.length === 1 ? '' : 's'} exportado${filas.length === 1 ? '' : 's'}`);
 }
 
@@ -62,7 +134,7 @@ async function renderRegistros(main) {
       </div>
     </div>
     <div class="crm-toolbar">
-      <input type="text" id="crmSearch" placeholder="Buscar por nombre, email o programa…">
+      <input type="text" id="crmSearch" placeholder="Buscar por nombre, email o programa…" aria-label="Buscar por nombre, email o programa">
       <div id="crmFilterWrap"></div>
     </div>
     <div class="crm-etapa-fila" id="crmEtapaFila">
@@ -70,6 +142,7 @@ async function renderRegistros(main) {
       <div id="crmEtapaWrap"></div>
       <button type="button" class="crm-mios" id="crmMios" aria-pressed="false">${icon('user', 13)} Solo los míos</button>
     </div>
+    <p id="crmSegResumen" class="seg-resumen" aria-live="polite"></p>
     <div id="broadcastBar" class="broadcast-bar hidden">
       <div class="broadcast-bar-left">
         <span class="broadcast-count" id="broadcastCount">0 seleccionados</span>
@@ -318,9 +391,15 @@ async function renderRegistros(main) {
       const { rows } = await r.json();
       crmFichas = fichasRes.fichas ?? {};
       crmRows = rows ?? [];
+      const resumenCarga = resumirSegmentos(crmRows);
+      const pintarResumen = (visibles) => {
+        const el = $('#crmSegResumen');
+        if (el) el.textContent = textoResumenSegmentos(resumenCarga, visibles);
+      };
       if (!crmRows.length) {
-        $('#regContent').innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
+        $('#regContent').innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros de Pregrado ni Posgrado aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
         $('#crmFilterWrap').innerHTML = '';
+        pintarResumen(0);
         return;
       }
       const counts = crmRows.reduce((acc, row) => { const c = crmCategoria(row); acc[c] = (acc[c] ?? 0) + 1; return acc; }, {});
@@ -332,6 +411,8 @@ async function renderRegistros(main) {
         ],
         crmFilter, (v) => { crmFilter = v; renderCrmGrid(); },
       ));
+      hacerSegmentadoAccesible($('#crmFilterWrap .segmented'), 'Filtrar prospectos por segmento Pregrado o Posgrado');
+      pintarResumen(crmRows.length);
 
       // Segundo filtro: etapa del embudo. Solo aparece si alguien ya movió
       // fichas — si no, sería un control que no filtra nada.
@@ -353,6 +434,7 @@ async function renderRegistros(main) {
           etapaCounts[crmEtapa] ? crmEtapa : 'todas',
           (v) => { crmEtapa = v; renderCrmGrid(); },
         ));
+        hacerSegmentadoAccesible($('#crmEtapaWrap .segmented'), 'Filtrar prospectos por etapa del embudo');
       }
       renderCrmGrid();
     } catch (err) {
@@ -363,17 +445,14 @@ async function renderRegistros(main) {
 
   function renderCrmGrid() {
     const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
-    const filtered = crmRows.filter((row, i) => {
-      row.__i = i;
-      if (crmFilter !== 'todos' && crmCategoria(row) !== crmFilter) return false;
-      if (crmEtapa !== 'todas') {
-        const est = crmFichas[row[3]]?.estado ?? 'nuevo';
-        if (est !== crmEtapa) return false;
-      }
-      if (crmSoloMios && crmFichas[row[3]]?.asignadoA !== sesion.user?.username) return false;
-      if (!q) return true;
-      return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(q));
+    const pares = filtrarCrmRows(crmRows, {
+      segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+      usuario: sesion.user?.username, q, fichas: crmFichas,
     });
+    const resumen = resumirSegmentos(crmRows);
+    const resumenEl = $('#crmSegResumen');
+    if (resumenEl) resumenEl.textContent = textoResumenSegmentos(resumen, pares.length);
+    const filtered = pares;
     if (!filtered.length) {
       // Un "sin resultados" mudo obliga a adivinar cuál de los tres filtros
       // activos lo dejó vacío: se dice cuál y se ofrece quitarlo.
@@ -403,14 +482,14 @@ async function renderRegistros(main) {
     }
     $('#regContent').innerHTML = `
       <div class="crm-grid stagger-in">
-        ${filtered.map(row => {
+        ${filtered.map(({ row, idx }) => {
           const cat = crmCategoria(row);
           const nombre = row[1] || 'Sin nombre';
           const hasPhone = String(row[3] || '').replace(/\D/g, '').length >= 8;
-          const isSelected = selected.has(row.__i);
+          const isSelected = selected.has(idx);
           return `
-          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${row.__i}" style="position:relative;">
-            ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${row.__i}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
+          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" style="position:relative;">
+            ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${idx}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
             ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:#dc2626;font-size:10px;">Sin WhatsApp</span>` : ''}
             <div class="advisor-card-top" style="${selectMode ? 'margin-top:6px;' : ''}">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[3] || nombre, nombre)}</div>
@@ -515,4 +594,4 @@ async function renderRegistros(main) {
   loadReg();
 }
 
-export { renderRegistros };
+export { renderRegistros, CRM_CSV_CABECERA, crmPasaFiltros, filtrarCrmRows, resumirSegmentos, textoResumenSegmentos, filasCrmParaCsv };

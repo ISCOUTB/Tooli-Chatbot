@@ -58,7 +58,7 @@ export function parseFecha(valor: string | number): number {
   if (typeof valor === 'number') {
     // Un epoch fraccionario o negativo no es un instante programable sensato:
     // se rechaza acá en vez de dejar que el worker lo dispare de inmediato.
-    if (!Number.isInteger(valor) || valor < 0) throw invalida();
+    if (!Number.isSafeInteger(valor) || valor < 0 || valor > 8.64e15) throw invalida();
     return valor;
   }
 
@@ -93,7 +93,7 @@ export function parseFecha(valor: string | number): number {
   }
 
   const ms = Date.parse(texto);
-  if (!Number.isFinite(ms)) throw invalida();
+  if (!Number.isSafeInteger(ms) || ms < 0 || ms > 8.64e15) throw invalida();
   return ms;
 }
 

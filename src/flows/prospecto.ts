@@ -4,6 +4,7 @@ import { config } from '../config';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
 import { parseGlobalCommand } from './commands';
+import { resumenOrientacion } from './programasCatalog';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -90,6 +91,7 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
   const nombre = data.nombre ?? 'Prospecto';
   const email = data.email ?? '';
   const categoria = data.categoria ?? '';
+  const orientacion = resumenOrientacion(data.orientacionArea ?? '');
 
   await track('prospecto_completado');
 
@@ -110,6 +112,7 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
     `📧 Email: ${email}\n` +
     `🎯 Programa de interés: ${programa}\n` +
     (categoria ? `📚 Categoría vista: ${categoria}\n` : '') +
+    (orientacion ? `🧭 ${orientacion}\n` : '') +
     `📅 Recibido: ${ahora}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
@@ -150,8 +153,8 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
         'Cualquier mensaje que escribas le llegará directamente.\n' +
         'Para terminar la conversación, escribe *salir*.',
     });
-  } catch (err) {
-    console.error('[prospecto] error creando conversación Chatwoot:', err);
+  } catch {
+    console.error('[prospecto] no se pudo crear conversación Chatwoot');
     await setSession(from, { step: 'menu', data: {} });
     await messaging.sendText({
       to: from,

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '../config';
+import { describeError, maskEmail } from './logSafe';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 
@@ -64,15 +65,15 @@ export async function upsertContactoHubspot(lead: HubspotLead): Promise<void> {
 
   try {
     await doUpsert(full);
-    console.log('[hubspot] contacto upsert OK:', lead.email);
-  } catch (err: any) {
-    console.error('[hubspot] error upsert (reintento con datos básicos):', err.response?.data ?? err.message);
+    console.log('[hubspot] contacto upsert OK:', maskEmail(lead.email));
+  } catch (err: unknown) {
+    console.error('[hubspot] error upsert (reintento con datos básicos):', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
     // Reintento con solo propiedades estándar (por si alguna custom no existe)
     try {
       await doUpsert(base);
-      console.log('[hubspot] contacto upsert OK (básico):', lead.email);
-    } catch (err2: any) {
-      console.error('[hubspot] error definitivo:', err2.response?.data ?? err2.message);
+      console.log('[hubspot] contacto upsert OK (básico):', maskEmail(lead.email));
+    } catch (err2: unknown) {
+      console.error('[hubspot] error definitivo:', describeError({ response: { status: axios.isAxiosError(err2) ? err2.response?.status : undefined } }));
     }
   }
 }

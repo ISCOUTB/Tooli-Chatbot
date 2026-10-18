@@ -31,6 +31,8 @@ export type MetricEvent =
   | 'programas_especializaciones'
   | 'programas_maestrias'
   | 'programas_doctorados'
+  | 'programas_ayuda_areas'
+  | 'programas_ayuda_area'
   | 'registro_iniciado'
   | 'registro_completado'
   // Pregrado

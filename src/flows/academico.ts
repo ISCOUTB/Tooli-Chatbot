@@ -18,6 +18,7 @@ import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado } 
 import { parseGlobalCommand } from './commands';
 import { AreaRecurso, getRecursos } from '../services/academicoLinks';
 import { iniciarConsultaDeNotas } from './notas';
+import type { FlowArea } from './commands';
 
 /** Métrica por recurso: explícita (y no un template literal) para que el
  * compilador avise si alguien agrega un recurso sin su evento. */
@@ -33,7 +34,7 @@ const EVENTO_POR_RECURSO: Record<string, MetricEvent> = {
 };
 
 /** El área desde la que entró, para saber a qué menú devolverlo con "0". */
-function areaDeSesion(data: Record<string, string> | undefined): AreaRecurso | null {
+function areaDeSesion(data: Record<string, string> | undefined): FlowArea | null {
   if (data?.area === 'posgrado') return 'posgrado';
   if (data?.area === 'pregrado') return 'pregrado';
   return null;
@@ -113,7 +114,7 @@ export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
   // en Banner (verificando primero la identidad por OTP al correo). Mandar el
   // enlace aquí sería darle al estudiante el camino largo teniendo el corto.
   if (elegido?.id === 'notas') {
-    await iniciarConsultaDeNotas(from);
+    await iniciarConsultaDeNotas(from, area);
     return;
   }
 

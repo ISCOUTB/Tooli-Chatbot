@@ -2,8 +2,10 @@ import { setSession } from '../services/session';
 import { startNotasLogin, submitNotasMfa, NotasLoginResult } from '../services/notasService';
 import { getIdentity, isVerified } from '../services/identityService';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, isMenuCommand } from './shared';
+import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen } from './shared';
 import { startVerificationFlow } from './verificacion';
+import { parseGlobalCommand, returnMenuStep } from './commands';
+import type { FlowArea, SessionData } from './commands';
 
 /**
  * Consulta de notas — servicio compartido por Pregrado y Posgrado.
@@ -13,9 +15,10 @@ import { startVerificationFlow } from './verificacion';
  * vez de duplicarse. Si todavía no verificó su identidad, primero va el OTP al
  * correo institucional y al terminar retoma solo en las notas.
  */
-export async function iniciarConsultaDeNotas(from: string): Promise<void> {
+export async function iniciarConsultaDeNotas(from: string, originArea?: FlowArea): Promise<void> {
+  const data: SessionData = originArea ? { originArea } : {};
   if (await isVerified(from)) {
-    await setSession(from, { step: 'notas_password', data: {} });
+    await setSession(from, { step: 'notas_password', data });
     await messaging.sendText({
       to: from,
       text:
@@ -26,7 +29,7 @@ export async function iniciarConsultaDeNotas(from: string): Promise<void> {
     return;
   }
 
-  await startVerificationFlow(from, 'notas');
+  await startVerificationFlow(from, 'notas', originArea);
   await track('verificacion_iniciada');
 }
 
@@ -34,7 +37,7 @@ export async function iniciarConsultaDeNotas(from: string): Promise<void> {
 // Se llega aquí SOLO tras verificar identidad por OTP (tenemos el correo @utb).
 // Estados: notas_password → (si hay MFA) notas_mfa.
 
-async function entregarNotas(from: string, res: NotasLoginResult): Promise<void> {
+async function entregarNotas(from: string, res: NotasLoginResult, data?: SessionData): Promise<void> {
   if (res.status === 'ok') {
     await track('notas_consultadas');
     let msg = '📊 *Tus notas del período*\n\n';
@@ -45,14 +48,18 @@ async function entregarNotas(from: string, res: NotasLoginResult): Promise<void>
     await track('notas_no_encontradas');
     await messaging.sendText({ to: from, text: `No pude traer tus notas. ${res.error}\n\nEscribe *menu* para volver.` });
   }
-  await setSession(from, { step: 'menu', data: {} });
+  await setSession(from, { step: returnMenuStep(data), data: {} });
 }
 
 export async function handleNotasPassword(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  const { from, text, session } = ctx;
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
+    return;
+  }
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
     return;
   }
 
@@ -71,22 +78,26 @@ export async function handleNotasPassword(ctx: FlowContext): Promise<void> {
   const res = await startNotasLogin(from, identity.email, text);
 
   if (res.status === 'mfa') {
-    await setSession(from, { step: 'notas_mfa', data: {} });
+    await setSession(from, { step: 'notas_mfa', data: { ...session?.data } });
     await messaging.sendText({ to: from, text: `🔐 ${res.prompt}\n\n_Escribe *menu* para cancelar._` });
     return;
   }
-  await entregarNotas(from, res);
+  await entregarNotas(from, res, session?.data);
 }
 
 export async function handleNotasMfa(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  const { from, text, session } = ctx;
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
+    return;
+  }
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
     return;
   }
 
   await messaging.sendText({ to: from, text: '🔄 Verificando el código…' });
   const res = await submitNotasMfa(from, text.trim());
-  await entregarNotas(from, res);
+  await entregarNotas(from, res, session?.data);
 }

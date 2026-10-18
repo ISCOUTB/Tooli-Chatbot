@@ -57,7 +57,13 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
     const total = result.solicitados;
     // Auditoría y log solo con template + conteos: jamás teléfonos ni payloads.
     if (result.enviados.length) {
-      await logAudit(req.user!.username, 'broadcast_enviado', `${cleanTemplate} · ${result.enviados.length}/${total}`);
+      try {
+        await logAudit(req.user!.username, 'broadcast_enviado', `${cleanTemplate} · ${result.enviados.length}/${total}`);
+      } catch (auditError) {
+        // Meta ya aceptó los mensajes: un fallo de auditoría no puede convertir
+        // el resultado en 502 e invitar al administrador a reenviar el lote.
+        console.error('[tools/broadcast/send] auditoría no disponible:', describeError(auditError));
+      }
     }
     console.log(`[asesor] ${req.user?.username} broadcast "${cleanTemplate}" (${cleanLang}) → ${result.enviados.length}/${total} enviados`);
     res.json({ ok: result.enviados.length > 0, template: cleanTemplate, language: cleanLang, total, ...result });

@@ -46,7 +46,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
-    await iniciarConsultaDeNotas(from);
+    await iniciarConsultaDeNotas(from, 'posgrado');
     return;
   }
 
@@ -59,7 +59,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   // 3 — Asistente IA
   if (input === '3') {
-    await setSession(from, { step: 'chatting_with_ai', data: { area: 'posgrados' } });
+    await setSession(from, { step: 'chatting_with_ai', data: { area: 'posgrados', originArea: 'posgrado' } });
     await messaging.sendText({
       to: from,
       text:
@@ -87,7 +87,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   // 5 — Turno de matrícula
   if (input === '5') {
-    await setSession(from, { step: 'esperando_codigo', data: {} });
+    await setSession(from, { step: 'esperando_codigo', data: { originArea: 'posgrado' } });
     await messaging.sendText({
       to: from,
       text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
@@ -97,7 +97,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   // 6 — Recibo de matrícula
   if (input === '6') {
-    await setSession(from, { step: 'recibo_codigo', data: {} });
+    await setSession(from, { step: 'recibo_codigo', data: { originArea: 'posgrado' } });
     await messaging.sendText({
       to: from,
       text:
@@ -107,10 +107,10 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  // 7 — Hablar con asesor (handoff por área: TI / Admisiones)
+  // 7 — Hablar con asesor (handoff por área: TI / Admisiones Posgrados)
   if (input === '7') {
-    await setSession(from, { step: 'agent_area', data: {} });
-    await sendAreaPrompt(from);
+    await setSession(from, { step: 'agent_area', data: { originArea: 'posgrado' } });
+    await sendAreaPrompt(from, 'posgrado');
     return;
   }
 
@@ -142,14 +142,14 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
-    await iniciarConsultaDeNotas(from);
+    await iniciarConsultaDeNotas(from, 'pregrado');
     return;
   }
 
   // 2 — Asistente IA (usa el área "admisiones": es la general/pregrado, ya
   // tiene su propia base de conocimiento y busca páginas de /pregrado/)
   if (input === '2') {
-    await setSession(from, { step: 'chatting_with_ai', data: { area: 'admisiones' } });
+    await setSession(from, { step: 'chatting_with_ai', data: { area: 'admisiones', originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
       text:
@@ -177,7 +177,7 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   // 4 — Turno de matrícula
   if (input === '4') {
-    await setSession(from, { step: 'esperando_codigo', data: {} });
+    await setSession(from, { step: 'esperando_codigo', data: { originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
       text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
@@ -187,7 +187,7 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   // 5 — Recibo de matrícula
   if (input === '5') {
-    await setSession(from, { step: 'recibo_codigo', data: {} });
+    await setSession(from, { step: 'recibo_codigo', data: { originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
       text:
@@ -199,7 +199,7 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   // 6 — Hablar con asesor
   if (input === '6') {
-    await setSession(from, { step: 'pregrado_prospecto_nombre', data: {} });
+    await setSession(from, { step: 'pregrado_prospecto_nombre', data: { originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
       text:

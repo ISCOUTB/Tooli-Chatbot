@@ -28,7 +28,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
       email: maskEmail(data.email),
       area: data.area ?? 'Posgrado',
     });
-    return;
+    throw new Error('POSGRADO_REGISTRO_SHEET_ID no configurado');
   }
 
   const auth = new google.auth.GoogleAuth({
@@ -44,7 +44,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
     timeStyle: 'short',
   });
 
-  await sheets.spreadsheets.values.append({
+  const response = await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
     range: 'Registros!A:F',
     valueInputOption: 'RAW',
@@ -60,6 +60,10 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
       ]],
     },
   });
+
+  if (response.data.updates?.updatedRows !== 1) {
+    throw new Error('Sheets no confirmó la inserción de una fila de registro');
+  }
 
   console.log('[registro] prospecto guardado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email), data.area ?? 'Posgrado');
 }

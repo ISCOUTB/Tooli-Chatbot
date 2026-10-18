@@ -2,7 +2,7 @@ import axios from 'axios';
 import { IMessagingAdapter, OutboundMessage, OutboundButtons, OutboundList, OutboundDocument, OutboundImage, OutboundMediaUrl } from './IMessagingAdapter';
 import { config } from '../../config';
 import { recordActivity } from '../../services/botUserService';
-import { maskPhone } from '../../services/logSafe';
+import { describeError, maskPhone } from '../../services/logSafe';
 
 export class EvolutionAPIAdapter implements IMessagingAdapter {
   private readonly baseUrl: string;
@@ -42,8 +42,8 @@ export class EvolutionAPIAdapter implements IMessagingAdapter {
         this.lidCache.set(jid, phone);
         return phone;
       }
-    } catch (err: any) {
-      console.error('[resolveSenderId] error:', err?.response?.data ?? err?.message);
+    } catch (err: unknown) {
+      console.error('[resolveSenderId] error:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
     }
 
     // Fallback: devolver el @lid (probablemente fallará el envío, pero al menos quedó logueado)
@@ -140,8 +140,8 @@ export class EvolutionAPIAdapter implements IMessagingAdapter {
         { headers: { apikey: this.apiKey }, timeout: 10_000 }
       );
       console.log('[sendList] status:', res.status);
-    } catch (err: any) {
-      console.error('[sendList] ERROR:', err?.response?.data ?? err?.message);
+    } catch (err: unknown) {
+      console.error('[sendList] ERROR:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
       throw err;
     }
   }

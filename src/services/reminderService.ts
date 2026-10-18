@@ -19,6 +19,7 @@
  *
  * DISEÑO EN REDIS:
  *   - `reminders:queue`  (sorted set)  score = timestamp de disparo, member = id
+ *   - `reminders:processing` (sorted set) score = vencimiento del lease
  *   - `reminder:<id>`    (string JSON) el recordatorio completo
  *   - `reminders:index`  (sorted set)  score = createdAt, member = id — para listar
  *   Los recordatorios ya enviados/cancelados salen de la cola pero quedan en el
@@ -38,12 +39,14 @@ import { describeError } from './logSafe';
 const redis = new Redis(config.redis.url);
 
 const QUEUE_KEY = 'reminders:queue';
+const PROCESSING_KEY = 'reminders:processing';
 const INDEX_KEY = 'reminders:index';
 const ITEM_KEY = (id: string) => `reminder:${id}`;
 /** Cuánto se conserva un recordatorio ya resuelto (7 días). */
 const TTL_RESUELTO_SEG = 7 * 24 * 60 * 60;
+const CLAIM_LEASE_MS = 5 * 60_000;
 
-export type ReminderEstado = 'programado' | 'enviado' | 'fallido' | 'cancelado';
+export type ReminderEstado = 'programado' | 'procesando' | 'enviado' | 'fallido' | 'cancelado';
 
 export interface Reminder {
   id: string;
@@ -57,6 +60,9 @@ export interface Reminder {
   estado: ReminderEstado;
   sentAt?: number;
   error?: string;
+  claimToken?: string;
+  claimedAt?: number;
+  sendStartedAt?: number;
 }
 
 export { ReminderValidationError };
@@ -88,11 +94,14 @@ export async function scheduleReminder(input: ScheduleInput): Promise<Reminder> 
     estado: 'programado',
   };
 
-  const pipe = redis.pipeline();
-  pipe.set(ITEM_KEY(reminder.id), JSON.stringify(reminder));
-  pipe.zadd(QUEUE_KEY, String(scheduledAt), reminder.id);
-  pipe.zadd(INDEX_KEY, String(reminder.createdAt), reminder.id);
-  await pipe.exec();
+  const tx = redis.multi();
+  tx.set(ITEM_KEY(reminder.id), JSON.stringify(reminder));
+  tx.zadd(QUEUE_KEY, String(scheduledAt), reminder.id);
+  tx.zadd(INDEX_KEY, String(reminder.createdAt), reminder.id);
+  const result = await tx.exec();
+  if (!result || result.some(([err]) => err)) {
+    throw new Error('No se pudo persistir el recordatorio');
+  }
 
   return reminder;
 }
@@ -131,9 +140,8 @@ export async function listReminders(opts: { estado?: ReminderEstado; limit?: num
 
 /**
  * Cancela un recordatorio todavía programado: sale de la cola y queda en el
- * historial como `cancelado`. Si el envío ya está en vuelo, la cancelación
- * igual gana el estado (ver `processDueReminders`): el envío físico no se
- * puede recoger, pero el trabajo no vuelve a `enviado`.
+ * historial como `cancelado`. El reclamo del worker cambia atómicamente a
+ * `procesando`; desde ese momento la API responde 409 a una cancelación.
  */
 export interface CancelReminderResult {
   reminder: Reminder;
@@ -162,34 +170,101 @@ export async function cancelReminder(id: string): Promise<CancelReminderResult |
   return { reminder: parsed.reminder, cancelled: parsed.cancelled === 1 };
 }
 
-async function marcarResueltoSiProgramado(reminder: Reminder): Promise<boolean> {
-  // Compare-and-set atómico: una cancelación que gane la carrera nunca puede
-  // ser pisada por el resultado tardío del worker.
-  const updated = await redis.eval(
+/** Reclamo atómico: estado, cola y lease cambian juntos. */
+async function claimDue(now: number): Promise<Reminder | null | 'skip'> {
+  const token = nuevoId();
+  const raw = await redis.eval(
+    `local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)
+     if #ids == 0 then return false end
+     local id = ids[1]
+     local itemKey = 'reminder:' .. id
+     local raw = redis.call('GET', itemKey)
+     if not raw then
+       redis.call('ZREM', KEYS[1], id)
+       return 'skip'
+     end
+     local item = cjson.decode(raw)
+     if item.estado ~= 'programado' then
+       redis.call('ZREM', KEYS[1], id)
+       return 'skip'
+     end
+     item.estado = 'procesando'
+     item.claimToken = ARGV[3]
+     item.claimedAt = tonumber(ARGV[1])
+     redis.call('SET', itemKey, cjson.encode(item))
+     redis.call('ZREM', KEYS[1], id)
+     redis.call('ZADD', KEYS[2], ARGV[2], id)
+     return cjson.encode(item)`,
+    2, QUEUE_KEY, PROCESSING_KEY, String(now), String(now + CLAIM_LEASE_MS), token,
+  );
+  if (!raw) return null;
+  if (raw === 'skip') return 'skip';
+  return JSON.parse(String(raw)) as Reminder;
+}
+
+/** Marca que el proveedor puede recibir el mensaje. A partir de aquí un
+ * reinicio no lo reenvía: el resultado externo podría ser irreversible. */
+async function markSendStarted(reminder: Reminder): Promise<boolean> {
+  const result = await redis.eval(
+    `local raw = redis.call('GET', KEYS[1])
+     if not raw then return 0 end
+     local item = cjson.decode(raw)
+     if item.estado ~= 'procesando' or item.claimToken ~= ARGV[1] then return 0 end
+     item.sendStartedAt = tonumber(ARGV[2])
+     redis.call('SET', KEYS[1], cjson.encode(item))
+     return 1`,
+    1, ITEM_KEY(reminder.id), reminder.claimToken!, String(Date.now()),
+  );
+  return Number(result) === 1;
+}
+
+async function finalizeClaim(reminder: Reminder, token: string): Promise<boolean> {
+  const result = await redis.eval(
     `local raw = redis.call('GET', KEYS[1])
      if not raw then return 0 end
      local current = cjson.decode(raw)
-     if current.estado ~= 'programado' then return 0 end
-     redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+     if current.estado ~= 'procesando' or current.claimToken ~= ARGV[1] then return 0 end
+     redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+     redis.call('ZREM', KEYS[2], ARGV[4])
      return 1`,
-    1, ITEM_KEY(reminder.id), JSON.stringify(reminder), String(TTL_RESUELTO_SEG),
+    2, ITEM_KEY(reminder.id), PROCESSING_KEY,
+    token, JSON.stringify(reminder), String(TTL_RESUELTO_SEG), reminder.id,
   );
-  return Number(updated) === 1;
+  return Number(result) === 1;
 }
 
-/**
- * Devuelve un id a la cola sin tumbar el lote si Redis también falla.
- * Sin esto, un fallo de Redis entre el ZREM de reclamo y la persistencia
- * perdería el trabajo: ya no está en la cola y nunca se guardó el resultado.
- */
-async function reencolar(id: string, score: number): Promise<void> {
-  try {
-    await redis.zadd(QUEUE_KEY, String(score), id);
-  } catch (err) {
-    console.error(
-      `[recordatorios] no se pudo re-encolar ${id}:`,
-      describeError(err),
+/** Recupera un reclamo abandonado. Solo se reencola si todavía no se había
+ * iniciado el intento externo. Si pudo haberse enviado, exige revisión. */
+async function recoverExpiredClaims(now: number): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    const result = await redis.eval(
+      `local ids = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)
+       if #ids == 0 then return false end
+       local id = ids[1]
+       local key = 'reminder:' .. id
+       local raw = redis.call('GET', key)
+       redis.call('ZREM', KEYS[1], id)
+       if not raw then return 'missing' end
+       local item = cjson.decode(raw)
+       if item.estado ~= 'procesando' then return 'stale' end
+       item.claimToken = nil
+       item.claimedAt = nil
+       if item.sendStartedAt then
+         item.estado = 'fallido'
+         item.error = 'Resultado del envío no confirmado; revisar antes de reprogramar.'
+         redis.call('SET', key, cjson.encode(item), 'EX', ARGV[2])
+         return 'review'
+       end
+       item.estado = 'programado'
+       redis.call('SET', key, cjson.encode(item))
+       redis.call('ZADD', KEYS[2], ARGV[1], id)
+       return 'requeued'`,
+      2, PROCESSING_KEY, QUEUE_KEY, String(now), String(TTL_RESUELTO_SEG),
     );
+    if (!result) break;
+    if (result === 'review') {
+      console.error('[recordatorios] envío con resultado desconocido; requiere revisión');
+    }
   }
 }
 
@@ -197,72 +272,61 @@ async function reencolar(id: string, score: number): Promise<void> {
  * Procesa los recordatorios vencidos. Exportada aparte del worker para poder
  * dispararla a mano (o desde un test) sin depender del intervalo.
  *
- * Idempotencia: cada id se saca de la cola con ZREM *antes* de enviarlo, y solo
- * el llamador que efectivamente lo removió (zrem devuelve 1) lo envía. Así dos
- * ticks superpuestos —o dos instancias del servidor— no mandan el mismo mensaje
- * dos veces.
- *
- * Semántica cancelar/enviar: cancelar solo frena un envío todavía en cola.
- * Si la cancelación entra mientras el envío ya está en vuelo, el estado queda
- * `cancelado` y NO se pisa con `enviado`/`fallido` (el trabajo no resucita);
- * el envío en vuelo no se puede recoger y queda registrado en el log, no en
- * el estado. Nunca se marca `enviado` antes de la confirmación del proveedor.
+ * Dos workers compiten mediante el mismo script de reclamo: solo uno obtiene
+ * el ID. Cancelar solo es posible antes de ese reclamo. Los leases vencidos
+ * se recuperan antes de procesar el siguiente lote.
  */
-export async function processDueReminders(now: number = Date.now()): Promise<{ enviados: number; fallidos: number }> {
+export async function processDueReminders(
+  now: number = Date.now(),
+  send: typeof enviarRecordatorio = enviarRecordatorio,
+): Promise<{ enviados: number; fallidos: number }> {
   let enviados = 0;
   let fallidos = 0;
 
-  const vencidos = await redis.zrangebyscore(QUEUE_KEY, '-inf', String(now), 'LIMIT', 0, 50);
+  await recoverExpiredClaims(now);
 
-  for (const id of vencidos) {
-    const removidos = await redis.zrem(QUEUE_KEY, id);
-    if (removidos !== 1) continue; // otro tick/instancia se lo llevó
+  for (let i = 0; i < 50; i++) {
+    const reminder = await claimDue(now);
+    if (!reminder) break;
+    if (reminder === 'skip') continue;
 
-    let reminder: Reminder | null;
     try {
-      reminder = await getReminder(id);
+      if (!(await markSendStarted(reminder))) continue;
     } catch (err) {
-      // Redis falló después de reclamar: se devuelve a la cola para el
-      // próximo tick en vez de perder el trabajo.
-      await reencolar(id, now);
+      // El lease permanece en Redis. Cuando venza, se reencolará porque no
+      // quedó constancia de que se inició el envío externo.
       fallidos++;
-      console.error(
-        `[recordatorios] no se pudo leer ${id}, se re-encola:`,
-        describeError(err),
-      );
+      console.error('[recordatorios] no se pudo iniciar el envío:', describeError(err));
       continue;
     }
-    if (!reminder || reminder.estado !== 'programado') continue;
 
     let resuelto: Reminder;
     try {
-      await enviarRecordatorio({ telefono: reminder.telefono, mensaje: reminder.mensaje });
+      await send({ telefono: reminder.telefono, mensaje: reminder.mensaje });
       resuelto = { ...reminder, estado: 'enviado', sentAt: Date.now() };
     } catch (err) {
       // Un fallo no debe frenar a los demás ni reintentar en bucle: se marca
       // fallido con la razón y el asesor decide si lo reprograma.
       const error = describeError(err);
-      console.error(`[recordatorios] falló el envío de ${id}:`, error);
+      console.error(`[recordatorios] falló el envío de ${reminder.id}:`, error);
       resuelto = { ...reminder, estado: 'fallido', error };
     }
+    delete resuelto.claimToken;
+    delete resuelto.claimedAt;
+    delete resuelto.sendStartedAt;
 
     try {
-      const actualizado = await marcarResueltoSiProgramado(resuelto);
+      const actualizado = await finalizeClaim(resuelto, reminder.claimToken!);
       if (!actualizado) {
-        // La cancelación pudo entrar cuando el proveedor ya estaba enviando.
-        // Conservamos el estado cancelado, pero el conteo refleja el resultado
-        // físico del intento para que operaciones pueda conciliarlo.
-        if (resuelto.estado === 'enviado') enviados++;
-        else fallidos++;
+        fallidos++;
+        console.error('[recordatorios] no se pudo confirmar un reclamo; revisar el historial');
         continue;
       }
     } catch (err) {
-      // En este punto el proveedor ya respondió. Reencolar sería peligroso:
-      // una confirmación seguida de una caída de Redis produciría un segundo
-      // WhatsApp. Se conserva semántica at-most-once y se deja conciliación.
+      // El proveedor ya respondió. El lease acabará en revisión sin reenvío.
       fallidos++;
       console.error(
-        `[recordatorios] no se pudo persistir ${id}; no se re-encola para evitar duplicados:`,
+        `[recordatorios] no se pudo persistir ${reminder.id}; no se re-encola para evitar duplicados:`,
         describeError(err),
       );
       continue;
@@ -293,7 +357,7 @@ export function startReminderWorker(intervalMs = 30_000): void {
     } catch (err) {
       // Si Redis está caído, se loguea y se reintenta en el siguiente tick.
       // Nunca se deja escapar la excepción: tumbaría el proceso entero.
-      console.error('[recordatorios] error en el tick del worker:', err);
+      console.error('[recordatorios] error en el tick del worker:', describeError(err));
     }
   };
 

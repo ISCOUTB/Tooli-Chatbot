@@ -106,6 +106,9 @@ describe('parseFecha', () => {
     assert.throws(() => parseFecha(1789435482440.5), ReminderValidationError);
     assert.throws(() => parseFecha(-1), ReminderValidationError);
     assert.throws(() => parseFecha(NaN), ReminderValidationError);
+    assert.throws(() => parseFecha(1e20), ReminderValidationError);
+    assert.throws(() => parseFecha(Number.MAX_SAFE_INTEGER), ReminderValidationError);
+    assert.equal(parseFecha(8.64e15), 8.64e15);
   });
 });
 

@@ -1,17 +1,24 @@
 import { setSession } from '../services/session';
 import { loginAndDownloadReceipt } from '../services/icebergService';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, isMenuCommand, CODIGO_REGEX, CEDULA_REGEX } from './shared';
+import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen, CODIGO_REGEX, CEDULA_REGEX } from './shared';
+import { parseGlobalCommand, returnMenuStep } from './commands';
 
 export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
-  const input = text.trim().toUpperCase();
+  const { from, text, session } = ctx;
+  const command = parseGlobalCommand(text);
 
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
     return;
   }
+
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
+    return;
+  }
+
+  const input = text.trim().toUpperCase();
 
   if (!CODIGO_REGEX.test(input)) {
     await messaging.sendText({
@@ -21,7 +28,7 @@ export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  await setSession(from, { step: 'recibo_cedula', data: { codigo: input } });
+  await setSession(from, { step: 'recibo_cedula', data: { ...session?.data, codigo: input } });
   await messaging.sendText({
     to: from,
     text: 'Ahora escribe tu *número de cédula* (solo dígitos, sin puntos ni guiones).',
@@ -30,13 +37,19 @@ export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
 
 export async function handleReciboCedula(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const input = text.trim();
+  const command = parseGlobalCommand(text);
 
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
     return;
   }
+
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
+    return;
+  }
+
+  const input = text.trim();
 
   if (!CEDULA_REGEX.test(input)) {
     await messaging.sendText({
@@ -114,5 +127,6 @@ export async function handleReciboCedula(ctx: FlowContext): Promise<void> {
     });
   }
 
-  await setSession(from, { step: 'menu', data: {} });
+  // Al terminar vuelve al área de origen (fallback: raíz en sesiones legacy).
+  await setSession(from, { step: returnMenuStep(session?.data), data: {} });
 }
