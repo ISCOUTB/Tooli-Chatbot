@@ -171,8 +171,8 @@ export async function iniciarConversacionAsesor(
           'Cualquier mensaje que escribas le llegará al asesor. Para terminar la conversación, escribe *salir*.',
       });
     }
-  } catch (err) {
-    console.error('[chatwoot] error creando conversación:', err);
+  } catch {
+    console.error('[chatwoot] no se pudo crear la conversación');
     await setSession(from, { step: 'menu', data: {} });
     await messaging.sendText({
       to: from,

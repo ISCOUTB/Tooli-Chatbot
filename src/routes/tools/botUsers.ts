@@ -10,6 +10,7 @@ import { AuthedRequest } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { banUser, getBotUser, listActiveUsers, resetSession, setAiEnabled, unbanUser } from '../../services/botUserService';
 import { Response } from 'express';
+import { describeError, maskPhone } from '../../services/logSafe';
 
 export const botUsersRouter = Router();
 
@@ -34,7 +35,7 @@ botUsersRouter.post('/bot-users/:phone/reset-session', async (req: AuthedRequest
   const phone = normalizePhone(req.params.phone);
   await resetSession(phone);
   await logAudit(req.user!.username, 'sesion_reseteada', phone.slice(-4));
-  console.log(`[asesor] ${req.user?.username} reseteó sesión de ${phone.slice(-4)}`);
+  console.log(`[asesor] sesión reseteada para ${maskPhone(phone)}`);
   res.json({ ok: true });
 });
 
@@ -43,7 +44,7 @@ botUsersRouter.post('/bot-users/:phone/ban', async (req: AuthedRequest, res: Res
   const reason = req.body?.reason ?? `Baneado por ${req.user?.username}`;
   await banUser(phone, reason);
   await logAudit(req.user!.username, 'usuario_baneado', phone.slice(-4));
-  console.log(`[asesor] ${req.user?.username} baneó ${phone.slice(-4)}: ${reason}`);
+  console.log(`[asesor] usuario bloqueado: ${maskPhone(phone)}`);
   res.json({ ok: true });
 });
 
@@ -51,7 +52,7 @@ botUsersRouter.post('/bot-users/:phone/unban', async (req: AuthedRequest, res: R
   const phone = normalizePhone(req.params.phone);
   await unbanUser(phone);
   await logAudit(req.user!.username, 'usuario_desbaneado', phone.slice(-4));
-  console.log(`[asesor] ${req.user?.username} desbaneó ${phone.slice(-4)}`);
+  console.log(`[asesor] usuario desbloqueado: ${maskPhone(phone)}`);
   res.json({ ok: true });
 });
 
@@ -60,7 +61,7 @@ botUsersRouter.post('/bot-users/:phone/ai-toggle', async (req: AuthedRequest, re
   const enabled = !!req.body?.enabled;
   await setAiEnabled(phone, enabled);
   await logAudit(req.user!.username, enabled ? 'ia_activada' : 'ia_desactivada', phone.slice(-4));
-  console.log(`[asesor] ${req.user?.username} ${enabled ? 'activó' : 'apagó'} la IA para ${phone.slice(-4)}`);
+  console.log(`[asesor] IA ${enabled ? 'activada' : 'apagada'} para ${maskPhone(phone)}`);
   res.json({ ok: true, enabled });
 });
 
@@ -113,12 +114,11 @@ botUsersRouter.post('/bot-users/:phone/reply', async (req: AuthedRequest, res: R
 
     await messaging.sendText({ to: phone, text: texto });
     await logAudit(req.user!.username, 'mensaje_enviado', `${phone.slice(-4)} · ${texto.length} chars`);
-    console.log(`[asesor] ${req.user?.username} respondió a ****${phone.slice(-4)} (${texto.length} chars)`);
+    console.log(`[asesor] respuesta enviada a ${maskPhone(phone)} (${texto.length} chars)`);
     res.json({ ok: true });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/reply] error al enviar:', msg);
-    res.status(502).json({ error: 'send_failed', message: msg });
+    console.error('[tools/reply] error al enviar:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(502).json({ error: 'send_failed', message: 'No se pudo enviar el mensaje' });
   }
 });
 
@@ -156,8 +156,7 @@ botUsersRouter.post('/bot-users/batch', async (req: AuthedRequest, res: Response
     }));
     res.json({ users });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/bot-users/batch] error:', msg);
-    res.status(500).json({ error: 'internal_error', message: msg });
+    console.error('[tools/bot-users/batch] error:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });

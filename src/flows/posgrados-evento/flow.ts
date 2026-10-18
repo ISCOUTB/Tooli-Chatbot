@@ -8,6 +8,7 @@ import {
   actualizarConsentimiento,
 } from '../../services/posgradosEventoSheets';
 import { upsertContactoHubspot } from '../../services/hubspotService';
+import { describeExternalError } from '../../services/logSafe';
 
 interface Ctx {
   from: string;
@@ -162,7 +163,7 @@ export async function handlePosgradoPrograma(ctx: Ctx): Promise<void> {
     input === 'maestria' ? NOMBRE_MAESTRIA :
     'Aún no decide';
 
-  // Guardar en Google Sheets
+  // Confirmar la fila antes de cerrar el registro.
   try {
     const fila = await guardarRegistroPosgrado({
       whatsapp:            from,
@@ -170,12 +171,17 @@ export async function handlePosgradoPrograma(ctx: Ctx): Promise<void> {
       correo:              d.correo ?? '',
       interesFinanciacion: '',
     });
-    if (fila) {
-      await actualizarPosgradoInteres(fila, programa);
-      await actualizarConsentimiento(fila, 'Sí');
-    }
+    if (!fila) throw new Error('Registro sin fila confirmada');
+    await actualizarPosgradoInteres(fila, programa);
+    await actualizarConsentimiento(fila, 'Sí');
   } catch (err) {
-    console.error('[posgrados] error guardando registro:', err);
+    console.error('[posgrados] error guardando registro:', describeExternalError(err));
+    await setPosgradoSession(from, { step: 'posg_registro_pendiente', data: { ...d, programa } });
+    await posgradoMessaging.sendText({
+      to: from,
+      text: 'No pude confirmar que tus datos quedaran registrados. Por favor, contacta al equipo de admisiones para verificarlo antes de volver a enviar tus datos.',
+    });
+    return;
   }
 
   // Enviar el lead a HubSpot (CRM de la UTB) — sin bloquear el flujo
@@ -210,7 +216,7 @@ export async function handlePosgradoPrograma(ctx: Ctx): Promise<void> {
         '¡Tu posgrado está más cerca de lo que crees! 🚀',
     });
   } catch (err) {
-    console.error('[posgrados] error enviando flyer de cierre:', err);
+    console.error('[posgrados] error enviando flyer de cierre:', describeExternalError(err));
   }
 }
 
@@ -223,5 +229,12 @@ export async function handlePosgradoCompletada(ctx: Ctx): Promise<void> {
     text:
       '✅ ¡Ya tenemos tus datos! Un asesor de la UTB te contactará pronto. 🎓\n\n' +
       '¡Gracias por participar!',
+  });
+}
+
+export async function handlePosgradoRegistroPendiente(ctx: Ctx): Promise<void> {
+  await posgradoMessaging.sendText({
+    to: ctx.from,
+    text: 'Tu registro aún requiere verificación. Por favor, contacta al equipo de admisiones antes de volver a enviar tus datos.',
   });
 }

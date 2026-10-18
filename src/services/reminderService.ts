@@ -45,6 +45,7 @@ const ITEM_KEY = (id: string) => `reminder:${id}`;
 /** Cuánto se conserva un recordatorio ya resuelto (7 días). */
 const TTL_RESUELTO_SEG = 7 * 24 * 60 * 60;
 const CLAIM_LEASE_MS = 5 * 60_000;
+let indexCleanupCursor = '0';
 
 export type ReminderEstado = 'programado' | 'procesando' | 'enviado' | 'fallido' | 'cancelado';
 
@@ -113,29 +114,42 @@ export async function getReminder(id: string): Promise<Reminder | null> {
 
 export async function listReminders(opts: { estado?: ReminderEstado; limit?: number } = {}): Promise<Reminder[]> {
   const limit = Math.max(1, Math.min(200, opts.limit ?? 50));
-  // Del índice, los más recientes primero.
-  const ids = await redis.zrevrange(INDEX_KEY, 0, limit * 2);
-  if (!ids.length) return [];
-
-  const raws = await redis.mget(ids.map(ITEM_KEY));
   const items: Reminder[] = [];
   const huerfanos: string[] = [];
-
-  raws.forEach((raw, i) => {
-    if (!raw) {
-      // El item expiró pero quedó en el índice — se limpia solo.
-      huerfanos.push(ids[i]);
-      return;
-    }
-    items.push(JSON.parse(raw) as Reminder);
-  });
-
+  // El filtro se aplica mientras paginamos. Una ventana fija de 2*limit
+  // ocultaba recordatorios programados si había muchos envíos recientes.
+  const batchSize = Math.max(100, limit);
+  let offset = 0;
+  while (items.length < limit) {
+    const ids = await redis.zrevrange(INDEX_KEY, offset, offset + batchSize - 1);
+    if (!ids.length) break;
+    const raws = await redis.mget(ids.map(ITEM_KEY));
+    raws.forEach((raw, i) => {
+      if (!raw) {
+        huerfanos.push(ids[i]);
+        return;
+      }
+      const item = JSON.parse(raw) as Reminder;
+      if (!opts.estado || item.estado === opts.estado) items.push(item);
+    });
+    // Se difiere ZREM para no desplazar el offset de esta lectura.
+    offset += ids.length;
+    if (ids.length < batchSize) break;
+  }
   if (huerfanos.length) await redis.zrem(INDEX_KEY, ...huerfanos);
+  return items.slice(0, limit);
+}
 
-  return items
-    .filter((r) => !opts.estado || r.estado === opts.estado)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit);
+/** Barre una porción del índice en cada tick: los items resueltos expiran,
+ * pero sus IDs no deben acumularse indefinidamente en el sorted set. */
+async function cleanupExpiredIndexBatch(): Promise<void> {
+  const [nextCursor, pairs] = await redis.zscan(INDEX_KEY, indexCleanupCursor, 'COUNT', 100);
+  indexCleanupCursor = nextCursor;
+  const ids = pairs.filter((_, i) => i % 2 === 0);
+  if (!ids.length) return;
+  const raws = await redis.mget(ids.map(ITEM_KEY));
+  const expired = ids.filter((_, i) => !raws[i]);
+  if (expired.length) await redis.zrem(INDEX_KEY, ...expired);
 }
 
 /**
@@ -218,6 +232,20 @@ async function markSendStarted(reminder: Reminder): Promise<boolean> {
   return Number(result) === 1;
 }
 
+/** Mantiene vivo el lease mientras la llamada al proveedor sigue pendiente. */
+async function renewClaimLease(reminder: Reminder): Promise<void> {
+  await redis.eval(
+    `local raw = redis.call('GET', KEYS[1])
+     if not raw then return 0 end
+     local item = cjson.decode(raw)
+     if item.estado ~= 'procesando' or item.claimToken ~= ARGV[1] or not item.sendStartedAt then return 0 end
+     redis.call('ZADD', KEYS[2], ARGV[2], ARGV[3])
+     return 1`,
+    2, ITEM_KEY(reminder.id), PROCESSING_KEY,
+    reminder.claimToken!, String(Date.now() + CLAIM_LEASE_MS), reminder.id,
+  );
+}
+
 async function finalizeClaim(reminder: Reminder, token: string): Promise<boolean> {
   const result = await redis.eval(
     `local raw = redis.call('GET', KEYS[1])
@@ -283,6 +311,12 @@ export async function processDueReminders(
   let enviados = 0;
   let fallidos = 0;
 
+  try {
+    await cleanupExpiredIndexBatch();
+  } catch (err) {
+    // El mantenimiento del índice no debe impedir envíos vencidos.
+    console.error('[recordatorios] no se pudo limpiar el índice:', describeError(err));
+  }
   await recoverExpiredClaims(now);
 
   for (let i = 0; i < 50; i++) {
@@ -300,6 +334,12 @@ export async function processDueReminders(
       continue;
     }
 
+    const heartbeat = setInterval(() => {
+      void renewClaimLease(reminder).catch((err) => {
+        console.error('[recordatorios] no se pudo renovar lease:', describeError(err));
+      });
+    }, Math.floor(CLAIM_LEASE_MS / 3));
+    heartbeat.unref();
     let resuelto: Reminder;
     try {
       await send({ telefono: reminder.telefono, mensaje: reminder.mensaje });
@@ -310,6 +350,8 @@ export async function processDueReminders(
       const error = describeError(err);
       console.error(`[recordatorios] falló el envío de ${reminder.id}:`, error);
       resuelto = { ...reminder, estado: 'fallido', error };
+    } finally {
+      clearInterval(heartbeat);
     }
     delete resuelto.claimToken;
     delete resuelto.claimedAt;

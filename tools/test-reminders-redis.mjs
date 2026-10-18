@@ -8,7 +8,7 @@ const TEST_URL = 'redis://127.0.0.1:6389/15';
 assert.equal(process.env.REDIS_URL, TEST_URL, 'Se requiere el Redis temporal dedicado');
 
 const redis = new Redis(TEST_URL);
-const { scheduleReminder, cancelReminder, getReminder, processDueReminders } =
+const { scheduleReminder, cancelReminder, getReminder, listReminders, processDueReminders } =
   await import('../src/services/reminderService.ts');
 
 let sent = 0;
@@ -78,7 +78,22 @@ try {
   assert.equal((await getReminder(uncertain.id))?.estado, 'fallido', 'un resultado incierto queda para revisión');
   assert.equal(sent, 2, 'no se reenvía un intento externo incierto');
 
-  console.log('Redis: cancelación, dos workers, recuperación y no reenvío incierto: OK');
+  const olderScheduled = await schedule();
+  const insert = redis.multi();
+  for (let i = 0; i < 110; i++) {
+    const id = `test_list_${olderScheduled.id}_${i}`;
+    ids.push(id);
+    const createdAt = olderScheduled.createdAt + i + 1;
+    insert.set(`reminder:${id}`, JSON.stringify({
+      ...olderScheduled, id, createdAt, estado: 'enviado',
+    }));
+    insert.zadd('reminders:index', createdAt, id);
+  }
+  await insert.exec();
+  const scheduled = await listReminders({ estado: 'programado', limit: 1 });
+  assert.equal(scheduled[0]?.id, olderScheduled.id, 'el filtro alcanza un programado anterior a 110 enviados');
+
+  console.log('Redis: cancelación, dos workers, recuperación, no reenvío incierto y filtro paginado: OK');
 } catch (error) {
   failed = true;
   console.error(error);

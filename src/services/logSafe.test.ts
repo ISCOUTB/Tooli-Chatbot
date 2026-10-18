@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeError, describeId, maskEmail, maskPhone, maskCode, describeText } from './logSafe';
+import { describeError, describeExternalError, describeId, maskEmail, maskPhone, maskCode, describeText } from './logSafe';
 
 /**
  * Estas funciones son la barrera que impide que las conversaciones de los
@@ -152,5 +152,16 @@ describe('describeError', () => {
     assert.ok(salida.includes('****4567'));
     assert.ok(salida.includes('***@utb.edu.co'));
     assert.ok(!salida.includes('\n'));
+  });
+});
+
+describe('describeExternalError', () => {
+  it('conserva solo el estado HTTP y nunca el mensaje o payload externo', () => {
+    const err = {
+      message: 'token-secreto y nombre privado',
+      response: { status: 502, data: { access_token: 'token-secreto' } },
+    };
+    assert.equal(describeExternalError(err), 'external status=502');
+    assert.equal(describeExternalError(new Error('token-secreto')), 'external error');
   });
 });

@@ -38,6 +38,7 @@ import {
   actualizarConsentimiento,
 } from '../../services/posgradosEventoSheets';
 import { upsertContactoHubspot } from '../../services/hubspotService';
+import { describeExternalError } from '../../services/logSafe';
 
 interface Ctx {
   from: string;
@@ -68,7 +69,7 @@ async function cerrarConCupos(from: string, variant: 'si' | 'no'): Promise<void>
     const flyer = fs.readFileSync(FLYER_POSGRADO);
     await posgradoMessaging.sendImage({ to: from, buffer: flyer, mimetype: 'image/jpeg', caption });
   } catch (err) {
-    console.error('[posgrados-variante] error enviando imagen de cierre:', err);
+    console.error('[posgrados-variante] error enviando imagen de cierre:', describeExternalError(err));
     await posgradoMessaging.sendText({ to: from, text: caption });
   }
   await setPosgradoSession(from, { step: 'posg_completada', data: {} });
@@ -80,7 +81,7 @@ async function cerrarConPrograma(from: string, d: Record<string, string>, input:
   try {
     await actualizarPosgradoInteres(fila, valor);
   } catch (err) {
-    console.error('[posgrados-variante] error actualizando posgrado:', err);
+    console.error('[posgrados-variante] error actualizando posgrado:', describeExternalError(err));
   }
   void upsertContactoHubspot({
     email:               d.correo ?? '',
@@ -110,7 +111,7 @@ export async function handleInteresV(ctx: Ctx): Promise<void> {
     });
     if (fila) await actualizarConsentimiento(fila, 'Sí');
   } catch (err) {
-    console.error('[posgrados-variante] error guardando registro:', err);
+    console.error('[posgrados-variante] error guardando registro:', describeExternalError(err));
   }
 
   if (input === 'no') { await cerrarConCupos(from, 'no'); return; }

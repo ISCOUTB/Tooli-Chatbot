@@ -94,6 +94,20 @@ export function describeError(err: unknown): string {
   return `[${name}${code}${status}]${message ? ` ${message}` : ''}`;
 }
 
+/** Para fallos de proveedores: solo el estado HTTP, nunca message ni payload. */
+export function describeExternalError(err: unknown): string {
+  if (!err || typeof err !== 'object') return 'external error';
+  const value = err as Record<string, unknown>;
+  const response = value.response;
+  const responseStatus = response && typeof response === 'object'
+    ? (response as Record<string, unknown>).status
+    : undefined;
+  const status = typeof responseStatus === 'number' ? responseStatus : value.status;
+  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+    ? `external status=${status}`
+    : 'external error';
+}
+
 function redactErrorMessage(message: string): string {
   return message
     .replace(/\s+/g, ' ')

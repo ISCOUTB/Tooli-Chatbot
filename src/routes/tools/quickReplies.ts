@@ -5,8 +5,14 @@
 import { Router } from 'express';
 import { AuthedRequest } from '../../middleware/auth';
 import { Response } from 'express';
+import { describeError } from '../../services/logSafe';
 
 export const quickRepliesRouter = Router();
+
+function logQuickReplyError(operation: string, err: unknown): void {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  console.error(`[tools/quick-replies/${operation}] error:`, describeError({ status }));
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    RESPUESTAS RÁPIDAS
@@ -19,9 +25,8 @@ quickRepliesRouter.get('/quick-replies', async (_req: AuthedRequest, res: Respon
     const { listQuickReplies } = await import('../../services/quickRepliesService');
     res.json({ replies: await listQuickReplies() });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/quick-replies] error al listar:', msg);
-    res.status(500).json({ error: 'internal_error', message: msg });
+    logQuickReplyError('listar', err);
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });
 
@@ -42,9 +47,8 @@ quickRepliesRouter.post('/quick-replies', async (req: AuthedRequest, res: Respon
       throw err;
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/quick-replies] error al crear:', msg);
-    res.status(500).json({ error: 'internal_error', message: msg });
+    logQuickReplyError('crear', err);
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });
 
@@ -58,8 +62,7 @@ quickRepliesRouter.delete('/quick-replies/:id', async (req: AuthedRequest, res: 
     }
     res.json({ ok: true });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[tools/quick-replies] error al eliminar:', msg);
-    res.status(500).json({ error: 'internal_error', message: msg });
+    logQuickReplyError('eliminar', err);
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });
