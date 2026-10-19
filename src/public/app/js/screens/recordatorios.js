@@ -42,6 +42,7 @@ function setRemPrefill(datos) {
 }
 let remFiltro = 'programado';
 let remLista = [];
+let remLoadSeq = 0;
 
 async function renderRecordatorios(main) {
   // Por defecto, la próxima hora en punto: lo más común es "mándalo mañana a las 8".
@@ -100,6 +101,9 @@ async function renderRecordatorios(main) {
   `;
 
   const msg = $('#remMsg');
+  const remForm = main.querySelector('#remForm');
+  const remTel = main.querySelector('#remTel');
+  const remVentana = main.querySelector('#remVentana');
   msg.addEventListener('input', () => { $('#remCount').textContent = msg.value.length; });
 
   if (remPrefill) {
@@ -129,35 +133,34 @@ async function renderRecordatorios(main) {
      bloquea —puede volver a escribir antes de la hora programada— pero el asesor
      tiene que saberlo antes de programar algo que quizá no salga. */
   const avisoVentana = async () => {
-    const tel = $('#remTel').value.replace(/\D/g, '');
-    const aviso = $('#remVentana');
-    if (!aviso) return;
-    if (tel.length < 10) { aviso.hidden = true; return; }
+    const tel = remTel.value.replace(/\D/g, '');
+    if (!remTel.isConnected) return;
+    if (tel.length < 10) { remVentana.hidden = true; return; }
     try {
       const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [tel] }) });
       if (!r?.ok) throw new Error('No se pudo consultar la conversación');
       const info = (await r.json()).users?.[0];
-      if ($('#remTel').value.replace(/\D/g, '') !== tel) return;
+      if (!remTel.isConnected || remTel.value.replace(/\D/g, '') !== tel) return;
       const ultimoEntrante = info?.recentMessages?.find(m => m.direction === 'in');
       if (!ultimoEntrante) {
-        aviso.innerHTML = `${icon('clock', 13)} Esta persona no ha escrito nunca al bot. WhatsApp solo permite texto libre dentro de las 24 h siguientes a un mensaje suyo.`;
-        aviso.hidden = false;
+        remVentana.innerHTML = `${icon('clock', 13)} Esta persona no ha escrito nunca al bot. WhatsApp solo permite texto libre dentro de las 24 h siguientes a un mensaje suyo.`;
+        remVentana.hidden = false;
         return;
       }
       const horas = Math.floor((Date.now() - ultimoEntrante.ts) / 3_600_000);
       if (horas >= 23) {
-        aviso.innerHTML = `${icon('clock', 13)} Escribió hace ${horas} h. Si no vuelve a escribir antes de la hora programada, Meta rechazará el mensaje por la ventana de 24 h.`;
-        aviso.hidden = false;
+        remVentana.innerHTML = `${icon('clock', 13)} Escribió hace ${horas} h. Si no vuelve a escribir antes de la hora programada, Meta rechazará el mensaje por la ventana de 24 h.`;
+        remVentana.hidden = false;
       } else {
-        aviso.hidden = true;
+        remVentana.hidden = true;
       }
-    } catch { if ($('#remTel').value.replace(/\D/g, '') === tel) aviso.hidden = true; }
+    } catch { if (remTel.isConnected && remTel.value.replace(/\D/g, '') === tel) remVentana.hidden = true; }
   };
   $('#remTel').addEventListener('change', avisoVentana);
   $('#remTel').addEventListener('blur', avisoVentana);
   if ($('#remTel').value) avisoVentana();
 
-  $('#remForm').addEventListener('submit', async (e) => {
+  remForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#remSubmit');
     const fb = $('#remFeedback');
@@ -177,8 +180,9 @@ async function renderRecordatorios(main) {
         method: 'POST',
         body: JSON.stringify({ telefono, mensaje, scheduledAt: new Date(scheduledAt).toISOString() }),
       });
-      if (!r) return;
+      if (!remForm.isConnected || !r) return;
       const data = await r.json();
+      if (!remForm.isConnected) return;
       if (!r.ok) {
         fb.innerHTML = `<span class="rem-error">${icon('x', 13)} ${escapeHtml(data.message ?? 'No se pudo programar')}</span>`;
         haptic([20, 30, 20]);
@@ -192,7 +196,7 @@ async function renderRecordatorios(main) {
       remFiltro = 'programado';
       await cargarRecordatorios();
     } catch {
-      fb.innerHTML = `<span class="rem-error">${icon('x', 13)} Sin conexión con el servidor.</span>`;
+      if (remForm.isConnected) fb.innerHTML = `<span class="rem-error">${icon('x', 13)} Sin conexión con el servidor.</span>`;
     } finally {
       btn.disabled = false;
       btn.classList.remove('is-loading');
@@ -209,16 +213,21 @@ async function renderRecordatorios(main) {
 }
 
 async function cargarRecordatorios() {
+  const content = $('#remContent');
+  if (!content) return;
+  const seq = ++remLoadSeq;
   try {
     const r = await api('/api/tools/recordatorios');
     if (!r?.ok) throw new Error('No se pudieron cargar los recordatorios');
     const { reminders } = await r.json();
+    if (!content.isConnected || seq !== remLoadSeq) return;
     if (!Array.isArray(reminders)) throw new Error('Respuesta inválida');
     remLista = reminders;
   } catch {
-    const content = $('#remContent');
-    if (content) content.innerHTML = '<div class="alert alert-error" role="alert">No se pudieron cargar los recordatorios. <button type="button" class="btn btn-secondary" id="retryRem">Reintentar</button></div>';
-    $('#retryRem')?.addEventListener('click', cargarRecordatorios);
+    if (content.isConnected && seq === remLoadSeq) {
+      content.innerHTML = '<div class="alert alert-error" role="alert">No se pudieron cargar los recordatorios. <button type="button" class="btn btn-secondary" id="retryRem">Reintentar</button></div>';
+      content.querySelector('#retryRem')?.addEventListener('click', cargarRecordatorios);
+    }
     return;
   }
 

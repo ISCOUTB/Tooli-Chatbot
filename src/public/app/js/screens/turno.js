@@ -1,5 +1,5 @@
 import { api } from '../core/api.js';
-import { $, $$, copyToClipboard, escapeHtml, haptic } from '../core/dom.js';
+import { $$, copyToClipboard, escapeHtml, haptic } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { contextSheet } from '../ui/sheet.js';
 
@@ -24,14 +24,17 @@ function renderTurno(main) {
     </div>
   `;
 
-  $('#turnoForm').addEventListener('submit', async (e) => {
+  const form = main.querySelector('#turnoForm');
+  const alert = main.querySelector('#turnoAlert');
+  const result = main.querySelector('#turnoResult');
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const codigo = $('#codigo').value.trim().toUpperCase();
-    const btn = $('#turnoBtn');
+    const codigo = form.querySelector('#codigo').value.trim().toUpperCase();
+    const btn = form.querySelector('#turnoBtn');
     haptic(10);
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Buscando…';
-    $('#turnoAlert').innerHTML = '';
-    $('#turnoResult').innerHTML = `
+    alert.innerHTML = '';
+    result.innerHTML = `
       <div class="result-block turno-skeleton-block" aria-hidden="true">
         ${Array.from({ length: 5 }).map(() => `
           <div class="row"><span class="skeleton skeleton-line" style="width:72px;height:11px;"></span><span class="skeleton skeleton-line" style="width:118px;height:12px;"></span></div>
@@ -39,18 +42,21 @@ function renderTurno(main) {
       </div>`;
     try {
       const r = await api(`/api/tools/turno/${encodeURIComponent(codigo)}`);
+      if (!form.isConnected || !r) return;
       if (!r.ok) {
         const err = await r.json();
-        $('#turnoResult').innerHTML = '';
+        if (!form.isConnected) return;
+        result.innerHTML = '';
         const msg = err.error === 'no_encontrado' ? `No se encontró información para <strong>${escapeHtml(codigo)}</strong>. Verifica el código e intenta de nuevo.` :
                     err.error === 'codigo_invalido' ? 'Formato de código inválido. Usa T seguido de 8 dígitos (ej. T00012345).' : 'No se pudo consultar el turno. Intenta de nuevo en unos segundos.';
         const tone = err.error === 'no_encontrado' ? 'alert-info' : 'alert-error';
         const ic = err.error === 'no_encontrado' ? icon('search', 16) : icon('x', 16);
-        $('#turnoAlert').innerHTML = `<div class="alert ${tone} turno-alert"><span class="turno-alert-icon">${ic}</span><span>${msg}</span></div>`;
+        alert.innerHTML = `<div class="alert ${tone} turno-alert"><span class="turno-alert-icon">${ic}</span><span>${msg}</span></div>`;
         haptic([20, 30, 20]);
         return;
       }
       const { turno } = await r.json();
+      if (!form.isConnected) return;
       const fields = [
         // Si a la hoja le falta la columna de apellido, no debe salir "undefined"
         // pegado al nombre del estudiante.
@@ -60,14 +66,14 @@ function renderTurno(main) {
         ['Fecha', turno.fecha],
         ['Hora', turno.hora],
       ];
-      $('#turnoResult').innerHTML = `
+      result.innerHTML = `
         <div class="result-block turno-result">
           <div class="turno-result-head"><span class="turno-result-dot"></span> Resultado para ${escapeHtml(codigo)}</div>
           ${fields.map(([label, value]) => `<div class="row" data-copy-row><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value) || '—'}</span></div>`).join('')}
         </div>
         <p class="turno-hint">Mantén presionado un dato para copiarlo</p>
       `;
-      $$('#turnoResult [data-copy-row]').forEach(row => {
+      $$('[data-copy-row]', result).forEach(row => {
         const label = row.querySelector('.label').textContent;
         const value = row.querySelector('.value').textContent;
         if (!value || value === '—') return;
@@ -75,9 +81,11 @@ function renderTurno(main) {
       });
       haptic([15, 40, 15]);
     } catch {
-      $('#turnoResult').innerHTML = '';
-      $('#turnoAlert').innerHTML = `<div class="alert alert-error turno-alert"><span class="turno-alert-icon">${icon('x', 16)}</span><span>Error de conexión. Revisa tu internet e intenta de nuevo.</span></div>`;
-      haptic([20, 30, 20]);
+      if (form.isConnected) {
+        result.innerHTML = '';
+        alert.innerHTML = `<div class="alert alert-error turno-alert"><span class="turno-alert-icon">${icon('x', 16)}</span><span>Error de conexión. Revisa tu internet e intenta de nuevo.</span></div>`;
+        haptic([20, 30, 20]);
+      }
     } finally {
       btn.disabled = false; btn.textContent = 'Buscar';
     }

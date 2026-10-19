@@ -167,19 +167,25 @@ async function renderEventoPosgrado(main) {
   }
 
   setPullToRefresh(() => loadEvento());
+  const eventoContent = main.querySelector('#eventoContent');
+  let loadSeq = 0;
   async function loadEvento() {
-    $('#refreshEvento').querySelector('.refresh-icon')?.classList.add('spin-once');
+    if (!eventoContent?.isConnected) return;
+    const seq = ++loadSeq;
+    main.querySelector('#refreshEvento')?.querySelector('.refresh-icon')?.classList.add('spin-once');
     try {
       const r = await api('/api/tools/registros-evento-posgrado');
+      if (!eventoContent.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { rows } = await r.json();
+      if (!eventoContent.isConnected || seq !== loadSeq) return;
       eventoRows = rows ?? [];
       const pintarResumenEvento = (visibles) => {
         const el = $('#eventoResumen');
         if (el) el.textContent = textoResumenEvento(resumirEvento(eventoRows), visibles);
       };
       if (!eventoRows.length) {
-        $('#eventoContent').innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">Aún no hay registros de este evento. Cuando alguien complete el flujo del meetup por WhatsApp, aparecerá aquí.</p></div>`;
+        eventoContent.innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">Aún no hay registros de este evento. Cuando alguien complete el flujo del meetup por WhatsApp, aparecerá aquí.</p></div>`;
         $('#eventoFilterWrap').innerHTML = '';
         $('#becaVistaWrap').innerHTML = '';
         pintarResumenEvento(0);
@@ -199,7 +205,7 @@ async function renderEventoPosgrado(main) {
       renderEventoGrid();
     } catch (err) {
       console.error(err);
-      $('#eventoContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros del evento. Verifica que el Sheet esté configurado.</div>';
+      if (eventoContent.isConnected && seq === loadSeq) eventoContent.innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros del evento. Verifica que el Sheet esté configurado.</div>';
     }
   }
 
@@ -240,7 +246,7 @@ async function renderEventoPosgrado(main) {
           const autoriza = (row[6] || '').toLowerCase().startsWith('s');
           const meta = seguimientoMeta(estadoEventoDe(row));
           return `
-          <div class="crm-card" data-longpress data-row="${row.__i}">
+          <div class="crm-card" data-longpress data-row="${row.__i}" tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}">
             <div class="advisor-card-top">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[1] || nombre, nombre)}</div>
               <span class="badge" style="background:${meta.color}22;color:${meta.color};">${meta.icon} ${escapeHtml(meta.value)}</span>
@@ -258,6 +264,7 @@ async function renderEventoPosgrado(main) {
     $$('.crm-card[data-longpress]').forEach(card => {
       const row = eventoRows[Number(card.dataset.row)];
       card.addEventListener('click', () => openEventoProfile(row));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEventoProfile(row); } });
       contextSheet(card, {
         title: row[2] || 'Prospecto',
         subtitle: row[3] || undefined,
@@ -275,6 +282,7 @@ async function renderEventoPosgrado(main) {
     const fila = row.__i + 2; // el Sheet arranca a leer en A2
     try {
       const res = await api(`/api/tools/registros-evento-posgrado/${fila}/seguimiento`, { method: 'POST', body: JSON.stringify({ estado }) });
+      if (!eventoContent.isConnected || !res) return;
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         toast(err.error === 'estado_invalido' ? 'Estado no válido' : 'No se pudo actualizar el seguimiento');
@@ -307,7 +315,7 @@ async function renderEventoPosgrado(main) {
     // patrón que .phone-preview-overlay (styles.css).
     overlay.style.zIndex = '500';
     overlay.innerHTML = `
-      <div class="action-sheet" style="max-width:480px;">
+      <div class="action-sheet" role="dialog" aria-modal="true" aria-label="Invitar a próximo evento" style="max-width:480px;">
         <div class="sheet-group" style="padding:16px;text-align:left;">
           <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Invitar a próximo evento</div>
           <div class="sheet-subtitle" style="text-align:left;margin-bottom:12px;">Se enviará un WhatsApp real a +${escapeHtml(whatsapp)} vía ${whatsapp ? 'el número de Posgrados' : 'el bot'}. Puedes editar el texto antes de enviar.</div>
@@ -325,8 +333,28 @@ async function renderEventoPosgrado(main) {
       </div>
     `;
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
-    const close = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 260); };
+    const opener = main.querySelector(`.crm-card[data-row="${row.__i}"]`);
+    requestAnimationFrame(() => { overlay.classList.add('open'); overlay.querySelector('#invitarText')?.focus({ preventScroll: true }); });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('hashchange', close);
+      document.removeEventListener('keydown', onKey);
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 260);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key !== 'Tab') return;
+      const controls = Array.from(overlay.querySelectorAll('button, textarea')).filter(el => !el.disabled && el.getClientRects().length);
+      if (!controls.length) return;
+      if (e.shiftKey && (document.activeElement === controls[0] || !overlay.contains(document.activeElement))) { e.preventDefault(); controls.at(-1).focus(); }
+      else if (!e.shiftKey && (document.activeElement === controls.at(-1) || !overlay.contains(document.activeElement))) { e.preventDefault(); controls[0].focus(); }
+    };
+    window.addEventListener('hashchange', close);
+    document.addEventListener('keydown', onKey);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('#invitarCancel').addEventListener('click', close);
     overlay.querySelector('#invitarSend').addEventListener('click', async () => {
@@ -340,6 +368,8 @@ async function renderEventoPosgrado(main) {
         const res = await api(`/api/tools/registros-evento-posgrado/${fila}/invitar`, {
           method: 'POST', body: JSON.stringify({ mensaje: texto, whatsapp }),
         });
+        if (!eventoContent.isConnected) { close(); return; }
+        if (!overlay.isConnected || !res) return;
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(err.message || err.error || 'No se pudo enviar')}</div>`;
@@ -384,7 +414,7 @@ async function renderEventoPosgrado(main) {
       ],
       actions: autoriza ? [
         ...(whatsapp ? [{ label: 'Vista previa en teléfono', icon: '📲', onClick: () => previewPhoneFor(whatsapp), closeAfter: false }] : []),
-        ...(whatsapp ? [{ label: 'Invitar a próximo evento', icon: '📨', onClick: () => openInvitarModal(row), closeAfter: false }] : []),
+        ...(whatsapp ? [{ label: 'Invitar a próximo evento', icon: '📨', onClick: () => openInvitarModal(row) }] : []),
         ...SEGUIMIENTO_ESTADOS.filter(s => s.value !== seguimiento).map(s => ({
           label: `Marcar: ${s.value}`, icon: s.icon, onClick: () => setSeguimiento(row, s.value),
         })),

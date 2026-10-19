@@ -80,6 +80,8 @@ async function renderConversaciones(main) {
       </div>
     </div>
   `;
+  const rows = main.querySelector('#inboxRows');
+  const filterWrap = main.querySelector('#inboxFilterWrap');
 
   $('#inboxSearch').addEventListener('input', (e) => renderInboxRows(e.target.value.trim().toLowerCase()));
   $('#inboxNuevos').addEventListener('click', () => { haptic(12); renderConversaciones(main); });
@@ -97,16 +99,18 @@ async function renderConversaciones(main) {
 
   try {
     const r = await api('/api/tools/bot-users');
+    if (!rows.isConnected || !r) return;
     const { phones } = await r.json();
+    if (!rows.isConnected) return;
     if (!phones.length) {
-      $('#inboxRows').innerHTML = `
+      rows.innerHTML = `
         <div class="inbox-empty" style="height:auto;padding:44px 20px;flex-direction:column;text-align:center;gap:6px;">
           <div class="inbox-empty-icon">💬</div>
           <div class="inbox-empty-title">Aún no hay conversaciones</div>
           <div class="inbox-empty-sub">Cuando alguien escriba por WhatsApp aparecerá aquí.</div>
         </div>`;
-      $('#inboxRows')?.setAttribute('aria-busy', 'false');
-      $('#inboxRows')?.setAttribute('aria-label', 'Conversaciones');
+      rows.setAttribute('aria-busy', 'false');
+      rows.setAttribute('aria-label', 'Conversaciones');
       return;
     }
     const preview = phones.slice(0, 30);
@@ -115,10 +119,12 @@ async function renderConversaciones(main) {
     let details;
     try {
       const rb = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: preview }) });
+      if (!rows.isConnected || !rb) return;
       details = (await rb.json()).users ?? [];
     } catch {
       details = preview.map(phone => ({ phone, recentMessages: [], banned: false, session: null }));
     }
+    if (!rows.isConnected) return;
     conversationsCache = details
       .map(info => ({
         phone: info.phone,
@@ -129,12 +135,12 @@ async function renderConversaciones(main) {
       }))
       .concat(phones.slice(30).map(phone => ({ phone, banned: false, nombre: undefined, last: null, cat: null })))
       .sort((a, b) => (b.last?.ts ?? 0) - (a.last?.ts ?? 0));
-    $('#inboxRows')?.setAttribute('aria-busy', 'false');
-    $('#inboxRows')?.setAttribute('aria-label', 'Conversaciones');
+    rows.setAttribute('aria-busy', 'false');
+    rows.setAttribute('aria-label', 'Conversaciones');
 
     const counts = conversationsCache.reduce((acc, c) => { const k = c.cat?.key ?? 'otro'; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {});
     inboxFilter = 'todos';
-    $('#inboxFilterWrap').appendChild(buildSegmented(
+    filterWrap.appendChild(buildSegmented(
       [
         { value: 'todos', label: `Todos (${conversationsCache.length})` },
         ...Object.entries(FLOW_CATEGORIES).filter(([k]) => counts[k]).map(([k, cat]) => ({ value: k, label: `${cat.label} (${counts[k]})` })),
@@ -143,15 +149,16 @@ async function renderConversaciones(main) {
     ));
     renderInboxRows('');
   } catch {
+    if (!rows.isConnected) return;
     // Error con recuperación clara y reintento (Esc.7). Sin onclick inline por
     // el CSP del panel: se cablea con addEventListener.
-    $('#inboxRows').innerHTML = `
+    rows.innerHTML = `
       <div class="alert alert-error" role="alert" style="margin:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
         <span>No se pudo cargar la lista. Revisa tu conexión.</span>
         <button type="button" class="btn btn-secondary" id="inboxRetry" style="font-size:13px;padding:8px 16px;">Reintentar</button>
       </div>`;
-    $('#inboxRows')?.setAttribute('aria-busy', 'false');
-    $('#inboxRows')?.setAttribute('aria-label', 'Error al cargar conversaciones');
+    rows.setAttribute('aria-busy', 'false');
+    rows.setAttribute('aria-label', 'Error al cargar conversaciones');
     $('#inboxRetry')?.addEventListener('click', () => renderConversaciones(mainEl ?? main));
   }
 }

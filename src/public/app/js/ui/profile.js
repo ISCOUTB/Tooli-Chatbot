@@ -31,10 +31,14 @@ function openProfileSheet({ avatarBg, avatarText, title, subtitle, badges = [], 
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add('open'));
 
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     overlay.classList.remove('open');
     setTimeout(() => overlay.remove(), 260);
     document.removeEventListener('keydown', onKey);
+    window.removeEventListener('hashchange', close);
     if (focoPrevio?.isConnected) focoPrevio.focus({ preventScroll: true });
   };
   const onKey = (e) => {
@@ -51,6 +55,7 @@ function openProfileSheet({ avatarBg, avatarText, title, subtitle, badges = [], 
   overlay.querySelector('.profile-sheet-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', close);
   actions.forEach((a, i) => overlay.querySelector(`[data-pa="${i}"]`)?.addEventListener('click', () => {
     a.onClick?.();
     if (a.closeAfter !== false) close();

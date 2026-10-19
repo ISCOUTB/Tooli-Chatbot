@@ -60,6 +60,8 @@ async function renderMetricas(main) {
       </div>
     </div>
   `;
+  const content = main.querySelector('#metricsContent');
+  let loadSeq = 0;
 
   let metDays = '7';
   $('#metRangeWrap').appendChild(buildSegmented(
@@ -70,10 +72,14 @@ async function renderMetricas(main) {
 
   setPullToRefresh(() => loadMetrics());
   async function loadMetrics() {
+    const seq = ++loadSeq;
     destroyMetricsCharts();
     try {
       const r = await api(`/api/tools/metrics/range?days=${metDays}`);
+      if (!content.isConnected || seq !== loadSeq || !r) return;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { days } = await r.json();
+      if (!content.isConnected || seq !== loadSeq) return;
       const dateKeys = Object.keys(days).sort();
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
 
@@ -89,7 +95,7 @@ async function renderMetricas(main) {
 
       const totalMsgs = numv({ ...totals }, 'menu_shown') + (totals.ai_request ?? 0) + (totals.turno_consultado ?? 0) + (totals.recibo_descargado ?? 0);
 
-      $('#metricsContent').innerHTML = `
+      content.innerHTML = `
         <div class="stats-grid stagger-in" style="margin-bottom:16px;">
           <div class="stat-card"><div class="label">Mensajes totales</div><div class="value">${totalMsgs}</div></div>
           <div class="stat-card"><div class="label">Preguntas IA</div><div class="value">${totals.ai_request ?? 0}</div></div>
@@ -127,10 +133,11 @@ async function renderMetricas(main) {
       `;
 
       await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+      if (!content.isConnected || seq !== loadSeq) return;
       const topKeys = rows.slice(0, 4).map(([k]) => k);
       const ticks = { color: '#94a3b8' };
       const grid = { color: '#e2e8f0' };
-      metricsCharts.push(new Chart(document.getElementById('metChartDaily'), {
+      metricsCharts.push(new Chart(content.querySelector('#metChartDaily'), {
         type: 'line',
         data: {
           labels: dateKeys.map(d => d.slice(5)),
@@ -149,7 +156,7 @@ async function renderMetricas(main) {
       }));
     } catch (err) {
       console.error(err);
-      $('#metricsContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas.</div>';
+      if (content.isConnected && seq === loadSeq) content.innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas.</div>';
     }
   }
 

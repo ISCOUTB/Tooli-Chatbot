@@ -428,8 +428,12 @@ async function renderRegistros(main) {
   }
 
   setPullToRefresh(() => loadReg());
+  const regContent = main.querySelector('#regContent');
+  let loadSeq = 0;
   async function loadReg() {
-    $('#refreshReg').querySelector('.refresh-icon')?.classList.add('spin-once');
+    if (!regContent?.isConnected) return;
+    const seq = ++loadSeq;
+    main.querySelector('#refreshReg')?.querySelector('.refresh-icon')?.classList.add('spin-once');
     try {
       // Las fichas se traen en una sola llamada junto con los registros: una
       // por tarjeta sería un N+1 contra el backend al pintar la grilla.
@@ -437,8 +441,10 @@ async function renderRegistros(main) {
         api('/api/tools/registros-posgrado'),
         api('/api/tools/crm/fichas').then(x => x.json()).catch(() => ({ fichas: {} })),
       ]);
+      if (!regContent.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { rows } = await r.json();
+      if (!regContent.isConnected || seq !== loadSeq) return;
       crmFichas = fichasRes.fichas ?? {};
       crmRows = rows ?? [];
       const resumenCarga = resumirSegmentos(crmRows);
@@ -447,7 +453,7 @@ async function renderRegistros(main) {
         if (el) el.textContent = textoResumenSegmentos(resumenCarga, visibles);
       };
       if (!crmRows.length) {
-        $('#regContent').innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros de Pregrado ni Posgrado aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
+        regContent.innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros de Pregrado ni Posgrado aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
         $('#crmFilterWrap').innerHTML = '';
         pintarResumen(0);
         return;
@@ -489,7 +495,7 @@ async function renderRegistros(main) {
       renderCrmGrid();
     } catch (err) {
       console.error(err);
-      $('#regContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros. Verifica que el Sheet esté configurado.</div>';
+      if (regContent.isConnected && seq === loadSeq) regContent.innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros. Verifica que el Sheet esté configurado.</div>';
     }
   }
 
@@ -538,7 +544,7 @@ async function renderRegistros(main) {
           const hasPhone = String(row[3] || '').replace(/\D/g, '').length >= 8;
           const isSelected = selected.has(idx);
           return `
-          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" style="position:relative;">
+          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" ${selectMode ? '' : `tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}"`} style="position:relative;">
             ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${idx}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
             ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:#dc2626;font-size:10px;">Sin WhatsApp</span>` : ''}
             <div class="advisor-card-top" style="${selectMode ? 'margin-top:6px;' : ''}">
@@ -579,6 +585,7 @@ async function renderRegistros(main) {
         return;
       }
       card.addEventListener('click', () => openStudentProfile(row));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openStudentProfile(row); } });
       contextSheet(card, {
         title: row[1] || 'Prospecto',
         subtitle: row[2] || undefined,
@@ -609,11 +616,13 @@ async function renderRegistros(main) {
         flowInfo = { step: flowCategory(info.session?.step), last: info.recentMessages?.[0] ?? null, banned: info.banned };
       } catch { /* sin datos de conversación disponibles */ }
     }
+    if (!regContent.isConnected) return;
     let ficha = null;
     if (phone) {
       try { ficha = (await (await api(`/api/tools/crm/${phone}`)).json()).ficha; }
       catch { /* la ficha es opcional: si falla, el perfil se abre igual */ }
     }
+    if (!regContent.isConnected) return;
     openProfileSheet({
       avatarBg: avatarTone(nombre || phone), avatarText: initialsFor(phone || nombre, nombre),
       title: nombre || 'Prospecto', subtitle: email || (phone ? `+${phone}` : undefined),
