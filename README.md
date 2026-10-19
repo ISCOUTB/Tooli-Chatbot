@@ -193,6 +193,9 @@ MOCK_ANON=1 node tools/mock-panel-server.cjs   # para ver la pantalla de login
 
 Sirve datos de ejemplo con la misma forma que la API real y aplica las mismas cabeceras de
 seguridad, para que lo que se ve en local sea lo que se ve en producción.
+Con el mock en marcha, `node tools/qa-panel-all.cjs` revisa las doce pantallas
+a 375, 800 y 1280 px (errores JavaScript, alertas y desbordes) y guarda capturas
+en `tmp/`.
 
 ---
 
@@ -218,6 +221,7 @@ REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-inbound-redis.mjs
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-broadcast-redis.mjs
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-chatwoot-webhook-redis.mjs
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-nutria-redis.mjs
 docker stop tooli-redis-qa
 ```
 

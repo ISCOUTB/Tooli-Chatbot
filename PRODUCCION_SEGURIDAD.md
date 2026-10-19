@@ -13,7 +13,7 @@ La configuración de Compose ahora publica los puertos 3000, 8081, 3001, 9090, 9
 
 Después de configurar los secretos, verifica `docker compose config --quiet`, inicia los servicios y prueba el webhook legítimo de cada proveedor. La configuración de Compose se puede revisar sin secretos locales con `docker compose --env-file .env.example config --no-env-resolution --quiet`; esto solo valida la sintaxis, no las conexiones ni la persistencia real.
 
-Los QR NutriA nuevos usan diez caracteres aleatorios. El escáner acepta también los códigos anteriores de cuatro caracteres hasta que caduquen. Prueba un canje real y dos canjes simultáneos en un entorno de ensayo antes de un evento; la operación atómica en Redis aún requiere esa comprobación con el servicio en marcha.
+Los QR NutriA nuevos usan diez caracteres aleatorios. El escáner acepta también los códigos anteriores de cuatro caracteres hasta que caduquen. La reserva y el canje atómicos pasaron pruebas sintéticas concurrentes contra Redis real temporal; antes de un evento, prueba el QR y el escáner físicos con dos canjes simultáneos en un entorno de ensayo.
 
 ## Bandeja de webhooks entrantes
 
