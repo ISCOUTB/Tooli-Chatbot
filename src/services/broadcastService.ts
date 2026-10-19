@@ -4,7 +4,7 @@ import {
   BroadcastValidationError,
   validarTemplateName, validarLanguage, clasificarDestinatarios,
 } from './broadcastValidation';
-import { describeError } from './logSafe';
+import { describeExternalError } from './logSafe';
 
 // Re-exportados para que la ruta valide el formato sin tocar la API de Meta.
 export { BroadcastValidationError, validarTemplateName, validarLanguage };
@@ -43,26 +43,44 @@ export async function listApprovedTemplates(): Promise<ApprovedTemplate[]> {
   }
 
   const url = `${GRAPH_URL}/${wabaId}/message_templates`;
-  const res = await axios.get(url, {
-    params: { status: 'APPROVED' },
-    headers: { Authorization: `Bearer ${token}` },
-    timeout: 15_000,
-  });
-
-  // Meta responde { data: [...] } — si no hay data, devolver vacío
-  const raw: unknown[] = res.data?.data ?? [];
-  const templates: ApprovedTemplate[] = raw.map((item: unknown) => {
-    const t = item as Record<string, unknown>;
-    return {
-      name: String(t.name ?? ''),
-      language: String(t.language ?? ''),
-      category: String(t.category ?? ''),
-      components: Array.isArray(t.components) ? (t.components as unknown[]) : [],
-    };
-  });
-
-  cache = { data: templates, at: Date.now() };
-  return templates;
+  const templates: ApprovedTemplate[] = [];
+  const seenCursors = new Set<string>();
+  let after: string | undefined;
+  // Meta pagina los templates. Una lista parcial haría que un template
+  // aprobado pareciera inexistente y bloquearía su envío.
+  for (let page = 0; page < 100; page++) {
+    const res = await axios.get(url, {
+      params: { status: 'APPROVED', limit: 100, ...(after ? { after } : {}) },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15_000,
+    });
+    if (!Array.isArray(res.data?.data)) {
+      throw new Error('Meta devolvió una lista de templates inválida');
+    }
+    for (const item of res.data.data as unknown[]) {
+      if (!item || typeof item !== 'object') continue;
+      const t = item as Record<string, unknown>;
+      templates.push({
+        name: String(t.name ?? ''),
+        language: String(t.language ?? ''),
+        category: String(t.category ?? ''),
+        components: Array.isArray(t.components) ? (t.components as unknown[]) : [],
+      });
+    }
+    // Reusar la URL fija y pasar solo el cursor evita seguir un `paging.next`
+    // arbitrario incluido en una respuesta externa.
+    const cursor = res.data?.paging?.cursors?.after;
+    if (!res.data?.paging?.next) {
+      cache = { data: templates, at: Date.now() };
+      return templates;
+    }
+    if (typeof cursor !== 'string' || !cursor || seenCursors.has(cursor)) {
+      throw new Error('Paginación de templates de Meta inválida');
+    }
+    seenCursors.add(cursor);
+    after = cursor;
+  }
+  throw new Error('La lista de templates de Meta supera el límite de páginas');
 }
 
 /** Limpia el cache (útil para tests). */
@@ -117,6 +135,27 @@ export async function sendBroadcast(
 
   // Preflight único: evita intentar hasta 200 envíos con un template que no
   // existe, no está aprobado para el idioma o exige parámetros no soportados.
+  await ensureApprovedTemplate(name, lang);
+
+  const enviados: string[] = [];
+  const fallidos: { numero: string; error: string }[] = [...invalidos];
+
+  for (let i = 0; i < validos.length; i++) {
+    const to = validos[i];
+    if (i > 0) await new Promise<void>(resolve => setTimeout(resolve, 300));
+    try {
+      await sendTemplateToRecipient(name, lang, to);
+      enviados.push(to);
+    } catch (err: unknown) {
+      fallidos.push({ numero: to, error: extractError(err) });
+    }
+  }
+
+  return { enviados, fallidos, solicitados, duplicadosOmitidos };
+}
+
+/** Preflight antes de crear un trabajo persistente o enviar un lote directo. */
+export async function ensureApprovedTemplate(name: string, lang: string): Promise<void> {
   const approved = (await listApprovedTemplates()).find(t => t.name === name && t.language === lang);
   if (!approved) {
     throw new BroadcastValidationError(`El template ${name} (${lang}) no está aprobado o no existe`);
@@ -124,19 +163,14 @@ export async function sendBroadcast(
   if (JSON.stringify(approved.components).includes('{{')) {
     throw new BroadcastValidationError('Ese template requiere parámetros y todavía no es compatible con envíos masivos');
   }
+}
 
+/** Un único intento externo. El job registra su inicio ANTES de llamar aquí. */
+export async function sendTemplateToRecipient(name: string, lang: string, to: string): Promise<void> {
+  const { token, phoneNumberId } = config.metaCloud;
+  if (!token || !phoneNumberId) throw new Error('Faltan credenciales de Meta');
   const url = `${GRAPH_URL}/${phoneNumberId}/messages`;
-  const enviados: string[] = [];
-  const fallidos: { numero: string; error: string }[] = [...invalidos];
-
-  for (let i = 0; i < validos.length; i++) {
-    const to = validos[i];
-    // Delay entre envíos (excepto el primero) para no saturar rate limit
-    if (i > 0) {
-      await new Promise<void>(resolve => setTimeout(resolve, 300));
-    }
-    try {
-      await axios.post(
+  await axios.post(
         url,
         {
           messaging_product: 'whatsapp',
@@ -149,24 +183,17 @@ export async function sendBroadcast(
           timeout: 15_000,
         },
       );
-      enviados.push(to);
-    } catch (err: unknown) {
-      const msg = extractError(err);
-      fallidos.push({ numero: to, error: msg });
-    }
-  }
-
-  return { enviados, fallidos, solicitados, duplicadosOmitidos };
 }
 
-function extractError(err: unknown): string {
+export function extractError(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    const data = err.response?.data as Record<string, unknown> | undefined;
-    // Forma real de error de Meta: { error: { message, error_user_msg, code } }
-    const metaErr = data?.error as Record<string, unknown> | undefined;
-    if (metaErr?.message) return describeError(String(metaErr.message));
-    if (data?.error) return describeError(String(data.error));
-    if (err.message) return describeError(err);
+    const status = err.response?.status;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      const metaCode = err.response?.data?.error?.code;
+      const code = Number.isInteger(metaCode) ? `, código ${metaCode}` : '';
+      return `Meta rechazó el envío (HTTP ${status}${code})`;
+    }
+    return 'Resultado del envío no confirmado; revisar antes de reenviar.';
   }
-  return describeError(err);
+  return describeExternalError(err);
 }

@@ -1,11 +1,28 @@
 import { setSession } from '../services/session';
-import { startNotasLogin, submitNotasMfa, NotasLoginResult } from '../services/notasService';
+import { startNotasLogin, submitNotasMfa, closeNotasSession, NotasLoginResult } from '../services/notasService';
 import { getIdentity, isVerified } from '../services/identityService';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen } from './shared';
 import { startVerificationFlow } from './verificacion';
 import { parseGlobalCommand, returnMenuStep } from './commands';
 import type { FlowArea, SessionData } from './commands';
+import { RECURSOS_ACADEMICOS } from '../services/academicoLinks';
+
+// El login automatizado solicita la contraseña institucional por WhatsApp y
+// aún no ha sido validado contra Banner con una cuenta de prueba. Se habilita
+// únicamente tras esa revisión explícita; el enlace oficial sigue disponible.
+const notasSsoEnabled = () => process.env.TOOLI_NOTAS_SSO_ENABLED === '1';
+const notasUrl = RECURSOS_ACADEMICOS.find((r) => r.id === 'notas')?.url ?? 'https://autoservicio4prod.utb.edu.co';
+
+async function ofrecerPortalOficial(from: string, data?: SessionData): Promise<void> {
+  await closeNotasSession(from);
+  await setSession(from, { step: returnMenuStep(data), data: {} });
+  await messaging.sendText({
+    to: from,
+    text: 'Para consultar tus notas, entra directamente al autoservicio oficial de la UTB con tus credenciales institucionales:\n' +
+      `${notasUrl}\n\nNo envíes tu contraseña por WhatsApp. Escribe *menu* para ver otras opciones.`,
+  });
+}
 
 /**
  * Consulta de notas — servicio compartido por Pregrado y Posgrado.
@@ -17,6 +34,10 @@ import type { FlowArea, SessionData } from './commands';
  */
 export async function iniciarConsultaDeNotas(from: string, originArea?: FlowArea): Promise<void> {
   const data: SessionData = originArea ? { originArea } : {};
+  if (!notasSsoEnabled()) {
+    await ofrecerPortalOficial(from, data);
+    return;
+  }
   if (await isVerified(from)) {
     await setSession(from, { step: 'notas_password', data });
     await messaging.sendText({
@@ -53,6 +74,10 @@ async function entregarNotas(from: string, res: NotasLoginResult, data?: Session
 
 export async function handleNotasPassword(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+  if (!notasSsoEnabled()) {
+    await ofrecerPortalOficial(from, session?.data);
+    return;
+  }
   const command = parseGlobalCommand(text);
   if (command === 'menu' || command === 'salir') {
     await salirAlMenuRaiz(from);
@@ -87,12 +112,18 @@ export async function handleNotasPassword(ctx: FlowContext): Promise<void> {
 
 export async function handleNotasMfa(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+  if (!notasSsoEnabled()) {
+    await ofrecerPortalOficial(from, session?.data);
+    return;
+  }
   const command = parseGlobalCommand(text);
   if (command === 'menu' || command === 'salir') {
+    await closeNotasSession(from);
     await salirAlMenuRaiz(from);
     return;
   }
   if (command === 'volver') {
+    await closeNotasSession(from);
     await volverAlMenuDeOrigen(from, session?.data);
     return;
   }

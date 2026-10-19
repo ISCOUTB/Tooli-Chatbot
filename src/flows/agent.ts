@@ -170,7 +170,7 @@ export async function handleAgentTiP2(ctx: FlowContext): Promise<void> {
 
     await sendAiHint(from);
   } catch (err) {
-    console.error('[ai-ti] error:', err);
+    console.error('[ai-ti] error:', err instanceof AIUnavailableError ? err.reason : 'unknown');
     await track('ai_failed', { area: 'ti', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
     await notifyAIDownAndEscalate(from, data);
   }
@@ -254,7 +254,7 @@ export async function handleAgentAdmisionesP3(ctx: FlowContext): Promise<void> {
 
     await sendAiHint(from);
   } catch (err) {
-    console.error('[ai-admisiones] error:', err);
+    console.error('[ai-admisiones] error:', err instanceof AIUnavailableError ? err.reason : 'unknown');
     await track('ai_failed', { area: areaAi, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
     await notifyAIDownAndEscalate(from, data);
   }

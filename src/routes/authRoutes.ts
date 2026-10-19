@@ -20,6 +20,8 @@ import { config } from '../config';
 import { getChatwootSsoUrl, isChatwootSsoEnabled } from '../services/chatwootSsoService';
 import { logAudit } from '../services/auditService';
 import { checkRateLimit } from '../services/rateLimit';
+import { describeExternalError } from '../services/logSafe';
+import { isAcceptableNewPassword } from '../services/passwordPolicy';
 
 export const authRouter = Router();
 
@@ -28,8 +30,9 @@ const LOGIN_WINDOW_SEC = 5 * 60;
 
 authRouter.post('/login', async (req, res) => {
   const { username, password } = req.body ?? {};
-  if (!username || !password) {
-    res.status(400).json({ error: 'missing_credentials' });
+  if (typeof username !== 'string' || typeof password !== 'string' ||
+      !username.trim() || !password || username.length > 128 || password.length > 1024) {
+    res.status(400).json({ error: 'invalid_credentials' });
     return;
   }
 
@@ -47,7 +50,7 @@ authRouter.post('/login', async (req, res) => {
     res.status(401).json({ error: 'invalid_credentials' });
     return;
   }
-  const token = signSession({ username: user.username, role: user.role, fullName: user.fullName });
+  const token = signSession({ username: user.username, role: user.role, fullName: user.fullName, sessionVersion: user.sessionVersion });
   setSessionCookie(res, token);
   await logAudit(user.username, 'login');
   res.json({ user: toPublic(user) });
@@ -95,14 +98,14 @@ authRouter.get('/chatwoot-sso', requireAuth, async (req: AuthedRequest, res: Res
     const url = await getChatwootSsoUrl(user.chatwootUserId);
     res.json({ url, sso: true });
   } catch (err: any) {
-    console.error('[chatwoot-sso] error generando URL:', err?.message);
-    res.json({ url: config.publicUrls.chatwoot, sso: false, error: err?.message });
+    console.error('[chatwoot-sso] error generando URL:', describeExternalError(err));
+    res.json({ url: config.publicUrls.chatwoot, sso: false, error: 'sso_unavailable' });
   }
 });
 
 authRouter.post('/change-password', requireAuth, async (req: AuthedRequest, res: Response) => {
   const { currentPassword, newPassword } = req.body ?? {};
-  if (!currentPassword || !newPassword || newPassword.length < 6) {
+  if (typeof currentPassword !== 'string' || !currentPassword || !isAcceptableNewPassword(newPassword)) {
     res.status(400).json({ error: 'invalid_input' });
     return;
   }

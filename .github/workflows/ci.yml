@@ -31,9 +31,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Lint (no-fail)
-        run: npm run lint || true
-        continue-on-error: true
+      - name: Lint
+        run: npm run lint
 
   docker-build:
     name: Docker build
@@ -85,6 +84,9 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    concurrency:
+      group: tooli-production
+      cancel-in-progress: false
     needs: [typecheck-build, docker-build, validate-configs]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
@@ -96,5 +98,5 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd ~/tooli-chatbot
-            git pull origin main
+            git pull --ff-only origin main
             docker compose up -d --build

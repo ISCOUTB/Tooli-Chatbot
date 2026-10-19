@@ -1,6 +1,8 @@
+import { api } from '../core/api.js';
 import { $, $$, escapeHtml } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
+import { sesion } from '../core/session.js';
 import { attachTooltip } from '../ui/controls.js';
 
 const HEALTH_LABELS = {
@@ -20,7 +22,62 @@ async function renderHealth(main) {
         ${Array.from({ length: 4 }).map(() => `<div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);"><div class="skeleton skeleton-line" style="width:110px;height:12px;"></div><div class="skeleton skeleton-line" style="width:70px;height:12px;"></div><div class="skeleton skeleton-line" style="flex:1;height:12px;"></div></div>`).join('')}
       </div>
     </div>
+    ${sesion.user?.role === 'admin' ? '<section id="inboundReviews" aria-live="polite"></section>' : ''}
   `;
+  const loadReviews = async () => {
+    const wrap = $('#inboundReviews');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="card"><h2>Mensajes por revisar</h2><p>Cargando bandeja entrante…</p></div>';
+    try {
+      const response = await api('/api/tools/inbound/reviews');
+      if (!response) return;
+      if (!response.ok) throw new Error('reviews_unavailable');
+      const { reviews } = await response.json();
+      if (!$('#inboundReviews')) return;
+      wrap.innerHTML = `
+        <div class="card" style="margin-top:20px;">
+          <h2>Mensajes por revisar · ${reviews.length}</h2>
+          <p class="field-help">El procesamiento de ese contacto queda detenido hasta revisar en Conversaciones si hubo respuesta. Reintenta solo cuando confirmes que no se envió nada.</p>
+          ${reviews.length ? reviews.map(item => `
+            <div style="border-top:1px solid var(--border);padding:14px 0;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+              <div style="min-width:0;overflow-wrap:anywhere;">
+                <strong>${escapeHtml(item.from)}</strong> · ${escapeHtml(item.source)}
+                <div class="field-help">${escapeHtml(new Date(item.createdAt).toLocaleString('es-CO'))} · Mensaje ${escapeHtml(item.messageId)}</div>
+                <div class="field-help">${escapeHtml(item.reviewReason ?? 'Resultado no confirmado')}</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" data-review-id="${escapeHtml(item.id)}" data-decision="acknowledge">Marcar revisado</button>
+                <button type="button" class="btn btn-secondary" data-review-id="${escapeHtml(item.id)}" data-decision="retry">Reintentar</button>
+              </div>
+            </div>
+          `).join('') : '<p>No hay mensajes pendientes de revisión.</p>'}
+        </div>`;
+      $$('#inboundReviews button[data-review-id]').forEach(button => button.addEventListener('click', async () => {
+        const decision = button.dataset.decision;
+        const id = button.dataset.reviewId;
+        const question = decision === 'retry'
+          ? 'Reintentar puede duplicar una respuesta si el proveedor ya la entregó. ¿Confirmaste que no hubo respuesta y quieres reintentar?'
+          : '¿Confirmaste el resultado del mensaje? Se desbloqueará el siguiente mensaje de este contacto.';
+        if (!window.confirm(question)) return;
+        button.disabled = true;
+        try {
+          const result = await api(`/api/tools/inbound/reviews/${encodeURIComponent(id)}/resolve`, {
+            method: 'POST', body: JSON.stringify({ decision }),
+          });
+          if (!result?.ok) throw new Error('resolve_failed');
+          await loadReviews();
+        } catch {
+          button.disabled = false;
+          const warning = document.createElement('p');
+          warning.className = 'alert alert-error';
+          warning.textContent = 'No se pudo resolver el mensaje. Actualiza e intenta de nuevo.';
+          button.parentElement?.after(warning);
+        }
+      }));
+    } catch {
+      wrap.innerHTML = '<div class="alert alert-error" style="margin-top:20px;">No se pudo consultar la bandeja de mensajes pendientes.</div>';
+    }
+  };
   setPullToRefresh(() => load());
   const load = async () => {
     const refreshBtn = $('#refreshHealth');
@@ -68,6 +125,7 @@ async function renderHealth(main) {
       $('#healthContent').innerHTML = '<div class="alert alert-error">No se pudo verificar el estado.</div>';
     } finally {
       refreshBtn.disabled = false;
+      await loadReviews();
     }
   };
   $('#refreshHealth').addEventListener('click', load);

@@ -19,6 +19,7 @@ import { maskPhone } from './logSafe';
  * `guardarEncuestaNutria`: `[fecha, whatsapp, edad, …]`. Es la columna B.
  */
 export const COLUMNA_WHATSAPP = 1;
+export const COLUMNA_IMAGEN_METRICAS = 6;
 
 /**
  * Una fila de encuesta con el teléfono reducido a `****1234`.
@@ -31,5 +32,8 @@ export function filaSinTelefono(fila: string[]): string[] {
   if (fila.length <= COLUMNA_WHATSAPP) return fila;
   const copia = [...fila];
   copia[COLUMNA_WHATSAPP] = maskPhone(copia[COLUMNA_WHATSAPP]);
+  // Las capturas pueden mostrar cuentas, notificaciones y otros datos privados.
+  // La landing pública no usa esta columna, pero conserva su posición.
+  if (copia.length > COLUMNA_IMAGEN_METRICAS) copia[COLUMNA_IMAGEN_METRICAS] = '';
   return copia;
 }

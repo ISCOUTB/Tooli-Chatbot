@@ -269,7 +269,8 @@ async function renderRegistros(main) {
         <div class="sheet-group" style="padding:16px;text-align:left;">
           <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Enviar plantilla por WhatsApp</div>
           <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${telefonos.length} destinatario${telefonos.length !== 1 ? 's' : ''} · Solo templates aprobados por Meta (sin variables {{1}} por ahora)</div>
-          <div class="field-help" style="margin-bottom:12px;">Limitación: solo templates sin placeholders. Si el template requiere parámetros, Meta devolverá error y se reportará en el resumen.</div>
+          <div class="field-help" style="margin-bottom:12px;">Solo se permiten templates sin placeholders. El servidor comprueba el template antes de crear el envío.</div>
+          <div class="field-help" style="margin-bottom:12px;">El mismo template al mismo conjunto de destinatarios se acepta una sola vez por 24 horas. Un reintento muestra el trabajo original.</div>
           <div id="bcTemplates"><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div></div>
           <div id="bcSelectedInfo" style="font-size:12px;color:var(--text-muted);margin:8px 0 10px;"></div>
           <div style="display:flex;gap:8px;">
@@ -294,6 +295,58 @@ async function renderRegistros(main) {
     const confirmBtn = overlay.querySelector('#bcConfirm');
     const alertEl = overlay.querySelector('#bcAlert');
     const resultEl = overlay.querySelector('#bcResult');
+    const lastJobKey = 'tooli.broadcast.lastJob';
+    let trackedJobId = null;
+    let buttonCloses = false;
+
+    function renderJob(job) {
+      const enviados = Array.isArray(job.enviados) ? job.enviados : [];
+      const fallidos = Array.isArray(job.fallidos) ? job.fallidos : [];
+      const total = job.solicitados ?? telefonos.length;
+      const terminado = job.estado === 'completado';
+      const procesados = enviados.length + fallidos.length + (job.duplicadosOmitidos ?? 0);
+      resultEl.innerHTML = `
+        <div class="alert ${terminado ? (fallidos.length === 0 ? 'alert-success' : enviados.length === 0 ? 'alert-error' : 'alert-info') : 'alert-info'}" style="margin:0 0 10px;">
+          <div style="font-weight:700;margin-bottom:4px;">${terminado ? `${enviados.length}/${total} enviados correctamente` : `En proceso: ${procesados}/${total} revisados`}</div>
+          <div style="font-size:12.5px;">Plantilla: <strong>${escapeHtml(job.templateName)}</strong> (${escapeHtml(job.language)})</div>
+          ${terminado ? '' : '<div style="font-size:12px;margin-top:5px;">Puedes cerrar esta ventana; el envío continuará y podrás consultar el resultado al volver.</div>'}
+        </div>
+        ${fallidos.length ? `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:#fff;"><div style="font-size:12px;font-weight:600;margin-bottom:6px;">Fallidos o sin confirmar (${fallidos.length}):</div>${fallidos.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><span style="font-weight:600;">+${escapeHtml(f.numero)}</span><span style="color:var(--danger);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.error)}</span></div>`).join('')}</div>` : ''}
+        ${enviados.length ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Enviados: ${enviados.map(n => '+' + escapeHtml(n.slice(-4))).join(', ')}</div>` : ''}
+      `;
+      if (terminado) {
+        confirmBtn.textContent = 'Cerrar';
+        confirmBtn.disabled = false;
+        buttonCloses = true;
+      } else {
+        confirmBtn.textContent = 'En proceso…';
+        confirmBtn.disabled = true;
+      }
+      return terminado;
+    }
+
+    async function pollJob(id) {
+      if (!overlay.isConnected || trackedJobId !== id) return;
+      try {
+        const res = await api(`/api/tools/broadcast/jobs/${encodeURIComponent(id)}`);
+        if (trackedJobId !== id) return;
+        if (res.status === 404) {
+          try { localStorage.removeItem(lastJobKey); } catch { /* almacenamiento local opcional */ }
+          trackedJobId = null;
+          resultEl.innerHTML = '';
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { job } = await res.json();
+        if (trackedJobId !== id) return;
+        alertEl.innerHTML = '';
+        if (renderJob(job)) return;
+      } catch {
+        if (trackedJobId !== id) return;
+        alertEl.innerHTML = '<div class="alert alert-error" style="margin:0;">No se pudo actualizar el progreso. El envío sigue en la cola; se intentará consultar de nuevo.</div>';
+      }
+      setTimeout(() => pollJob(id), 2500);
+    }
 
     function renderTemplates() {
       if (!templates.length) {
@@ -315,6 +368,10 @@ async function renderRegistros(main) {
       listEl.querySelectorAll('.bc-template-row').forEach(btn => btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.idx);
         chosen = templates[idx];
+        trackedJobId = null;
+        buttonCloses = false;
+        resultEl.innerHTML = '';
+        alertEl.innerHTML = '';
         haptic(10);
         renderTemplates();
       }));
@@ -325,17 +382,21 @@ async function renderRegistros(main) {
       if (!r.ok) throw new Error('No se pudieron cargar los templates');
       const data = await r.json();
       templates = data.templates ?? [];
+      renderTemplates();
     } catch (err) {
       listEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudieron cargar los templates: ${escapeHtml(err.message || String(err))}</div>`;
-      return;
     }
-    renderTemplates();
+    try {
+      const lastJob = localStorage.getItem(lastJobKey);
+      if (lastJob) { trackedJobId = lastJob; void pollJob(lastJob); }
+    } catch { /* almacenamiento local opcional */ }
 
     confirmBtn.addEventListener('click', async () => {
+      if (buttonCloses) { close(); return; }
       if (!chosen) return;
-      confirmBtn.disabled = true; confirmBtn.textContent = 'Enviando…';
+      confirmBtn.disabled = true; confirmBtn.textContent = 'Programando…';
       alertEl.innerHTML = '';
-      resultEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;"><span class="spinner"></span> Enviando ${telefonos.length} mensajes con delay entre envíos…</div>`;
+      resultEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;"><span class="spinner"></span> Creando trabajo de envío…</div>`;
       try {
         const res = await api('/api/tools/broadcast/send', {
           method: 'POST',
@@ -350,26 +411,15 @@ async function renderRegistros(main) {
           haptic([20,30,20]);
           return;
         }
-        const enviados = body.enviados ?? [];
-        const fallidos = body.fallidos ?? [];
-        const total = body.total ?? telefonos.length;
-        if (fallidos.length === 0) haptic([15,40,15]); else if (enviados.length === 0) haptic([20,30,20]); else haptic([10,20,10]);
-        resultEl.innerHTML = `
-          <div class="alert ${fallidos.length === 0 ? 'alert-success' : enviados.length === 0 ? 'alert-error' : 'alert-info'}" style="margin:0 0 10px;">
-            <div style="font-weight:700;margin-bottom:4px;">${enviados.length}/${total} enviados correctamente</div>
-            <div style="font-size:12.5px;">Plantilla: <strong>${escapeHtml(chosen.name)}</strong> (${escapeHtml(chosen.language)})</div>
-          </div>
-          ${fallidos.length ? `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:#fff;"><div style="font-size:12px;font-weight:600;margin-bottom:6px;">Fallidos (${fallidos.length}):</div>${fallidos.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><span style="font-weight:600;">+${escapeHtml(f.numero)}</span><span style="color:var(--danger);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.error)}</span></div>`).join('')}</div>` : ''}
-          ${enviados.length ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Enviados: ${enviados.map(n => '+' + escapeHtml(n.slice(-4))).join(', ')}</div>` : ''}
-        `;
-        toast(fallidos.length === 0 ? `¡${enviados.length} mensajes enviados!` : `${enviados.length} enviados, ${fallidos.length} fallidos`);
-        confirmBtn.textContent = 'Cerrar';
-        confirmBtn.disabled = false;
-        confirmBtn.onclick = close;
-        // Al enviar con éxito, limpiar selección en el CRM
-        if (enviados.length) { selected.clear(); updateBroadcastBar(); renderCrmGrid(); }
+        const job = body.job;
+        if (!job?.id) throw new Error('El servidor no devolvió el trabajo de envío');
+        trackedJobId = job.id;
+        try { localStorage.setItem(lastJobKey, job.id); } catch { /* almacenamiento local opcional */ }
+        haptic([10,20,10]);
+        toast(job.estado === 'completado' ? 'Revisa el resultado del envío' : 'Envío programado; puedes cerrar esta ventana');
+        if (!renderJob(job)) void pollJob(job.id);
       } catch (err) {
-        alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">Error de conexión: ${escapeHtml(err.message || String(err))}</div>`;
+        alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudo confirmar el trabajo: ${escapeHtml(err.message || String(err))}. Si reintentas la misma selección, el servidor devolverá el trabajo existente durante 24 horas.</div>`;
         resultEl.innerHTML = '';
         confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${telefonos.length}`;
         haptic([20,30,20]);

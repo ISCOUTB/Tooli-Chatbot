@@ -4,7 +4,6 @@
 
 import { Router } from 'express';
 import { AuthedRequest, requireAdmin } from '../../middleware/auth';
-import { logAudit } from '../../services/auditService';
 import { Response } from 'express';
 import { describeError } from '../../services/logSafe';
 import { BroadcastValidationError } from '../../services/broadcastValidation';
@@ -48,25 +47,9 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
     return;
   }
   try {
-    const { sendBroadcast, validarTemplateName, validarLanguage } =
-      await import('../../services/broadcastService');
-    // Formato de template/idioma validado antes de tocar la API de Meta.
-    const cleanTemplate = validarTemplateName(templateName);
-    const cleanLang = validarLanguage(language);
-    const result = await sendBroadcast(cleanTemplate, cleanLang, rawNums);
-    const total = result.solicitados;
-    // Auditoría y log solo con template + conteos: jamás teléfonos ni payloads.
-    if (result.enviados.length) {
-      try {
-        await logAudit(req.user!.username, 'broadcast_enviado', `${cleanTemplate} · ${result.enviados.length}/${total}`);
-      } catch (auditError) {
-        // Meta ya aceptó los mensajes: un fallo de auditoría no puede convertir
-        // el resultado en 502 e invitar al administrador a reenviar el lote.
-        console.error('[tools/broadcast/send] auditoría no disponible:', describeError(auditError));
-      }
-    }
-    console.log(`[asesor] ${req.user?.username} broadcast "${cleanTemplate}" (${cleanLang}) → ${result.enviados.length}/${total} enviados`);
-    res.json({ ok: result.enviados.length > 0, template: cleanTemplate, language: cleanLang, total, ...result });
+    const { enqueueBroadcast } = await import('../../services/broadcastJobService');
+    const job = await enqueueBroadcast(templateName, language, rawNums, req.user!.username);
+    res.status(job.estado === 'completado' ? 200 : 202).json({ ok: true, job });
   } catch (err: unknown) {
     if (err instanceof BroadcastValidationError) {
       res.status(400).json({ error: 'validation_error', message: err.message });
@@ -78,6 +61,25 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
       res.status(503).json({ error: 'service_unavailable', message: 'El canal de Meta no está configurado' });
       return;
     }
-    res.status(502).json({ error: 'send_failed', message: 'Meta no pudo completar el envío' });
+    if (/ECONNREFUSED|Connection is closed|ETIMEDOUT|MaxRetriesPerRequest/i.test(msg)) {
+      res.status(503).json({ error: 'queue_unavailable', message: 'La cola de envíos no está disponible' });
+      return;
+    }
+    res.status(502).json({ error: 'send_failed', message: 'No se pudo preparar el envío' });
+  }
+});
+
+broadcastRouter.get('/broadcast/jobs/:id', requireAdmin, async (req: AuthedRequest, res: Response) => {
+  try {
+    const { getBroadcastJob } = await import('../../services/broadcastJobService');
+    const job = await getBroadcastJob(String(req.params.id ?? ''));
+    if (!job) {
+      res.status(404).json({ error: 'not_found', message: 'Envío no encontrado' });
+      return;
+    }
+    res.json({ job });
+  } catch (err) {
+    console.error('[tools/broadcast/jobs] error:', describeError(err));
+    res.status(503).json({ error: 'queue_unavailable', message: 'No se pudo consultar el envío' });
   }
 });

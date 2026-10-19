@@ -135,7 +135,9 @@ async function renderRecordatorios(main) {
     if (tel.length < 10) { aviso.hidden = true; return; }
     try {
       const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [tel] }) });
+      if (!r?.ok) throw new Error('No se pudo consultar la conversación');
       const info = (await r.json()).users?.[0];
+      if ($('#remTel').value.replace(/\D/g, '') !== tel) return;
       const ultimoEntrante = info?.recentMessages?.find(m => m.direction === 'in');
       if (!ultimoEntrante) {
         aviso.innerHTML = `${icon('clock', 13)} Esta persona no ha escrito nunca al bot. WhatsApp solo permite texto libre dentro de las 24 h siguientes a un mensaje suyo.`;
@@ -149,7 +151,7 @@ async function renderRecordatorios(main) {
       } else {
         aviso.hidden = true;
       }
-    } catch { aviso.hidden = true; }
+    } catch { if ($('#remTel').value.replace(/\D/g, '') === tel) aviso.hidden = true; }
   };
   $('#remTel').addEventListener('change', avisoVentana);
   $('#remTel').addEventListener('blur', avisoVentana);
@@ -163,7 +165,9 @@ async function renderRecordatorios(main) {
     const mensaje = msg.value.trim();
     const fechaLocal = $('#remFecha').value;
 
-    if (!fechaLocal) { fb.innerHTML = `<span class="rem-error">Elige la fecha y hora de envío.</span>`; return; }
+    const scheduledAt = new Date(fechaLocal).getTime();
+    if (!Number.isFinite(scheduledAt)) { fb.textContent = 'Elige una fecha y hora válidas.'; return; }
+    if (scheduledAt < Date.now() + 30_000) { fb.textContent = 'Elige una hora al menos 30 segundos en el futuro.'; return; }
     btn.disabled = true;
     btn.classList.add('is-loading');
     fb.innerHTML = '';
@@ -171,8 +175,9 @@ async function renderRecordatorios(main) {
     try {
       const r = await api('/api/tools/recordatorios', {
         method: 'POST',
-        body: JSON.stringify({ telefono, mensaje, scheduledAt: new Date(fechaLocal).toISOString() }),
+        body: JSON.stringify({ telefono, mensaje, scheduledAt: new Date(scheduledAt).toISOString() }),
       });
+      if (!r) return;
       const data = await r.json();
       if (!r.ok) {
         fb.innerHTML = `<span class="rem-error">${icon('x', 13)} ${escapeHtml(data.message ?? 'No se pudo programar')}</span>`;
@@ -183,7 +188,7 @@ async function renderRecordatorios(main) {
       toast('Recordatorio programado ✓');
       msg.value = '';
       $('#remCount').textContent = '0';
-      fb.innerHTML = `<span class="rem-ok">${icon('check', 13)} Se enviará ${tiempoRelativoFuturo(new Date(fechaLocal).getTime())}</span>`;
+      fb.innerHTML = `<span class="rem-ok">${icon('check', 13)} Se enviará ${tiempoRelativoFuturo(scheduledAt)}</span>`;
       remFiltro = 'programado';
       await cargarRecordatorios();
     } catch {
@@ -206,10 +211,14 @@ async function renderRecordatorios(main) {
 async function cargarRecordatorios() {
   try {
     const r = await api('/api/tools/recordatorios');
+    if (!r?.ok) throw new Error('No se pudieron cargar los recordatorios');
     const { reminders } = await r.json();
-    remLista = reminders ?? [];
+    if (!Array.isArray(reminders)) throw new Error('Respuesta inválida');
+    remLista = reminders;
   } catch {
-    $('#remContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar los recordatorios.</div>';
+    const content = $('#remContent');
+    if (content) content.innerHTML = '<div class="alert alert-error" role="alert">No se pudieron cargar los recordatorios. <button type="button" class="btn btn-secondary" id="retryRem">Reintentar</button></div>';
+    $('#retryRem')?.addEventListener('click', cargarRecordatorios);
     return;
   }
 
@@ -226,6 +235,7 @@ async function cargarRecordatorios() {
       (v) => { remFiltro = v; pintarRecordatorios(); },
     ));
   }
+  if (!counts[remFiltro]) remFiltro = 'todos';
   pintarRecordatorios();
 }
 
@@ -252,7 +262,7 @@ function pintarRecordatorios() {
       <div class="card rem-card" data-rem="${escapeHtml(rem.id)}">
         <div class="rem-card-top">
           <span class="badge" style="background:${meta.color}1f;color:${meta.color};">${meta.icon} ${meta.label}</span>
-          <span class="rem-card-cuando" title="${new Date(rem.scheduledAt).toLocaleString('es-CO')}">
+          <span class="rem-card-cuando" title="${escapeHtml(new Date(rem.scheduledAt).toLocaleString('es-CO'))}">
             ${icon('clock', 12)} ${tiempoRelativoFuturo(rem.scheduledAt)}
           </span>
           ${rem.estado === 'programado' ? `<button type="button" class="btn btn-secondary crm-mini-btn rem-cancel" data-cancel="${escapeHtml(rem.id)}">Cancelar</button>` : ''}

@@ -780,7 +780,7 @@ function setupComposer(phone, nombre) {
       }
       // Tras restaurar el borrador el cursor queda al final, listo para
       // corregir y reenviar (en éxito el campo está vacío y no hace nada).
-      if (input.value) { try { input.setSelectionRange(input.value.length, input.value.length); } catch {} }
+      if (input.value) { try { input.setSelectionRange(input.value.length, input.value.length); } catch { /* Puede perder el foco al cambiar de hilo. */ } }
     }
   });
 }

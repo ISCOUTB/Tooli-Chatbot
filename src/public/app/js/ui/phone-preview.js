@@ -38,7 +38,7 @@ function openPhonePreview(phone, nombre, groups) {
             <div class="wa-bubble-row ${m.direction === 'out' ? 'me' : 'them'}">
               <div class="wa-bubble ${m.direction === 'out' ? 'me' : 'them'}">
                 ${formatWhatsApp(escapeHtml(m.text))}
-                <span class="wa-bubble-meta">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}${m.direction === 'out' ? ' <span class=\"wa-ticks\">✓✓</span>' : ''}</span>
+                <span class="wa-bubble-meta">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}${m.direction === 'out' ? ' <span class="wa-ticks">✓✓</span>' : ''}</span>
               </div>
             </div>
           `).join('')).join('')}

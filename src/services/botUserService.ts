@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { config } from '../config';
+import { sanitizeActivityText } from './activityPrivacy';
 
 const redis = new Redis(config.redis.url);
 
@@ -80,8 +81,12 @@ export async function isBanned(phone: string): Promise<boolean> {
  */
 export async function recordActivity(phone: string, direction: 'in' | 'out', text: string): Promise<void> {
   const key = ACTIVITY_KEY(phone);
-  const truncated = text.length > 200 ? text.slice(0, 200) + '…' : text;
-  await redis.lpush(key, JSON.stringify({ ts: Date.now(), direction, text: truncated }));
+  const sessionRaw = await redis.get(`session:${phone}`);
+  let step: string | undefined;
+  try { step = sessionRaw ? JSON.parse(sessionRaw).step : undefined; }
+  catch { step = 'notas_password'; /* sesión dañada: no persistir contenido */ }
+  const safeText = sanitizeActivityText(direction, step, text);
+  await redis.lpush(key, JSON.stringify({ ts: Date.now(), direction, text: safeText }));
   await redis.ltrim(key, 0, 49);
   await redis.expire(key, 60 * 60 * 24 * 30);
 }

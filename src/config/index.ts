@@ -18,6 +18,7 @@ const schema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_WABA_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
   // ── NutriA — bot de encuesta ─────────────────────────────────────────────────
   NUTRIA_WHATSAPP_TOKEN: z.string().optional(),
   NUTRIA_PHONE_NUMBER_ID: z.string().optional(),
@@ -48,6 +49,7 @@ const schema = z.object({
   CHATWOOT_INBOX_ID: z.string().optional(),
   CHATWOOT_API_TOKEN: z.string().optional(),
   CHATWOOT_HMAC_TOKEN: z.string().optional(),
+  CHATWOOT_WEBHOOK_TOKEN: z.string().optional(),
   CHATWOOT_INBOX_IDENTIFIER: z.string().optional(),
   CHATWOOT_TEAM_TI_ID: z.string().optional(),
   CHATWOOT_TEAM_ADMISIONES_ID: z.string().optional(),
@@ -88,6 +90,7 @@ export const config = {
     phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID ?? '',
     wabaId: env.WHATSAPP_WABA_ID ?? '',
     verifyToken: env.WHATSAPP_VERIFY_TOKEN ?? env.WEBHOOK_SECRET,
+    appSecret: env.META_APP_SECRET ?? '',
   },
   redis: {
     url: env.REDIS_URL,
@@ -129,6 +132,7 @@ export const config = {
     inboxId: env.CHATWOOT_INBOX_ID ?? '',
     apiToken: env.CHATWOOT_API_TOKEN ?? '',
     hmacToken: env.CHATWOOT_HMAC_TOKEN ?? '',
+    webhookToken: env.CHATWOOT_WEBHOOK_TOKEN ?? '',
     inboxIdentifier: env.CHATWOOT_INBOX_IDENTIFIER ?? '',
     teamTiId: env.CHATWOOT_TEAM_TI_ID ?? '',
     teamAdmisionesId: env.CHATWOOT_TEAM_ADMISIONES_ID ?? '',

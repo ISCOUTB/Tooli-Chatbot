@@ -382,6 +382,7 @@ export async function processDueReminders(
 }
 
 let workerTimer: NodeJS.Timeout | null = null;
+let workerRunning = false;
 
 /**
  * Arranca el loop que dispara los recordatorios vencidos.
@@ -391,6 +392,8 @@ export function startReminderWorker(intervalMs = 30_000): void {
   if (workerTimer) return;
 
   const tick = async () => {
+    if (workerRunning) return;
+    workerRunning = true;
     try {
       const { enviados, fallidos } = await processDueReminders();
       if (enviados || fallidos) {
@@ -400,6 +403,8 @@ export function startReminderWorker(intervalMs = 30_000): void {
       // Si Redis está caído, se loguea y se reintenta en el siguiente tick.
       // Nunca se deja escapar la excepción: tumbaría el proceso entero.
       console.error('[recordatorios] error en el tick del worker:', describeError(err));
+    } finally {
+      workerRunning = false;
     }
   };
 

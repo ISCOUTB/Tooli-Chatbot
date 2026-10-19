@@ -3,9 +3,12 @@ import { loginAndDownloadReceipt } from '../services/icebergService';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen, CODIGO_REGEX, CEDULA_REGEX } from './shared';
 import { parseGlobalCommand, returnMenuStep } from './commands';
+import { maskCode } from '../services/logSafe';
+import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 
 export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+  if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', session?.data);
   const command = parseGlobalCommand(text);
 
   if (command === 'menu' || command === 'salir') {
@@ -23,7 +26,7 @@ export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
   if (!CODIGO_REGEX.test(input)) {
     await messaging.sendText({
       to: from,
-      text: 'El código no es válido. Debe tener el formato T seguido de 8 dígitos.\nEjemplo: T000XXXXX\n\nInténtalo de nuevo o escribe *menu*:',
+      text: 'El código no es válido. Debe tener el formato T seguido de 8 dígitos.\nEjemplo: T12345678\n\nInténtalo de nuevo o escribe *menu*:',
     });
     return;
   }
@@ -37,6 +40,7 @@ export async function handleReciboCodigo(ctx: FlowContext): Promise<void> {
 
 export async function handleReciboCedula(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
+  if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', session?.data);
   const command = parseGlobalCommand(text);
 
   if (command === 'menu' || command === 'salir') {
@@ -76,7 +80,7 @@ export async function handleReciboCedula(ctx: FlowContext): Promise<void> {
 
     if (!result.ok) {
       await track('recibo_login_failed');
-      console.error(`[recibo] fallo para ${codigo}: ${result.error} | menu=${result.menuUsado}`);
+      console.error(`[recibo] fallo para ${maskCode(codigo)}`);
       await messaging.sendText({
         to: from,
         text: `No pude completar el proceso. ${result.error?.includes('Login falló') ? 'Verifica que el código y la cédula sean correctos.' : 'Intenta más tarde.'}\n\nEscribe *menu* para volver al inicio.`,
@@ -118,8 +122,8 @@ export async function handleReciboCedula(ctx: FlowContext): Promise<void> {
         text: 'No pude descargar el recibo. Por favor intenta más tarde o escribe *menu*.',
       });
     }
-  } catch (err) {
-    console.error('[recibo] error:', err);
+  } catch {
+    console.error('[recibo] error al consultar el portal');
     await track('recibo_error');
     await messaging.sendText({
       to: from,

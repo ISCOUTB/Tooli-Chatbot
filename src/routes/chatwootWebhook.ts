@@ -1,8 +1,13 @@
 import { Router, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { MediaKind } from '../adapters/messaging/IMessagingAdapter';
 import { getSession, setSession } from '../services/session';
 import { describeError, maskPhone } from '../services/logSafe';
 import { messaging } from '../flows/shared';
+import { requireChatwootToken } from '../middleware/webhookAuth';
+import { config } from '../config';
+import { isLinkedSession, linkedChatwootTarget } from '../services/chatwootWebhookGuard';
+import { enqueueInbound } from '../services/inboundInbox';
 
 export const chatwootWebhookRouter = Router();
 
@@ -22,25 +27,54 @@ const FILE_TYPE_TO_KIND: Record<string, MediaKind> = {
   file: 'document',
 };
 
-chatwootWebhookRouter.post('/', async (req: Request, res: Response) => {
-  res.sendStatus(200);
-
+chatwootWebhookRouter.post('/', requireChatwootToken, async (req: Request, res: Response) => {
   try {
     const event = req.body?.event;
-
+    let eventKind: 'message' | 'resolved';
     if (event === 'message_created') {
-      await handleMessageCreated(req.body);
+      const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+      if (req.body?.message_type !== 'outgoing' || req.body?.private === true ||
+          (!req.body?.content && attachments.length === 0)) {
+        res.sendStatus(200);
+        return;
+      }
+      eventKind = 'message';
+    } else if ((event === 'conversation_status_changed' || event === 'conversation_resolved') &&
+               (req.body?.status ?? req.body?.conversation?.status) === 'resolved') {
+      eventKind = 'resolved';
+    } else {
+      res.sendStatus(200);
       return;
     }
-
-    if (event === 'conversation_status_changed' || event === 'conversation_resolved') {
-      await handleConversationResolved(req.body);
+    const target = linkedChatwootTarget(req.body, config.chatwoot.accountId, config.chatwoot.inboxId, eventKind);
+    if (!target) {
+      console.warn('[chatwoot-webhook] evento ignorado: cuenta, inbox, contacto o conversación no coinciden');
+      res.sendStatus(200);
       return;
     }
+    const raw = JSON.stringify(req.body);
+    const fingerprint = createHash('sha256').update(raw).digest('hex');
+    const providerId = eventKind === 'message' && Number.isSafeInteger(Number(req.body?.id)) && Number(req.body.id) > 0
+      ? `message:${req.body.id}` : `${eventKind}:${fingerprint}`;
+    await enqueueInbound('chatwoot', {
+      from: target.phone, phoneNumberId: config.chatwoot.accountId,
+      messageId: providerId, text: raw, timestamp: Date.now(),
+    });
+    res.sendStatus(200);
   } catch (err) {
     console.error('[chatwoot-webhook] error:', describeError(err));
+    res.sendStatus(503);
   }
 });
+
+/** El worker llama esta función tras confirmar la escritura en Redis. */
+export async function forwardChatwootEvent(payload: any): Promise<void> {
+  if (payload?.event === 'message_created') {
+    await handleMessageCreated(payload);
+  } else if (payload?.event === 'conversation_status_changed' || payload?.event === 'conversation_resolved') {
+    await handleConversationResolved(payload);
+  }
+}
 
 async function handleMessageCreated(payload: any): Promise<void> {
   const messageType = payload?.message_type;
@@ -51,27 +85,16 @@ async function handleMessageCreated(payload: any): Promise<void> {
   if (messageType !== 'outgoing' || isPrivate) return;
   if (!content && attachments.length === 0) return;
 
-  const phone =
-    payload?.conversation?.meta?.sender?.identifier ??
-    payload?.sender?.identifier;
-
-  const conversationId =
-    payload?.conversation?.id ??
-    payload?.conversation_id;
-
-  if (!phone) {
-    console.warn('[chatwoot-webhook] mensaje outgoing sin identifier de contacto');
+  const target = linkedChatwootTarget(payload, config.chatwoot.accountId, config.chatwoot.inboxId, 'message');
+  if (!target) {
+    console.warn('[chatwoot-webhook] mensaje ignorado: cuenta, inbox, contacto o conversación no coinciden');
     return;
   }
+  const { phone, conversationId } = target;
+  const session = await getSession(phone);
+  if (!isLinkedSession(session, conversationId)) return;
 
   console.log('[chatwoot-webhook] reenviando a WhatsApp:', maskPhone(phone), 'attachments:', attachments.length);
-
-  if (conversationId) {
-    await setSession(phone, {
-      step: 'with_agent',
-      data: { conversationId: String(conversationId) },
-    });
-  }
 
   const trimmedText = content?.trim();
   const hasAttachments = attachments.length > 0;
@@ -121,16 +144,12 @@ async function handleConversationResolved(payload: any): Promise<void> {
   const status = payload?.status ?? payload?.conversation?.status;
   if (status !== 'resolved') return;
 
-  const phone =
-    payload?.meta?.sender?.identifier ??
-    payload?.conversation?.meta?.sender?.identifier;
-
-  if (!phone) return;
-
+  const target = linkedChatwootTarget(payload, config.chatwoot.accountId, config.chatwoot.inboxId, 'resolved');
+  if (!target) return;
+  const { phone, conversationId } = target;
   const session = await getSession(phone);
-  if (session?.step === 'with_agent') {
-    await setSession(phone, { step: 'menu', data: {} });
-  }
+  if (!isLinkedSession(session, conversationId)) return;
+  await setSession(phone, { step: 'menu', data: {} });
 
   await messaging.sendText({
     to: phone,

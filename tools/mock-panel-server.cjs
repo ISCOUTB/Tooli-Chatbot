@@ -1,5 +1,5 @@
 /* Servidor de PRUEBA para revisar el panel en el navegador sin Redis, sin Meta
-   y sin Google Sheets. No forma parte del proyecto: se borra antes de comitear. */
+   y sin Google Sheets. Solo expone datos sintéticos en localhost. */
 const express = require('express');
 const path = require('path');
 const app = express();
@@ -165,6 +165,12 @@ app.post('/api/tools/recordatorios', (_q, res) => j(res, { ok: true, id: 'r' + D
 app.delete('/api/tools/recordatorios/:id', (_q, res) => j(res, { ok: true }));
 
 app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: [] }));
+app.get('/api/tools/inbound/reviews', (_q, res) => j(res, { reviews: [{
+  id: '00000000-0000-4000-8000-000000000001', source: 'meta', from: '573001234567',
+  messageId: 'wamid.demo.1', createdAt: hoy - 600000,
+  reviewReason: 'Resultado del handler no confirmado tras vencerse el lease.',
+}] }));
+app.post('/api/tools/inbound/reviews/:id/resolve', (_q, res) => j(res, { ok: true }));
 app.post('/api/tools/broadcast/send', (_q, res) => j(res, { ok: true, enviados: 0 }));
 app.get('/api/tools/turno/:codigo', (req, res) => j(res, { turno: {
   nombre: 'María José', apellido: 'Restrepo', programa: 'Maestría en Ingeniería',

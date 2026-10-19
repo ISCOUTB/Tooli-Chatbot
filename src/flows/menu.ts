@@ -5,6 +5,7 @@ import { parseGlobalCommand } from './commands';
 import { iniciarConsultaDeNotas } from './notas';
 import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
+import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 
 /** Paso 0 — el usuario todavía no eligió Pregrado o Posgrado. */
 export async function handleMenu(ctx: FlowContext): Promise<void> {
@@ -87,22 +88,24 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   // 5 — Turno de matrícula
   if (input === '5') {
+    if (!academicLookupEnabled()) return sendAcademicPortal(from, 'turno', { originArea: 'posgrado' });
     await setSession(from, { step: 'esperando_codigo', data: { originArea: 'posgrado' } });
     await messaging.sendText({
       to: from,
-      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
+      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
     });
     return;
   }
 
   // 6 — Recibo de matrícula
   if (input === '6') {
+    if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', { originArea: 'posgrado' });
     await setSession(from, { step: 'recibo_codigo', data: { originArea: 'posgrado' } });
     await messaging.sendText({
       to: from,
       text:
         'Para descargar tu recibo necesito tus credenciales del portal.\n\n' +
-        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
+        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
     });
     return;
   }
@@ -177,22 +180,24 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   // 4 — Turno de matrícula
   if (input === '4') {
+    if (!academicLookupEnabled()) return sendAcademicPortal(from, 'turno', { originArea: 'pregrado' });
     await setSession(from, { step: 'esperando_codigo', data: { originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
-      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
+      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
     });
     return;
   }
 
   // 5 — Recibo de matrícula
   if (input === '5') {
+    if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', { originArea: 'pregrado' });
     await setSession(from, { step: 'recibo_codigo', data: { originArea: 'pregrado' } });
     await messaging.sendText({
       to: from,
       text:
         'Para descargar tu recibo necesito tus credenciales del portal.\n\n' +
-        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T000XXXXX_\n\nEscribe *menu* para cancelar.',
+        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
     });
     return;
   }

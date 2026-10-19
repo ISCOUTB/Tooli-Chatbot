@@ -55,6 +55,7 @@ async function renderPosgrados(main) {
     </div>
   `;
   let pgDays = '7';
+  let pgLoadId = 0;
   $('#pgRangeWrap').appendChild(buildSegmented(
     [{ value: '7', label: '7 días' }, { value: '14', label: '14 días' }, { value: '30', label: '30 días' }],
     pgDays,
@@ -72,18 +73,23 @@ async function renderPosgrados(main) {
 
   setPullToRefresh(() => loadPg());
   async function loadPg() {
+    const content = $('#pgContent');
+    if (!content) return;
+    const loadId = ++pgLoadId;
     destroyPgCharts();
-    $('#pgContent').innerHTML = pgSkeleton();
+    content.innerHTML = pgSkeleton();
     const days = pgDays;
     try {
       const r = await api(`/api/tools/metrics/range?days=${days}`);
+      if (!r || !content.isConnected || loadId !== pgLoadId) return;
       const { days: series } = await r.json();
+      if (!content.isConnected || loadId !== pgLoadId) return;
       const { dateKeys, prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados, conv, regConv } = resumirPosgrado(series ?? {});
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
       const daily  = (ev) => dateKeys.map(d => numv(series[d], ev));
       const fmtDay = d => d.slice(5);
 
-      $('#pgContent').innerHTML = `
+      content.innerHTML = `
         <div class="card op-contexto" style="margin-bottom:16px;">
           <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${conv}% conversión) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConv}% conversión). El detalle por persona está en el CRM y en el evento.</div>
           <div class="op-contexto-acciones">
@@ -137,6 +143,7 @@ async function renderPosgrados(main) {
       $('#pgVerEvento')?.addEventListener('click', () => navigate('evento-posgrado'));
 
       await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+      if (!content.isConnected || loadId !== pgLoadId) return;
 
       const ticks = { color: '#94a3b8' };
       const grid  = { color: '#e2e8f0' };
@@ -181,8 +188,9 @@ async function renderPosgrados(main) {
       }));
 
     } catch (err) {
+      if (!content.isConnected || loadId !== pgLoadId) return;
       console.error(err);
-      $('#pgContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas de posgrados.</div>';
+      content.innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas de posgrados.</div>';
     }
   }
 

@@ -25,6 +25,7 @@ import { recordatoriosRouter } from './tools/recordatorios';
 import { broadcastRouter } from './tools/broadcast';
 import { crmRouter } from './tools/crm';
 import { quickRepliesRouter } from './tools/quickReplies';
+import { inboundRouter } from './tools/inbound';
 
 export const toolsRouter = Router();
 
@@ -47,3 +48,4 @@ toolsRouter.use(recordatoriosRouter);
 toolsRouter.use(broadcastRouter);
 toolsRouter.use(crmRouter);
 toolsRouter.use(quickRepliesRouter);
+toolsRouter.use(inboundRouter);

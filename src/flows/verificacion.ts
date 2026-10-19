@@ -4,6 +4,7 @@ import { track } from '../services/metrics';
 import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen, EMAIL_REGEX } from './shared';
 import { parseGlobalCommand, returnMenuStep } from './commands';
 import type { FlowArea } from './commands';
+import { RECURSOS_ACADEMICOS } from '../services/academicoLinks';
 
 // Flujo de verificación de identidad por OTP al correo institucional.
 // Estados: verif_email -> verif_codigo.
@@ -46,8 +47,8 @@ export async function handleVerifEmail(ctx: FlowContext): Promise<void> {
 
   try {
     await startVerification(from, email);
-  } catch (err) {
-    console.error('[verif] error enviando OTP:', err);
+  } catch {
+    console.error('[verif] no se pudo enviar OTP');
     await messaging.sendText({
       to: from,
       text: 'No pude enviar el código en este momento. Intenta más tarde o escribe *menu*.',
@@ -101,6 +102,15 @@ export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
   await track('verificacion_completada');
   const after = session?.data.after;
   if (after === 'notas') {
+    if (process.env.TOOLI_NOTAS_SSO_ENABLED !== '1') {
+      const notasUrl = RECURSOS_ACADEMICOS.find((r) => r.id === 'notas')?.url ?? 'https://autoservicio4prod.utb.edu.co';
+      await setSession(from, { step: returnMenuStep(session?.data), data: {} });
+      await messaging.sendText({
+        to: from,
+        text: `✅ Identidad verificada. Consulta tus notas directamente en el autoservicio oficial: ${notasUrl}\n\nNo envíes tu contraseña por WhatsApp.`,
+      });
+      return;
+    }
     await setSession(from, { step: 'notas_password', data: { ...session?.data, after: '' } });
     await messaging.sendText({
       to: from,

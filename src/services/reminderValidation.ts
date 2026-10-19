@@ -23,9 +23,12 @@ export function normalizarTelefono(raw: string): string {
  * E.164: mínimo 10 dígitos (Colombia: 57 + 10), máximo 15 por el estándar.
  */
 export function validarTelefono(raw: string): string {
+  if (!/^\+?[\d\s().-]+$/.test(String(raw ?? '').trim())) {
+    throw new ReminderValidationError('telefono inválido (usa E.164 de 10–15 dígitos)');
+  }
   const telefono = normalizarTelefono(raw);
-  if (telefono.length < 10 || telefono.length > 15) {
-    throw new ReminderValidationError('telefono inválido (debe tener 10–15 dígitos)');
+  if (!/^[1-9]\d{9,14}$/.test(telefono)) {
+    throw new ReminderValidationError('telefono inválido (usa E.164 de 10–15 dígitos)');
   }
   return telefono;
 }

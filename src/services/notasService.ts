@@ -1,6 +1,4 @@
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import { promises as fs } from 'fs';
-import path from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Consulta de NOTAS vía login SSO (Microsoft) automatizado con Playwright.
@@ -10,17 +8,15 @@ import path from 'path';
 // viva entre mensajes (Map por usuario, con timeout de limpieza).
 //
 // ⚠️ NO probado end-to-end (no hay credenciales para testear). Los selectores de
-//    Microsoft, la navegación a la página de notas (GRADES_URL) y el tipo de MFA
-//    pueden requerir ajuste. Las capturas en /tmp/tooli-notas ayudan a depurar.
+//    Microsoft y la navegación a la página de notas requieren validación real.
 //
-// ⚠️ SEGURIDAD: la contraseña se usa de forma transitoria y NO se persiste. Esto
-//    es aceptable solo por ser un bot personal; no reutilizar en un bot público.
+// ⚠️ SEGURIDAD: este flujo recibe una contraseña institucional por WhatsApp.
+//    Debe permanecer apagado hasta validación técnica y aprobación institucional.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BANNER_ENTRY = 'https://ssbprod.utb.edu.co:8443/PROD/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu';
 // TODO(verificar en vivo): página que lista las notas del período. Ajustar tras el 1er run.
 const GRADES_URL = 'https://ssbprod.utb.edu.co:8443/PROD/bwskgrds.P_TermGrde';
-const DEBUG_DIR = '/tmp/tooli-notas';
 const SESSION_TTL_MS = 3 * 60_000;
 
 export interface NotaCurso {
@@ -40,7 +36,7 @@ interface LiveSession {
 }
 const sessions = new Map<string, LiveSession>();
 
-async function closeSession(id: string): Promise<void> {
+export async function closeNotasSession(id: string): Promise<void> {
   const s = sessions.get(id);
   if (!s) return;
   clearTimeout(s.timer);
@@ -55,15 +51,6 @@ async function closeSession(id: string): Promise<void> {
 const stripTags = (s: string) =>
   s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-async function snap(page: Page, name: string): Promise<void> {
-  try {
-    await fs.mkdir(DEBUG_DIR, { recursive: true });
-    await page.screenshot({ path: path.join(DEBUG_DIR, `${name}.png`), fullPage: true });
-  } catch {
-    /* noop */
-  }
-}
-
 async function classifyAfterPassword(page: Page): Promise<'mfa' | 'stay' | 'banner' | 'error' | 'unknown'> {
   if (/ssbprod\.utb\.edu\.co/i.test(page.url())) return 'banner';
   if (await page.locator('input[name="otc"], input#idTxtBx_SAOTCC_OTC').count()) return 'mfa';
@@ -74,8 +61,11 @@ async function classifyAfterPassword(page: Page): Promise<'mfa' | 'stay' | 'bann
 }
 
 async function scrapeNotas(page: Page): Promise<NotaCurso[]> {
-  await page.goto(GRADES_URL, { waitUntil: 'networkidle', timeout: 30_000 }).catch(() => {});
-  await snap(page, 'grades-page');
+  await page.goto(GRADES_URL, { waitUntil: 'networkidle', timeout: 30_000 });
+  const url = new URL(page.url());
+  if (url.hostname !== 'ssbprod.utb.edu.co' || !url.pathname.endsWith('/bwskgrds.P_TermGrde')) {
+    throw new Error('Portal de notas no autenticado');
+  }
   const html = await page.content();
 
   // Parse best-effort: filas con un título de curso y una nota numérica.
@@ -91,16 +81,16 @@ async function scrapeNotas(page: Page): Promise<NotaCurso[]> {
 }
 
 export async function startNotasLogin(id: string, email: string, password: string): Promise<NotasLoginResult> {
-  await closeSession(id);
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-  });
-  const page = await context.newPage();
-
+  await closeNotasSession(id);
+  let browser: Browser | undefined;
   try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    });
+    const page = await context.newPage();
     await page.goto(BANNER_ENTRY, { waitUntil: 'networkidle', timeout: 40_000 });
 
     // Redirige a login.microsoftonline.com → correo → contraseña.
@@ -109,12 +99,11 @@ export async function startNotasLogin(id: string, email: string, password: strin
     await page.locator('input[type="password"], input[name="passwd"]').first().fill(password, { timeout: 20_000 });
     await page.locator('#idSIButton9, input[type="submit"]').first().click();
     await page.waitForTimeout(3000);
-    await snap(page, 'after-password');
 
     const state = await classifyAfterPassword(page);
 
     if (state === 'mfa') {
-      sessions.set(id, { browser, context, page, timer: setTimeout(() => closeSession(id), SESSION_TTL_MS) });
+      sessions.set(id, { browser, context, page, timer: setTimeout(() => closeNotasSession(id), SESSION_TTL_MS) });
       return { status: 'mfa', prompt: 'Escribe el *código de verificación* (MFA) que te llegó por SMS o tu app.' };
     }
     if (state === 'error') {
@@ -130,11 +119,10 @@ export async function startNotasLogin(id: string, email: string, password: strin
     await browser.close();
     return cursos.length
       ? { status: 'ok', cursos }
-      : { status: 'error', error: 'Entré al portal pero no pude leer las notas (revisa /tmp/tooli-notas).' };
-  } catch (e: any) {
-    await snap(page, 'error');
-    await browser.close();
-    return { status: 'error', error: `Fallo en el login: ${e?.message ?? e}` };
+      : { status: 'error', error: 'No pude leer las notas del portal. Intenta más tarde.' };
+  } catch {
+    await browser?.close();
+    return { status: 'error', error: 'No pude iniciar sesión en el portal. Intenta más tarde.' };
   }
 }
 
@@ -154,13 +142,12 @@ export async function submitNotasMfa(id: string, code: string): Promise<NotasLog
     }
 
     const cursos = await scrapeNotas(page);
-    await closeSession(id);
+    await closeNotasSession(id);
     return cursos.length
       ? { status: 'ok', cursos }
-      : { status: 'error', error: 'MFA correcto, pero no pude leer las notas (revisa /tmp/tooli-notas).' };
-  } catch (e: any) {
-    await snap(page, 'mfa-error');
-    await closeSession(id);
-    return { status: 'error', error: `Fallo verificando el código: ${e?.message ?? e}` };
+      : { status: 'error', error: 'No pude leer las notas del portal. Intenta más tarde.' };
+  } catch {
+    await closeNotasSession(id);
+    return { status: 'error', error: 'No pude verificar el código con el portal. Vuelve a empezar.' };
   }
 }

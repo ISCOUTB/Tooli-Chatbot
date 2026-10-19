@@ -2,7 +2,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function haptic(pattern) {
-  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch {}
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch { /* La vibración es opcional. */ }
 }
 
 function toast(msg, ms = 2200) {
@@ -18,9 +18,10 @@ function toast(msg, ms = 2200) {
   }, ms);
 }
 
-function copyToClipboard(text, label = 'Copiado') {
+async function copyToClipboard(text, label = 'Copiado') {
   try {
-    navigator.clipboard?.writeText(text);
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(text);
     toast(`${label} ✓`);
     haptic(15);
   } catch {

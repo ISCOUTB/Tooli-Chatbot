@@ -37,6 +37,11 @@ describe('validarTelefono', () => {
     assert.throws(() => validarTelefono('1'.repeat(16)), ReminderValidationError);
   });
 
+  it('rechaza ceros iniciales y texto incrustado para evitar otro destinatario', () => {
+    assert.throws(() => validarTelefono('0000000000'), ReminderValidationError);
+    assert.throws(() => validarTelefono('llamar-573001234567-ahora'), ReminderValidationError);
+  });
+
   it('acepta exactamente los límites, 10 y 15 dígitos', () => {
     assert.equal(validarTelefono('1'.repeat(10)).length, 10);
     assert.equal(validarTelefono('1'.repeat(15)).length, 15);

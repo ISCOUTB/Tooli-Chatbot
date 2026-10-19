@@ -357,7 +357,7 @@ export async function handleNutriaCapturaPantalla(ctx: Ctx): Promise<void> {
   // Descargar y guardar imagen
   let imagenMetricas = 'Error al guardar';
   try {
-    const filename = await guardarImagenMeta(mediaId, config.nutria.token, from);
+    const filename = await guardarImagenMeta(mediaId, config.nutria.token);
     imagenMetricas = filename;
   } catch (err) {
     console.error('[nutria] error guardando imagen:', describeExternalError(err));

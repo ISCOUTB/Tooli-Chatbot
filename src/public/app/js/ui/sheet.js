@@ -1,5 +1,21 @@
-import { $, $$, haptic } from '../core/dom.js';
+import { $, $$, escapeHtml, haptic } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+
+function sheetMarkup({ title, subtitle, groups }) {
+  let html = '<div class="sheet-grabber"></div>';
+  if (title) {
+    html += `<div class="sheet-header"><div class="sheet-title">${escapeHtml(title)}</div>${subtitle ? `<div class="sheet-subtitle">${escapeHtml(subtitle)}</div>` : ''}</div>`;
+  }
+  const actions = [];
+  groups.forEach(group => {
+    html += '<div class="sheet-group">' + group.map(a => {
+      actions.push(a);
+      const cls = [a.destructive ? 'destructive' : '', a.cancel ? 'cancel' : ''].filter(Boolean).join(' ');
+      return `<button type="button" class="sheet-action ${cls}">${a.icon ? `<span class="sheet-icon" aria-hidden="true">${a.icon}</span>` : ''}${escapeHtml(a.label)}</button>`;
+    }).join('') + '</div>';
+  });
+  return { html, actions };
+}
 
 const ActionSheet = {
   _escHandler: null,
@@ -14,30 +30,19 @@ const ActionSheet = {
     sheet.className = 'action-sheet';
     sheet.setAttribute('role', 'dialog');
     sheet.setAttribute('aria-modal', 'true');
-    if (title) sheet.setAttribute('aria-label', String(title).replace(/<[^>]*>/g, ''));
+    if (title) sheet.setAttribute('aria-label', String(title));
     // Se recuerda quién tenía el foco para devolvérselo al cerrar: si no, el
     // teclado queda "perdido" al principio de la página tras cada sheet.
     this._focoPrevio = document.activeElement;
 
-    let html = '<div class="sheet-grabber"></div>';
-    if (title) {
-      html += `<div class="sheet-header"><div class="sheet-title">${title}</div>${subtitle ? `<div class="sheet-subtitle">${subtitle}</div>` : ''}</div>`;
-    }
-    const flat = [];
-    groups.forEach(group => {
-      html += '<div class="sheet-group">' + group.map(a => {
-        flat.push(a);
-        const cls = [a.destructive ? 'destructive' : '', a.cancel ? 'cancel' : ''].filter(Boolean).join(' ');
-        return `<button type="button" class="sheet-action ${cls}">${a.icon ? `<span class="sheet-icon">${a.icon}</span>` : ''}${a.label}</button>`;
-      }).join('') + '</div>';
-    });
+    const { html, actions } = sheetMarkup({ title, subtitle, groups });
     sheet.innerHTML = html;
     backdrop.appendChild(sheet);
     document.body.appendChild(backdrop);
 
     $$('.sheet-action', sheet).forEach((btn, i) => btn.addEventListener('click', () => {
       this.close();
-      flat[i].onClick && flat[i].onClick();
+      actions[i].onClick && actions[i].onClick();
     }));
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) this.close(); });
 
@@ -70,8 +75,8 @@ const ActionSheet = {
       if (!botones.length) return;
       const primero = botones[0];
       const ultimo = botones[botones.length - 1];
-      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
-      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
+      if (e.shiftKey && (document.activeElement === primero || !sheet.contains(document.activeElement))) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && (document.activeElement === ultimo || !sheet.contains(document.activeElement))) { e.preventDefault(); primero.focus(); }
     };
     document.addEventListener('keydown', this._escHandler);
     requestAnimationFrame(() => backdrop.classList.add('open'));
@@ -147,4 +152,4 @@ function attachLongPress(el, handler, opts = {}) {
   });
 }
 
-export { ActionSheet, contextSheet, attachLongPress };
+export { ActionSheet, contextSheet, attachLongPress, sheetMarkup };
