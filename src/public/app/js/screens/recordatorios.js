@@ -1,6 +1,8 @@
 import { api } from '../core/api.js';
 import { $, escapeHtml, haptic, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { estadoVentanaRecordatorio } from '../core/reminder-window.js';
+import { sesion } from '../core/session.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { buildSegmented } from '../ui/controls.js';
 import { openPhonePreview } from '../ui/phone-preview.js';
@@ -60,9 +62,9 @@ async function renderRecordatorios(main) {
       <form class="card rem-form" id="remForm">
         <h3 class="rem-form-title">${icon('plus', 16)} Programar uno nuevo</h3>
         <label class="rem-label" for="remTel">WhatsApp del destinatario</label>
-        <input type="tel" id="remTel" class="rem-input" placeholder="573001234567" inputmode="numeric" required>
-        <div class="rem-help">Con indicativo de país, sin + ni espacios.</div>
-        <div class="rem-ventana" id="remVentana" hidden></div>
+        <input type="tel" id="remTel" class="rem-input" placeholder="573001234567" autocomplete="tel" required>
+        <div class="rem-help">Incluye indicativo de país; se aceptan +, espacios y guiones.</div>
+        <div class="rem-ventana" id="remVentana" role="status" aria-live="polite" hidden></div>
 
         <label class="rem-label" for="remMsg">Mensaje</label>
         <textarea id="remMsg" class="rem-input" rows="4" maxlength="4096" required
@@ -128,43 +130,77 @@ async function renderRecordatorios(main) {
     openPhonePreview(tel, 'Tooli · UTB', [[{ ts: cuando, direction: 'out', text: texto }]]);
   });
 
-  /* Aviso de la ventana de 24h de Meta: si la persona no ha escrito hace más de
-     un día, un mensaje de texto libre será rechazado al momento del envío. No se
-     bloquea —puede volver a escribir antes de la hora programada— pero el asesor
-     tiene que saberlo antes de programar algo que quizá no salga. */
-  const avisoVentana = async () => {
-    const tel = remTel.value.replace(/\D/g, '');
+  /* El aviso usa la hora PROGRAMADA. Al cambiarla se recalcula con el mismo
+     historial, y nunca se oculta un fallo de consulta como si hubiera ventana. */
+  let consulta = { telefono: '', estado: 'pendiente', ultimoEntranteTs: null };
+  let consultaSeq = 0;
+  let consultaTimer;
+  const pintarAvisoVentana = () => {
     if (!remTel.isConnected) return;
-    if (tel.length < 10) { remVentana.hidden = true; return; }
+    if (!sesion.caps.metaWindow) { remVentana.hidden = true; return; }
+    const telefono = remTel.value.replace(/\D/g, '');
+    if (consulta.telefono !== telefono || consulta.estado === 'pendiente') {
+      remVentana.hidden = true;
+      return;
+    }
+    let aviso = '';
+    if (consulta.estado === 'error') {
+      aviso = 'No se pudo verificar la ventana de WhatsApp. Revisa la conversación antes de programar.';
+    } else {
+      const scheduledAt = new Date(main.querySelector('#remFecha').value).getTime();
+      const estado = estadoVentanaRecordatorio(consulta.ultimoEntranteTs, scheduledAt);
+      if (estado === 'sin-historial') aviso = 'No hay un mensaje entrante reciente registrado. Si la persona no escribe antes del envío, Meta puede rechazar el texto libre.';
+      if (estado === 'fuera') aviso = 'La hora programada queda fuera de las 24 h desde el último mensaje entrante. Si la persona no vuelve a escribir, Meta rechazará el texto libre.';
+    }
+    remVentana.innerHTML = aviso ? `${icon('clock', 13)} ${aviso}` : '';
+    remVentana.hidden = !aviso;
+  };
+  const avisoVentana = async () => {
+    if (!remTel.isConnected) return;
+    if (!sesion.caps.metaWindow) { remVentana.hidden = true; return; }
+    const telefono = remTel.value.replace(/\D/g, '');
+    const texto = remTel.value.trim();
+    if (!/^\+?[\d\s().-]+$/.test(texto) || !/^[1-9]\d{9,14}$/.test(telefono)) {
+      remVentana.hidden = true;
+      return;
+    }
+    if (consulta.telefono === telefono && consulta.estado === 'ok') {
+      pintarAvisoVentana();
+      return;
+    }
+    const seq = ++consultaSeq;
+    consulta = { telefono, estado: 'pendiente', ultimoEntranteTs: null };
+    remVentana.hidden = true;
     try {
-      const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [tel] }) });
+      const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [telefono] }) });
       if (!r?.ok) throw new Error('No se pudo consultar la conversación');
       const info = (await r.json()).users?.[0];
-      if (!remTel.isConnected || remTel.value.replace(/\D/g, '') !== tel) return;
-      const ultimoEntrante = info?.recentMessages?.find(m => m.direction === 'in');
-      if (!ultimoEntrante) {
-        remVentana.innerHTML = `${icon('clock', 13)} Esta persona no ha escrito nunca al bot. WhatsApp solo permite texto libre dentro de las 24 h siguientes a un mensaje suyo.`;
-        remVentana.hidden = false;
-        return;
-      }
-      const horas = Math.floor((Date.now() - ultimoEntrante.ts) / 3_600_000);
-      if (horas >= 23) {
-        remVentana.innerHTML = `${icon('clock', 13)} Escribió hace ${horas} h. Si no vuelve a escribir antes de la hora programada, Meta rechazará el mensaje por la ventana de 24 h.`;
-        remVentana.hidden = false;
-      } else {
-        remVentana.hidden = true;
-      }
-    } catch { if (remTel.isConnected && remTel.value.replace(/\D/g, '') === tel) remVentana.hidden = true; }
+      if (!remTel.isConnected || seq !== consultaSeq || remTel.value.replace(/\D/g, '') !== telefono) return;
+      const entradas = (info?.recentMessages ?? []).filter(m => m.direction === 'in' && Number.isFinite(m.ts) && m.ts <= Date.now());
+      consulta = { telefono, estado: 'ok', ultimoEntranteTs: entradas.length ? Math.max(...entradas.map(m => m.ts)) : null };
+    } catch {
+      if (!remTel.isConnected || seq !== consultaSeq || remTel.value.replace(/\D/g, '') !== telefono) return;
+      consulta = { telefono, estado: 'error', ultimoEntranteTs: null };
+    }
+    pintarAvisoVentana();
   };
-  $('#remTel').addEventListener('change', avisoVentana);
-  $('#remTel').addEventListener('blur', avisoVentana);
-  if ($('#remTel').value) avisoVentana();
+  remTel.addEventListener('input', () => {
+    ++consultaSeq;
+    clearTimeout(consultaTimer);
+    remVentana.hidden = true;
+    consultaTimer = setTimeout(avisoVentana, 350);
+  });
+  remTel.addEventListener('change', () => { clearTimeout(consultaTimer); void avisoVentana(); });
+  remTel.addEventListener('blur', () => { clearTimeout(consultaTimer); void avisoVentana(); });
+  main.querySelector('#remFecha').addEventListener('input', pintarAvisoVentana);
+  main.querySelector('#remFecha').addEventListener('change', pintarAvisoVentana);
+  if (remTel.value) void avisoVentana();
 
   remForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#remSubmit');
     const fb = $('#remFeedback');
-    const telefono = $('#remTel').value.replace(/\D/g, '');
+    const telefono = remTel.value.trim();
     const mensaje = msg.value.trim();
     const fechaLocal = $('#remFecha').value;
 

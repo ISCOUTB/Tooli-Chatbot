@@ -75,6 +75,7 @@ authRouter.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => 
     },
     capabilities: {
       chatwootSso: isChatwootSsoEnabled() && !!user.chatwootUserId,
+      metaWindow: config.messagingAdapter === 'meta',
     },
   });
 });

@@ -6,11 +6,13 @@
 import { Router } from 'express';
 import { normalizePhone } from './shared';
 import { messaging } from '../../flows/shared';
+import { config } from '../../config';
 import { AuthedRequest } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { banUser, getBotUser, listActiveUsers, resetSession, setAiEnabled, unbanUser } from '../../services/botUserService';
 import { Response } from 'express';
 import { describeError, maskPhone } from '../../services/logSafe';
+import { ultimoEntranteVerificable, ventanaTextoLibreAbierta } from '../../services/replyWindow';
 
 export const botUsersRouter = Router();
 
@@ -73,9 +75,6 @@ botUsersRouter.post('/bot-users/:phone/ai-toggle', async (req: AuthedRequest, re
    llaman a recordActivity(phone, 'out', ...) al enviar.
    ══════════════════════════════════════════════════════════════════════════ */
 
-/** Ventana de servicio de WhatsApp: fuera de ella Meta rechaza el texto libre. */
-const VENTANA_24H_MS = 24 * 60 * 60 * 1000;
-
 botUsersRouter.post('/bot-users/:phone/reply', async (req: AuthedRequest, res: Response) => {
   const phone = normalizePhone(req.params.phone);
   if (!phone) {
@@ -99,13 +98,16 @@ botUsersRouter.post('/bot-users/:phone/reply', async (req: AuthedRequest, res: R
     // vez de dejar que el envío falle con un error críptico de la Graph API, se
     // avisa acá con el motivo y la alternativa.
     const info = await getBotUser(phone);
-    const ultimoEntrante = info.recentMessages.find((m) => m.direction === 'in');
-    if (ultimoEntrante && Date.now() - ultimoEntrante.ts > VENTANA_24H_MS) {
-      const horas = Math.floor((Date.now() - ultimoEntrante.ts) / (60 * 60 * 1000));
+    const now = Date.now();
+    const ultimoEntranteTs = ultimoEntranteVerificable(info.recentMessages, now);
+    if (config.messagingAdapter === 'meta' && !ventanaTextoLibreAbierta(ultimoEntranteTs, now)) {
+      const detalle = ultimoEntranteTs === null
+        ? 'No hay un mensaje entrante reciente verificable para este contacto. '
+        : `Han pasado ${Math.floor((now - ultimoEntranteTs) / (60 * 60 * 1000))} horas desde su último mensaje. `;
       res.status(409).json({
         error: 'fuera_de_ventana',
         message:
-          `Han pasado ${horas} horas desde el último mensaje de esta persona. ` +
+          detalle +
           'WhatsApp solo permite texto libre dentro de las 24 horas siguientes; ' +
           'para retomar el contacto hay que usar una plantilla aprobada por Meta.',
       });

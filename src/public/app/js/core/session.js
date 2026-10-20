@@ -6,5 +6,5 @@
 export const sesion = {
   user: null,
   urls: { chatwoot: '#', grafana: '#' },
-  caps: { chatwootSso: false },
+  caps: { chatwootSso: false, metaWindow: false },
 };
