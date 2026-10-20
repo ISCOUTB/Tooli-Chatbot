@@ -202,7 +202,10 @@ app.delete('/api/tools/recordatorios/:id', (req, res) => {
   j(res, { ok: true, reminder });
 });
 
-app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: [] }));
+const BROADCAST_JOBS = new Map();
+const BROADCAST_DEDUPE = new Map();
+const MOCK_TEMPLATES = [{ name: 'aviso_academico_demo', language: 'es_CO', category: 'UTILITY', components: [{ type: 'BODY', text: 'Aviso académico de prueba' }] }];
+app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: process.env.MOCK_NO_TEMPLATES ? [] : MOCK_TEMPLATES }));
 const REVIEWS = [{
   id: '00000000-0000-4000-8000-000000000001', source: 'meta', from: '573001234567',
   messageId: 'wamid.demo.1', createdAt: hoy - 600000,
@@ -215,7 +218,27 @@ app.post('/api/tools/inbound/reviews/:id/resolve', (req, res) => {
   REVIEWS.splice(i, 1);
   j(res, { ok: true });
 });
-app.post('/api/tools/broadcast/send', (_q, res) => j(res, { ok: true, enviados: 0 }));
+app.post('/api/tools/broadcast/send', (req, res) => {
+  const { templateName, language, telefonos } = req.body;
+  if (!MOCK_TEMPLATES.some(t => t.name === templateName && t.language === language)) return res.status(400).json({ error: 'validation_error', message: 'Template no aprobado' });
+  if (!Array.isArray(telefonos) || !telefonos.length || telefonos.length > 200) return res.status(400).json({ error: 'validation_error', message: 'Destinatarios inválidos' });
+  const numeros = [...new Set(telefonos)].sort();
+  const key = JSON.stringify({ templateName, language, numeros });
+  const previous = BROADCAST_DEDUPE.get(key);
+  if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous) });
+  const job = { id: 'bc' + Date.now(), templateName, language, createdBy: 'admin', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0 };
+  BROADCAST_JOBS.set(job.id, job);
+  BROADCAST_DEDUPE.set(key, job.id);
+  res.status(202).json({ ok: true, job });
+});
+app.get('/api/tools/broadcast/jobs/:id', (req, res) => {
+  const job = BROADCAST_JOBS.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'not_found' });
+  job.estado = 'completado';
+  job.enviados = [...job.destinatarios];
+  job.nextIndex = job.destinatarios.length;
+  j(res, { job });
+});
 app.get('/api/tools/turno/:codigo', (req, res) => {
   if (!/^T\d{8}$/.test(req.params.codigo)) return res.status(400).json({ error: 'codigo_invalido' });
   if (req.params.codigo === 'T00000000') return res.status(404).json({ error: 'no_encontrado' });

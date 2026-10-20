@@ -17,8 +17,19 @@ npm run build
 npm test
 ```
 
-`qa-panel-actions.cjs` recorre formularios y acciones de turno, recibo, recordatorios, conversaciones, CRM, evento, usuarios, revisión de mensajes e inicio y cierre de sesión. También comprueba cambios de pantalla mientras siguen pendientes consultas de turno, recibo, conversaciones y salud. El mock mantiene cambios en memoria; reiniciarlo antes de repetir esta prueba para recuperar sus datos iniciales.
+`qa-panel-actions.cjs` recorre formularios y acciones de turno, recibo, recordatorios, conversaciones, CRM, selección y broadcast con plantilla sintética, evento, rangos de métricas, usuarios, revisión de mensajes e inicio y cierre de sesión. También comprueba cambios de pantalla mientras siguen pendientes consultas de turno, recibo, conversaciones y salud. El mock mantiene cambios en memoria; reiniciarlo antes de repetir esta prueba para recuperar sus datos iniciales.
 
 `qa-panel-navigation.cjs` retrasa las respuestas locales y cambia de sección durante la carga de diez pantallas. `qa-panel-all.cjs` verifica las doce pantallas a 375, 800 y 1280 píxeles y guarda capturas en `tmp/`.
 
-Estas pruebas usan respuestas sintéticas. La descarga PDF de prueba contiene un archivo mínimo; no entra al portal Iceberg. Tampoco envían WhatsApp, consultan Google Sheets, operan Chatwoot real ni verifican el despliegue del VPS. Esas integraciones requieren las credenciales y el entorno de ensayo indicados en `PRODUCCION_SEGURIDAD.md`.
+En CRM, actualizar el Sheet borra una selección activa: el orden de las filas puede cambiar y una posición anterior no identifica al mismo destinatario. La barra de broadcast muestra números únicos y separa los contactos sin WhatsApp válido de los números repetidos. `qa-panel-actions.cjs` simula un reordenamiento y comprueba que no se pueda enviar con la selección antigua.
+
+Para comprobar el rol asesor, detener el mock e iniciarlo en PowerShell con:
+
+```powershell
+$env:MOCK_ROL = 'asesor'
+node tools/mock-panel-server.cjs
+```
+
+En otra terminal, ejecutar `node tools/qa-panel-asesor.cjs`. La prueba confirma que no aparece la selección de broadcast y que las rutas administrativas redirigen a Inicio.
+
+Estas pruebas usan respuestas sintéticas. La descarga PDF de prueba contiene un archivo mínimo; no entra al portal Iceberg. El trabajo de broadcast simulado marca destinatarios como enviados sin llamar a Meta. Las pruebas tampoco envían WhatsApp, consultan Google Sheets, operan Chatwoot real ni verifican el despliegue del VPS. Esas integraciones requieren las credenciales y el entorno de ensayo indicados en `PRODUCCION_SEGURIDAD.md`.

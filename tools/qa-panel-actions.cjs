@@ -136,6 +136,30 @@ async function visit(page, route) {
     await page.locator('.profile-sheet-close').click();
     console.log('CRM: buscar, etapa, asignación, etiqueta y nota OK');
 
+    await page.locator('#toggleSelectMode').click();
+    await page.locator('#broadcastAll').click();
+    await page.locator('#broadcastSendBtn').click();
+    await page.locator('#bcTemplates .bc-template-row').first().waitFor();
+    await page.locator('#bcTemplates .bc-template-row').first().click();
+    await page.locator('#bcConfirm').click();
+    await page.locator('#bcResult').getByText('1/1 enviados correctamente', { exact: false }).waitFor();
+    await page.locator('#bcConfirm').click();
+    await page.locator('#bcConfirm').waitFor({ state: 'detached' });
+    await page.locator('#broadcastSendBtn').click();
+    await page.locator('#bcCancel').press('Escape');
+    await page.locator('#bcCancel').waitFor({ state: 'detached' });
+    console.log('CRM: selección filtrada, plantilla y progreso del envío sintético OK');
+
+    await page.route('**/api/tools/registros-posgrado', async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      await route.fulfill({ response, json: { ...data, rows: [...data.rows].reverse() } });
+    });
+    await page.locator('#refreshReg').click();
+    await page.waitForFunction(() => document.querySelector('#broadcastCount')?.textContent === '0 seleccionados');
+    assert.equal(await page.locator('#broadcastSendBtn').isDisabled(), true);
+    console.log('CRM: actualizar lista invalida la selección anterior al reordenar registros OK');
+
     await visit(page, 'evento-posgrado');
     await page.locator('#eventoContent .crm-card[data-row]').first().waitFor();
     await page.locator('#becaVistaWrap button[data-value="beca"]').click();
@@ -154,6 +178,25 @@ async function visit(page, route) {
     await page.locator('#invitarSend').click();
     await page.locator('#eventoContent .crm-card[data-row="0"]').getByText('Invitado a próximo evento').waitFor();
     console.log('Evento: filtro beca, seguimiento e invitación OK');
+
+    await visit(page, 'metricas');
+    await page.locator('#metricsContent #metChartDaily').waitFor();
+    const metricsRange = page.waitForResponse(response => response.url().includes('/api/tools/metrics/range?days=30'));
+    await page.locator('#metRangeWrap button[data-value="30"]').click();
+    assert.equal((await metricsRange).status(), 200);
+    await page.locator('#metricsContent #metChartDaily').waitFor();
+    await visit(page, 'posgrados');
+    await page.locator('#pgContent #pgVerCrm').waitFor();
+    await page.locator('#pgRangeWrap button[data-value="30"]').click();
+    await page.waitForFunction(() => document.querySelector('#pgContent .op-contexto-texto')?.textContent.includes('30 días'));
+    await page.locator('#pgVerCrm').click();
+    await page.waitForFunction(() => location.hash === '#registros');
+    await visit(page, 'actividad');
+    await page.locator('#actChartCanvas').waitFor();
+    const activityRange = page.waitForResponse(response => response.url().includes('/api/tools/audit/summary?days=30'));
+    await page.locator('#actRangeWrap button[data-value="30"]').click();
+    assert.equal((await activityRange).status(), 200);
+    console.log('Métricas, Posgrados y Actividad: rangos y navegación OK');
 
     await visit(page, 'usuarios');
     await page.locator('.advisor-card').first().waitFor();
