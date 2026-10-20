@@ -87,6 +87,30 @@ describe('filtrarCrmRows', () => {
   });
 });
 
+describe('telefonoBroadcastCrm', () => {
+  it('usa el mismo rango E.164 que valida el servidor', () => {
+    assert.equal(R.telefonoBroadcastCrm(['', '', '', '+57 300 123 4567']), '573001234567');
+    assert.equal(R.telefonoBroadcastCrm(['', '', '', '12345678']), '');
+    assert.equal(R.telefonoBroadcastCrm(['', '', '', '0123456789']), '');
+    assert.equal(R.telefonoBroadcastCrm(['', '', '', '1234567890123456']), '');
+    assert.equal(R.telefonoBroadcastCrm(['', '', '', 'texto 573001234567']), '');
+  });
+});
+
+describe('resumirSeleccionBroadcastCrm', () => {
+  it('cuenta destinatarios únicos, inválidos y repetidos por separado', () => {
+    const rows = [
+      ['', '', '', '+57 300 123 4567'],
+      ['', '', '', '573001234567'],
+      ['', '', '', '12345678'],
+      ['', '', '', '+57 301 555 0101'],
+    ];
+    assert.deepEqual(R.resumirSeleccionBroadcastCrm(rows, new Set([0, 1, 2, 3])), {
+      numeros: ['573001234567', '573015550101'], sinWhatsapp: 1, repetidos: 1,
+    });
+  });
+});
+
 describe('filasCrmParaCsv', () => {
   it('arma una fila con área, etapa y asesor reales', () => {
     const fichas = { 1001: { estado: 'contactado', asignadoA: 'luis', etiquetas: ['beca'], notas: [{}, {}] } };

@@ -35,6 +35,25 @@ function filtrarCrmRows(rows, filtros) {
   return (rows ?? []).map((row, idx) => ({ row, idx })).filter(({ row }) => crmPasaFiltros(row, filtros));
 }
 
+function telefonoBroadcastCrm(row) {
+  const texto = String(row?.[3] ?? '').trim();
+  const numero = texto.replace(/\D/g, '');
+  return /^\+?[\d\s().-]+$/.test(texto) && /^[1-9]\d{9,14}$/.test(numero) ? numero : '';
+}
+
+function resumirSeleccionBroadcastCrm(rows, indices) {
+  const numeros = new Set();
+  let sinWhatsapp = 0;
+  let repetidos = 0;
+  for (const idx of indices) {
+    const numero = telefonoBroadcastCrm(rows[idx]);
+    if (!numero) sinWhatsapp++;
+    else if (numeros.has(numero)) repetidos++;
+    else numeros.add(numero);
+  }
+  return { numeros: [...numeros], sinWhatsapp, repetidos };
+}
+
 /** Conteos por segmento sobre las filas ya cargadas — nada inventado. */
 function resumirSegmentos(rows) {
   const resumen = { total: 0, pregrado: 0, posgrado: 0 };
@@ -123,12 +142,13 @@ let crmSoloMios = false;
 async function renderRegistros(main) {
   let selectMode = false;
   let selected = new Set();
+  const canBroadcast = sesion.user?.role === 'admin';
 
   main.innerHTML = `
     <div class="page-header">
       <div><h1>📝 CRM — Prospectos</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>
+        ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
         <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} Exportar<span class="hide-sm"> CSV</span></button>
         <button class="btn btn-secondary" id="refreshReg"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
@@ -168,7 +188,7 @@ async function renderRegistros(main) {
   `;
 
   $('#crmSearch').addEventListener('input', renderCrmGrid);
-  $('#toggleSelectMode').addEventListener('click', () => {
+  $('#toggleSelectMode')?.addEventListener('click', () => {
     haptic(10);
     selectMode = !selectMode;
     if (!selectMode) selected.clear();
@@ -219,25 +239,21 @@ async function renderRegistros(main) {
   }
 
   function selectedTelefonos() {
-    return Array.from(selected).map(idx => {
-      const row = crmRows[idx];
-      return row ? String(row[3] || '').replace(/\D/g, '') : '';
-    }).filter(v => v.length >= 8);
+    return resumirSeleccionBroadcastCrm(crmRows, selected).numeros;
   }
 
   function updateBroadcastBar() {
-    const nums = selectedTelefonos();
+    const { numeros: nums, sinWhatsapp, repetidos } = resumirSeleccionBroadcastCrm(crmRows, selected);
     const countEl = $('#broadcastCount');
     const btn = $('#broadcastSendBtn');
-    const sinWhatsapp = selected.size - nums.length;
     if (countEl) countEl.textContent = `${selected.size} seleccionado${selected.size === 1 ? '' : 's'}`;
     const hintEl = $('#broadcastHint');
     if (hintEl) {
-      // El aviso solo aparece si de verdad hay alguien que no va a recibir nada.
-      hintEl.textContent = sinWhatsapp > 0
-        ? `${sinWhatsapp} sin WhatsApp — no recibirá${sinWhatsapp === 1 ? '' : 'n'} el mensaje`
-        : '';
-      hintEl.style.display = sinWhatsapp > 0 ? '' : 'none';
+      const avisos = [];
+      if (sinWhatsapp) avisos.push(`${sinWhatsapp} sin WhatsApp válido`);
+      if (repetidos) avisos.push(`${repetidos} número${repetidos === 1 ? '' : 's'} repetido${repetidos === 1 ? '' : 's'}`);
+      hintEl.textContent = avisos.join(' · ');
+      hintEl.style.display = avisos.length ? '' : 'none';
     }
     if (btn) {
       btn.disabled = nums.length === 0;
@@ -265,7 +281,7 @@ async function renderRegistros(main) {
     overlay.style.alignItems = 'center';
     overlay.style.zIndex = '500';
     overlay.innerHTML = `
-      <div class="action-sheet" style="max-width:480px;">
+      <div class="action-sheet" role="dialog" aria-modal="true" aria-label="Enviar plantilla por WhatsApp" style="max-width:480px;">
         <div class="sheet-group" style="padding:16px;text-align:left;">
           <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Enviar plantilla por WhatsApp</div>
           <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${telefonos.length} destinatario${telefonos.length !== 1 ? 's' : ''} · Solo templates aprobados por Meta (sin variables {{1}} por ahora)</div>
@@ -283,8 +299,28 @@ async function renderRegistros(main) {
       </div>
     `;
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
-    const close = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 260); };
+    const opener = main.querySelector('#broadcastSendBtn');
+    requestAnimationFrame(() => { overlay.classList.add('open'); overlay.querySelector('#bcCancel')?.focus({ preventScroll: true }); });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('hashchange', close);
+      document.removeEventListener('keydown', onKey);
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 260);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key !== 'Tab') return;
+      const controls = Array.from(overlay.querySelectorAll('button')).filter(el => !el.disabled && el.getClientRects().length);
+      if (!controls.length) return;
+      if (e.shiftKey && (document.activeElement === controls[0] || !overlay.contains(document.activeElement))) { e.preventDefault(); controls.at(-1).focus(); }
+      else if (!e.shiftKey && (document.activeElement === controls.at(-1) || !overlay.contains(document.activeElement))) { e.preventDefault(); controls[0].focus(); }
+    };
+    window.addEventListener('hashchange', close);
+    document.addEventListener('keydown', onKey);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('#bcCancel').addEventListener('click', close);
 
@@ -329,7 +365,7 @@ async function renderRegistros(main) {
       if (!overlay.isConnected || trackedJobId !== id) return;
       try {
         const res = await api(`/api/tools/broadcast/jobs/${encodeURIComponent(id)}`);
-        if (trackedJobId !== id) return;
+        if (!overlay.isConnected || trackedJobId !== id || !res) return;
         if (res.status === 404) {
           try { localStorage.removeItem(lastJobKey); } catch { /* almacenamiento local opcional */ }
           trackedJobId = null;
@@ -338,17 +374,18 @@ async function renderRegistros(main) {
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { job } = await res.json();
-        if (trackedJobId !== id) return;
+        if (!overlay.isConnected || trackedJobId !== id) return;
         alertEl.innerHTML = '';
         if (renderJob(job)) return;
       } catch {
-        if (trackedJobId !== id) return;
+        if (!overlay.isConnected || trackedJobId !== id) return;
         alertEl.innerHTML = '<div class="alert alert-error" style="margin:0;">No se pudo actualizar el progreso. El envío sigue en la cola; se intentará consultar de nuevo.</div>';
       }
       setTimeout(() => pollJob(id), 2500);
     }
 
     function renderTemplates() {
+      if (!overlay.isConnected) return;
       if (!templates.length) {
         listEl.innerHTML = `<div class="widget-empty" style="padding:14px 0;">No hay templates aprobados disponibles — crealos en el Business Manager de Meta y aparecerán aquí. Sin credenciales WABA en este entorno la lista viene vacía.</div>`;
         confirmBtn.disabled = true;
@@ -379,12 +416,14 @@ async function renderRegistros(main) {
 
     try {
       const r = await api('/api/tools/broadcast/templates');
+      if (!overlay.isConnected || !r) return;
       if (!r.ok) throw new Error('No se pudieron cargar los templates');
       const data = await r.json();
+      if (!overlay.isConnected) return;
       templates = data.templates ?? [];
       renderTemplates();
     } catch (err) {
-      listEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudieron cargar los templates: ${escapeHtml(err.message || String(err))}</div>`;
+      if (overlay.isConnected) listEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudieron cargar los templates: ${escapeHtml(err.message || String(err))}</div>`;
     }
     try {
       const lastJob = localStorage.getItem(lastJobKey);
@@ -402,7 +441,9 @@ async function renderRegistros(main) {
           method: 'POST',
           body: JSON.stringify({ templateName: chosen.name, language: chosen.language, telefonos }),
         });
+        if (!overlay.isConnected || !res) return;
         const body = await res.json().catch(() => ({}));
+        if (!overlay.isConnected) return;
         if (!res.ok) {
           const msg = body.message || body.error || `HTTP ${res.status}`;
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}${res.status === 403 ? ' — Solo administradores pueden enviar broadcasts.' : ''}</div>`;
@@ -419,6 +460,7 @@ async function renderRegistros(main) {
         toast(job.estado === 'completado' ? 'Revisa el resultado del envío' : 'Envío programado; puedes cerrar esta ventana');
         if (!renderJob(job)) void pollJob(job.id);
       } catch (err) {
+        if (!overlay.isConnected) return;
         alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudo confirmar el trabajo: ${escapeHtml(err.message || String(err))}. Si reintentas la misma selección, el servidor devolverá el trabajo existente durante 24 horas.</div>`;
         resultEl.innerHTML = '';
         confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${telefonos.length}`;
@@ -445,6 +487,14 @@ async function renderRegistros(main) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { rows } = await r.json();
       if (!regContent.isConnected || seq !== loadSeq) return;
+      // La selección usa índices de la respuesta actual. Una actualización
+      // puede reordenar el Sheet; conservar esos índices enviaría la plantilla
+      // a prospectos distintos de los que eligió el asesor.
+      if (selected.size) {
+        selected.clear();
+        updateBroadcastBar();
+        toast('La lista cambió; vuelve a seleccionar los destinatarios');
+      }
       crmFichas = fichasRes.fichas ?? {};
       crmRows = rows ?? [];
       const resumenCarga = resumirSegmentos(crmRows);
@@ -541,7 +591,7 @@ async function renderRegistros(main) {
         ${filtered.map(({ row, idx }) => {
           const cat = crmCategoria(row);
           const nombre = row[1] || 'Sin nombre';
-          const hasPhone = String(row[3] || '').replace(/\D/g, '').length >= 8;
+          const hasPhone = Boolean(telefonoBroadcastCrm(row));
           const isSelected = selected.has(idx);
           return `
           <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" ${selectMode ? '' : `tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}"`} style="position:relative;">
@@ -653,4 +703,4 @@ async function renderRegistros(main) {
   loadReg();
 }
 
-export { renderRegistros, CRM_CSV_CABECERA, crmPasaFiltros, filtrarCrmRows, resumirSegmentos, textoResumenSegmentos, filasCrmParaCsv };
+export { renderRegistros, CRM_CSV_CABECERA, crmPasaFiltros, filtrarCrmRows, telefonoBroadcastCrm, resumirSeleccionBroadcastCrm, resumirSegmentos, textoResumenSegmentos, filasCrmParaCsv };
