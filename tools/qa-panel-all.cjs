@@ -9,7 +9,7 @@ const ROUTES = [
 
 (async () => {
   const failures = [];
-  for (const width of [375, 800, 1280]) {
+  for (const width of [320, 375, 800, 1280]) {
     const browser = await chromium.launch({
       headless: true,
       executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -25,12 +25,26 @@ const ROUTES = [
           await page.locator('#main h1').waitFor();
           await page.waitForTimeout(600);
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+          const mainOverflow = await page.evaluate(() => {
+            const main = document.querySelector('#main');
+            return main.scrollWidth > main.clientWidth + 1;
+          });
           const alert = await page.locator('#main .alert-error').allTextContents();
-          if (overflow || errors.length || alert.length) {
-            failures.push({ route, width, overflow, errors, alert });
+          const hiddenReminderVisible = route === 'recordatorios' && await page.locator('#remVentana').isVisible();
+          const reminderClipped = route === 'recordatorios' && await page.evaluate(() => {
+            const main = document.querySelector('#main');
+            const bounds = main.getBoundingClientRect();
+            const nodes = document.querySelectorAll('#remForm, #remTel, #remMsg, #remFecha, .rem-lista-col, .rem-card');
+            return [...nodes].some(node => {
+              const rect = node.getBoundingClientRect();
+              return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+            });
+          });
+          if (overflow || mainOverflow || errors.length || alert.length || hiddenReminderVisible || reminderClipped) {
+            failures.push({ route, width, overflow, mainOverflow, errors, alert, hiddenReminderVisible, reminderClipped });
           }
           if (width !== 800) await page.screenshot({ path: `tmp/qa-all-${route}-${width}.png`, fullPage: true });
-          console.log(`${route} ${width}px: ${overflow || errors.length || alert.length ? 'REVISAR' : 'OK'}`);
+          console.log(`${route} ${width}px: ${overflow || mainOverflow || errors.length || alert.length || hiddenReminderVisible || reminderClipped ? 'REVISAR' : 'OK'}`);
         } finally {
           page.off('pageerror', onError);
         }

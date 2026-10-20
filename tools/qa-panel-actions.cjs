@@ -76,18 +76,29 @@ async function visit(page, route) {
 
     await visit(page, 'recordatorios');
     await page.locator('#remContent .rem-card').first().waitFor();
-    await page.locator('#remTel').fill('573001234567');
     await page.locator('#remMsg').fill('Recordatorio de prueba de interfaz');
     const future = new Date(Date.now() + 3_600_000);
     const local = new Date(future.getTime() - future.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     await page.locator('#remFecha').fill(local);
+    await page.locator('#remTel').fill('x573001234567');
+    await page.locator('#remSubmit').click();
+    await page.locator('#remFeedback').getByText('telefono inválido', { exact: false }).waitFor();
+    await page.locator('#remTel').fill('573044444444');
+    await page.locator('#remVentana').getByText('No hay un mensaje entrante reciente registrado', { exact: false }).waitFor();
+    await page.locator('#remTel').fill('573001234567');
+    const fuera = new Date(Date.now() + 26 * 3_600_000);
+    const fueraLocal = new Date(fuera.getTime() - fuera.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    await page.locator('#remFecha').fill(fueraLocal);
+    await page.locator('#remVentana').getByText('fuera de las 24 h', { exact: false }).waitFor();
+    await page.locator('#remFecha').fill(local);
+    await page.locator('#remVentana').waitFor({ state: 'hidden' });
     await page.locator('#remSubmit').click();
     await page.locator('#remContent .rem-card').filter({ hasText: 'Recordatorio de prueba de interfaz' }).waitFor();
     const card = page.locator('#remContent .rem-card').filter({ hasText: 'Recordatorio de prueba de interfaz' });
     await card.locator('.rem-cancel').click();
     await page.getByText('Cancelar recordatorio', { exact: true }).last().click();
     await page.locator('#remContent .rem-card').filter({ hasText: 'Recordatorio de prueba de interfaz' }).waitFor({ state: 'detached' });
-    console.log('Recordatorios: programar y cancelar OK');
+    console.log('Recordatorios: teléfono inválido, ventana al enviar, programar y cancelar OK');
 
     await visit(page, 'conversaciones');
     await page.locator('.inbox-row[data-open]').first().waitFor();
@@ -100,7 +111,14 @@ async function visit(page, route) {
     await page.locator('#composerSend').click();
     await page.locator('.bubble-row.out').filter({ hasText: replyText }).waitFor();
     await page.locator('.bubble-row.out.sending').waitFor({ state: 'detached' });
-    console.log('Conversaciones: buscar, abrir hilo y responder OK');
+    await page.locator('#threadBack').click();
+    await page.locator('#inboxSearch').fill('Carlos');
+    await page.locator('.inbox-row[data-open="573009876543"]').click();
+    await page.locator('#composerInput').fill('Respuesta sin mensaje entrante verificable');
+    await page.locator('#composerSend').click();
+    await page.locator('#composerHint').getByText('No hay un mensaje entrante reciente verificable', { exact: false }).waitFor();
+    assert.equal(await page.locator('#composerInput').inputValue(), 'Respuesta sin mensaje entrante verificable');
+    console.log('Conversaciones: respuesta válida y bloqueo con borrador conservado cuando falta ventana OK');
 
     await page.route('**/api/tools/bot-users', async route => {
       await new Promise(resolve => setTimeout(resolve, 350));
@@ -187,6 +205,8 @@ async function visit(page, route) {
     await page.locator('#metricsContent #metChartDaily').waitFor();
     await visit(page, 'posgrados');
     await page.locator('#pgContent #pgVerCrm').waitFor();
+    await page.locator('#pgContent').getByText('conversión sin datos de inicio', { exact: false }).first().waitFor();
+    await page.locator('#pgContent').getByText('Sin consultas de programas en este rango.').waitFor();
     await page.locator('#pgRangeWrap button[data-value="30"]').click();
     await page.waitForFunction(() => document.querySelector('#pgContent .op-contexto-texto')?.textContent.includes('30 días'));
     await page.locator('#pgVerCrm').click();

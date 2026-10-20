@@ -86,7 +86,7 @@ app.get('/api/auth/me', (_q, res) => !mockAuthenticated
   : j(res, {
   user: { username: ROL === 'admin' ? 'admin' : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
   urls: { chatwoot: 'https://chat.example.com', grafana: 'https://grafana.example.com' },
-  capabilities: { chatwootSso: true },
+  capabilities: { chatwootSso: true, metaWindow: true },
 }));
 app.post('/api/auth/login', (req, res) => {
   if (req.body.password !== 'demo') return res.status(401).json({ error: 'invalid_credentials' });
@@ -121,9 +121,15 @@ app.post('/api/tools/bot-users/batch', (req, res) => {
 });
 app.get('/api/tools/bot-users/:phone', (req, res) => {
   const u = CONVS.find(c => c.phone === req.params.phone) || CONVS[0];
-  j(res, { ...u, recentMessages: [...(MENSAJES[req.params.phone] || MENSAJES['573001234567'])].reverse() });
+  j(res, { ...u, recentMessages: [...(MENSAJES[req.params.phone] || [u.lastMessage])].reverse() });
 });
 app.post('/api/tools/bot-users/:phone/reply', (req, res) => {
+  const u = CONVS.find(c => c.phone === req.params.phone);
+  const latestInbound = [...(MENSAJES[req.params.phone] || (u ? [u.lastMessage] : []))]
+    .filter(m => m.direction === 'in').reduce((latest, m) => Math.max(latest, m.ts), 0);
+  if (!latestInbound || Date.now() - latestInbound >= 24 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: 'fuera_de_ventana', message: 'No hay un mensaje entrante reciente verificable. Usa una plantilla aprobada por Meta.' });
+  }
   const msgs = MENSAJES[req.params.phone] || (MENSAJES[req.params.phone] = []);
   msgs.push({ ts: Date.now(), direction: 'out', text: req.body.text });
   j(res, { ok: true });
@@ -191,7 +197,12 @@ app.post('/api/tools/quick-replies', (_q, res) => j(res, { ok: true }));
 
 app.get('/api/tools/recordatorios', (_q, res) => j(res, { reminders: RECORDATORIOS }));
 app.post('/api/tools/recordatorios', (req, res) => {
-  const reminder = { ...req.body, scheduledAt: Date.parse(req.body.scheduledAt), id: 'r' + Date.now(), estado: 'programado', createdBy: 'admin' };
+  const texto = String(req.body.telefono ?? '').trim();
+  const telefono = texto.replace(/\D/g, '');
+  if (!/^\+?[\d\s().-]+$/.test(texto) || !/^[1-9]\d{9,14}$/.test(telefono)) {
+    return res.status(400).json({ error: 'validation_error', message: 'telefono inválido (usa E.164 de 10–15 dígitos)' });
+  }
+  const reminder = { ...req.body, telefono, scheduledAt: Date.parse(req.body.scheduledAt), id: 'r' + Date.now(), estado: 'programado', createdBy: 'admin' };
   RECORDATORIOS.unshift(reminder);
   j(res, { ok: true, reminder });
 });

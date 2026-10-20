@@ -19,7 +19,9 @@ npm test
 
 `qa-panel-actions.cjs` recorre formularios y acciones de turno, recibo, recordatorios, conversaciones, CRM, selección y broadcast con plantilla sintética, evento, rangos de métricas, usuarios, revisión de mensajes e inicio y cierre de sesión. También comprueba cambios de pantalla mientras siguen pendientes consultas de turno, recibo, conversaciones y salud. El mock mantiene cambios en memoria; reiniciarlo antes de repetir esta prueba para recuperar sus datos iniciales.
 
-`qa-panel-navigation.cjs` retrasa las respuestas locales y cambia de sección durante la carga de diez pantallas. `qa-panel-all.cjs` verifica las doce pantallas a 375, 800 y 1280 píxeles y guarda capturas en `tmp/`.
+`qa-panel-navigation.cjs` retrasa las respuestas locales y cambia de sección durante la carga de diez pantallas. `qa-panel-all.cjs` verifica las doce pantallas a 320, 375, 800 y 1280 píxeles y guarda capturas en `tmp/`. Además del desbordamiento del documento, detecta contenido recortado dentro del panel; en Recordatorios comprueba los controles del formulario y que el aviso oculto no deje una franja vacía.
+
+El flujo de acciones comprueba que Recordatorios advierta según la **hora programada** cuando el adaptador es Meta, y que un teléfono mal formado llegue al validador del servidor sin perder caracteres. También comprueba que Conversaciones conserve el borrador cuando Meta rechaza texto libre sin un mensaje entrante reciente verificable. Posgrados muestra la conversión como no disponible si faltan eventos de inicio, y explica los gráficos de programas sin datos.
 
 En CRM, actualizar el Sheet borra una selección activa: el orden de las filas puede cambiar y una posición anterior no identifica al mismo destinatario. La barra de broadcast muestra números únicos y separa los contactos sin WhatsApp válido de los números repetidos. `qa-panel-actions.cjs` simula un reordenamiento y comprueba que no se pueda enviar con la selección antigua.
 
