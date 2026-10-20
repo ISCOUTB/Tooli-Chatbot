@@ -6,10 +6,8 @@
  * asesor) y a dos trámites sueltos (turno y recibo). Un estudiante activo que
  * escribía preguntando por sus notas, su horario o una tarea no tenía a dónde ir.
  *
- * Este flujo NO consulta notas ni horarios — el bot no tiene integración con el
- * sistema académico (ver la nota larga en `src/services/academicoLinks.ts`). Lo
- * que hace es llevarlo al lugar exacto, diciéndole con qué credenciales entra y
- * qué va a encontrar, en vez de dejarlo buscando en la página de la universidad.
+ * Las notas usan el flujo protegido de Banner. El recibo usa la consulta real
+ * solo cuando está habilitada; horario y tareas conducen al portal oficial.
  */
 
 import { setSession } from '../services/session';
@@ -18,6 +16,7 @@ import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado } 
 import { parseGlobalCommand } from './commands';
 import { AreaRecurso, getRecursos } from '../services/academicoLinks';
 import { iniciarConsultaDeNotas } from './notas';
+import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 import type { FlowArea } from './commands';
 
 /** Métrica por recurso: explícita (y no un template literal) para que el
@@ -108,13 +107,32 @@ export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
   }
 
   const recursos = getRecursos(area);
-  const elegido = recursos[Number(input) - 1];
+  const elegido = /^\d+$/.test(input) ? recursos[Number(input) - 1] : undefined;
 
   // Las notas ya no se resuelven con un enlace: el bot las consulta de verdad
   // en Banner (verificando primero la identidad por OTP al correo). Mandar el
   // enlace aquí sería darle al estudiante el camino largo teniendo el corto.
   if (elegido?.id === 'notas') {
+    await track('academico_notas');
     await iniciarConsultaDeNotas(from, area);
+    return;
+  }
+
+  if (elegido?.id === 'recibo') {
+    await track('academico_recibo');
+    if (!academicLookupEnabled()) {
+      await sendAcademicPortal(from, 'recibo', { originArea: area });
+      return;
+    }
+    await setSession(from, { step: 'recibo_codigo', data: { originArea: area } });
+    await messaging.sendText({
+      to: from,
+      text:
+        '🧾 *Descargar recibo de matrícula*\n\n' +
+        'Escribe tu *código estudiantil* (ejemplo: T12345678). Después te pediré tu cédula para entrar al portal.\n\n' +
+        `_Para consultar otros movimientos financieros, usa el portal oficial: ${elegido.url}_\n\n` +
+        'Escribe *0* para volver a tu menú o *menu* para ir al inicio.',
+    });
     return;
   }
 

@@ -41,6 +41,9 @@ export type MetricEvent =
   | 'prospecto_pregrado_completado'
   | 'registro_pregrado_iniciado'
   | 'registro_pregrado_completado'
+  | 'pregrado_explorar_iniciado'
+  | 'pregrado_explorar_area'
+  | 'pregrado_explorar_carrera'
   // Mi vida académica (hub de plataformas para estudiantes matriculados).
   // Un evento por recurso, no uno genérico con prop: así el panel puede
   // rankear qué está buscando realmente la gente (ver renderMetricas).

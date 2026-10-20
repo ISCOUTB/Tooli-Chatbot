@@ -158,6 +158,7 @@ export async function sendMenuPregrado(to: string): Promise<void> {
           { id: '5', title: '🧾 Recibo matrícula',    description: 'Descarga el PDF de tu recibo de pago' },
           { id: '6', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '7', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
+          { id: '8', title: '🧭 Explorar carreras',    description: 'Conoce las áreas y carreras sin registrarte' },
           { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver al menú de inicio' },
         ],
       },

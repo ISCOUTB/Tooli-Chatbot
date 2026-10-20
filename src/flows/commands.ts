@@ -32,6 +32,9 @@ const POSGRADO_STEPS: ReadonlySet<string> = new Set([
 
 const PREGRADO_STEPS: ReadonlySet<string> = new Set([
   'menu_pregrado',
+  'pregrado_explorar_area',
+  'pregrado_explorar_carrera',
+  'pregrado_explorar_accion',
   'pregrado_registro_nombre',
   'pregrado_registro_email',
   'pregrado_registro_carrera',

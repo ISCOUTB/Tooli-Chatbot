@@ -13,6 +13,8 @@ import {
   normalizeGuidanceInput,
   parseAreaSelection,
   parseCareerSelection,
+  parseExploreAction,
+  selectedInterest,
   withGuidance,
   withoutGuidance,
 } from './pregradoGuidance';
@@ -187,5 +189,25 @@ describe('estado de guía en sesión', () => {
       getGuidanceState({ pregrado_guidance_stage: 'career', pregrado_guidance_area: 'medicina' }),
       null,
     );
+  });
+});
+
+describe('exploración independiente', () => {
+  it('acepta solo las tres acciones de continuación', () => {
+    assert.equal(parseExploreAction(' 1 '), 'registro');
+    assert.equal(parseExploreAction('2'), 'asesor');
+    assert.equal(parseExploreAction('3'), 'otra_area');
+    for (const value of ['0', '4', '1e0', '1.0', 'menu', '']) {
+      assert.equal(parseExploreAction(value), null);
+    }
+  });
+
+  it('conserva solo intereses elegidos del catálogo al iniciar registro o asesor', () => {
+    assert.equal(selectedInterest({ carreraInteres: 'Psicología' }), 'Psicología');
+    const indeciso = buildUndecidedLabel('Ingeniería');
+    assert.equal(selectedInterest({ carreraInteres: indeciso }), indeciso);
+    assert.equal(selectedInterest({ carreraInteres: 'Medicina' }), null);
+    assert.equal(selectedInterest({ carreraInteres: 'Aún no sé (área de interés: inventada)' }), null);
+    assert.equal(selectedInterest({}), null);
   });
 });

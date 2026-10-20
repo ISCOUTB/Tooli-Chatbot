@@ -47,6 +47,7 @@ describe('areaOfStep', () => {
       'menu_pregrado', 'pregrado_registro_nombre', 'pregrado_registro_email',
       'pregrado_registro_carrera', 'pregrado_prospecto_nombre',
       'pregrado_prospecto_email', 'pregrado_prospecto_carrera',
+      'pregrado_explorar_area', 'pregrado_explorar_carrera', 'pregrado_explorar_accion',
     ]) assert.equal(areaOfStep(step), 'pregrado');
   });
 

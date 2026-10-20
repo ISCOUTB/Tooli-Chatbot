@@ -6,6 +6,7 @@ import { iniciarConsultaDeNotas } from './notas';
 import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
 import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
+import { iniciarExploracionPregrado } from './pregradoExplorar';
 
 /** Paso 0 — el usuario todavía no eligió Pregrado o Posgrado. */
 export async function handleMenu(ctx: FlowContext): Promise<void> {
@@ -220,6 +221,12 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   // 7 — Mi vida académica (estudiantes ya matriculados)
   if (input === '7') {
     await sendMenuAcademico(from, 'pregrado');
+    return;
+  }
+
+  // 8 — Explorar el catálogo antes de entregar datos personales.
+  if (input === '8') {
+    await iniciarExploracionPregrado(from);
     return;
   }
 

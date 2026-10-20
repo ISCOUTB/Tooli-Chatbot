@@ -14,6 +14,7 @@ import {
   parseAreaSelection,
   parseCareerSelection,
   isGuidanceRequest,
+  selectedInterest,
   withGuidance,
   withoutGuidance,
   type PregradoAreaId,
@@ -156,7 +157,17 @@ export async function handlePregradoRegistroEmail(ctx: FlowContext): Promise<voi
     return;
   }
 
-  await setSession(from, { step: 'pregrado_registro_carrera', data: { ...session?.data, email } });
+  const nextData: Record<string, string> = { ...session?.data, email };
+  await setSession(from, { step: 'pregrado_registro_carrera', data: nextData });
+  const carreraInteres = selectedInterest(nextData);
+  if (carreraInteres) {
+    await handlePregradoRegistroCarrera({
+      from,
+      text: carreraInteres,
+      session: { step: 'pregrado_registro_carrera', data: nextData },
+    });
+    return;
+  }
   await messaging.sendText({
     to: from,
     text: '¿Qué *carrera* te interesa?\n\n_Puedes escribirla directamente (ej: "Ingeniería de Sistemas"). Si aún no lo sabes, escribe *"no sé"* y te muestro las áreas para explorar._\n\nEscribe *menu* para cancelar.',
@@ -252,7 +263,17 @@ export async function handlePregradoProspectoEmail(ctx: FlowContext): Promise<vo
     return;
   }
 
-  await setSession(from, { step: 'pregrado_prospecto_carrera', data: { ...session?.data, email } });
+  const nextData: Record<string, string> = { ...session?.data, email };
+  await setSession(from, { step: 'pregrado_prospecto_carrera', data: nextData });
+  const carreraInteres = selectedInterest(nextData);
+  if (carreraInteres) {
+    await handlePregradoProspectoCarrera({
+      from,
+      text: carreraInteres,
+      session: { step: 'pregrado_prospecto_carrera', data: nextData },
+    });
+    return;
+  }
   await messaging.sendText({
     to: from,
     text: '¿Qué *carrera* te interesa?\n\n_Puedes escribirla directamente (ej: "Ingeniería de Sistemas"). Si aún no lo sabes, escribe *"no sé"* y te muestro las áreas para explorar._\n\nEscribe *menu* para cancelar.',

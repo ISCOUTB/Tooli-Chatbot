@@ -87,23 +87,25 @@ interés ni asesor propio para aspirantes de pregrado, solo Turno/Recibo de
 matrícula. Se agregó (`src/flows/pregrado.ts`, `src/flows/menu.ts`,
 `src/flows/shared.ts`): el menú inicial ahora pregunta Pregrado o Posgrado
 primero, y cada rama tiene su propio registro de interés (carrera como texto
-libre — no hay un listado de carreras de pregrado en el sistema, así que no
-se inventó uno) y su propio asesor vía Chatwoot (etiqueta `pregrado-prospecto`).
+libre) y su propio asesor vía Chatwoot (etiqueta `pregrado-prospecto`).
 El asistente IA de pregrado reutiliza el área `admisiones` de `aiAssistant.ts`,
 que ya tenía su propia base de conocimiento y busca páginas `/pregrado/` — no
 se creó una nueva.
+
+La opción *Explorar carreras* del menú de Pregrado usa las áreas y carreras ya
+presentes en la base de conocimiento institucional. Permite explorar sin
+registrarse; al pasar después a registro o asesor conserva el interés elegido.
 
 Los prospectos de pregrado y posgrado ahora comparten el mismo Google Sheet,
 distinguidos por una columna de área nueva (retrocompatible: filas viejas sin
 esa columna se leen como "Posgrado"). El panel (CRM, Actividad de asesores,
 bandeja de Conversaciones) ya distingue el área en badges y filtros.
 
-**Honestidad sobre las pruebas:** se verificó con `tsc --noEmit` (compila
-limpio) y revisión manual cuidadosa, y se probó en navegador la parte del
-panel (CRM). **No se pudo probar el flujo conversacional real de WhatsApp
-end-to-end** en este entorno porque no hay Redis ni credenciales de Meta
-disponibles aquí — antes de considerar esto "en producción", conviene
-probarlo manualmente por WhatsApp (o en el ambiente de staging que exista)
+**Honestidad sobre las pruebas:** compilan los flujos y pasan las pruebas
+automatizadas del catálogo y la navegación. **Falta probar el flujo
+conversacional real de WhatsApp de punta a punta** con Redis, Meta, Chatwoot y
+Google Sheets institucionales en staging; antes de considerarlo en producción,
+conviene probarlo manualmente por WhatsApp
 siguiendo el camino completo: menú → elegir Pregrado → registrarse → ver
 que la fila aparece en el CRM con área "Pregrado".
 
@@ -122,8 +124,11 @@ Las URLs **no son inventadas**: salen de `src/services/knowledgeBaseTI.ts`, que 
 documentaba las plataformas reales de la universidad (Banner/autoservicio, Savio,
 Iceberg, Office 365) y de los enlaces institucionales que ya usaban otros flujos.
 
-**Lo que sigue sin ser posible:** consultar la nota o el horario *en vivo*. No hay
-API académica accesible desde este repo. La costura está definida en la interfaz
+Las notas usan el flujo protegido de Banner. Los recibos se descargan desde
+el hub cuando la consulta académica está habilitada; con ella deshabilitada,
+el hub remite al portal oficial. **Sigue sin ser posible** consultar horarios
+o tareas en vivo: no hay API académica accesible desde este repo para esos
+datos. La costura está definida en la interfaz
 `AcademicoProvider` (en `academicoLinks.ts`) y deliberadamente **no tiene
 implementación**: el día que exista el acceso se implementa ese contrato y el flujo
 pasa a mostrar el dato donde hoy entrega el enlace. No implementarlo con datos

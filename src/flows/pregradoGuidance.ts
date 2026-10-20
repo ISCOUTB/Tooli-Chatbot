@@ -247,6 +247,24 @@ export function buildUndecidedLabel(areaLabel: string): string {
   return `Aún no sé (área de interés: ${areaLabel})`;
 }
 
+/** Solo reutiliza intereses elegidos dentro de la guía; no confía en una sesión alterada. */
+export function selectedInterest(data: Record<string, string> | null | undefined): string | null {
+  const value = data?.carreraInteres;
+  if (!value) return null;
+  if (getAllCareers().includes(value)) return value;
+  return PREGRADO_AREAS.some((area) => buildUndecidedLabel(area.label) === value) ? value : null;
+}
+
+export type ExploreAction = 'registro' | 'asesor' | 'otra_area' | null;
+
+export function parseExploreAction(text: string): ExploreAction {
+  const input = text.trim();
+  if (input === '1') return 'registro';
+  if (input === '2') return 'asesor';
+  if (input === '3') return 'otra_area';
+  return null;
+}
+
 export function formatAreasMessage(mode: 'initial' | 'invalid'): string {
   const intro =
     mode === 'invalid'
