@@ -1,11 +1,9 @@
 # Pendientes — Panel de asesores (Tooli)
 
-Ideas y funciones grandes que se discutieron para el panel de asesores pero que
-**todavía no están implementadas** porque dependen de una decisión de producto,
-credenciales externas, o de un sistema de la universidad que aún no está
-conectado. Se documentan aquí para no perderlas y para dejar explícito qué es
-real hoy en la UI y qué no — el panel no debe simular una función que no
-funciona de verdad.
+Estado de las funciones grandes discutidas para el panel: algunas ya están
+implementadas y otras dependen de una decisión de producto, credenciales
+externas o un sistema de la universidad que aún no está conectado. Se
+documenta qué funciona hoy y qué requiere integración o pruebas reales.
 
 ## 1. Semestre y carrera del estudiante
 
@@ -53,31 +51,24 @@ mostrado en el panel como un dashboard real (podio + gráfico de barras +
 detalle por tipo de acción) en `renderActividad` dentro de
 `src/public/app/index.html`.
 
-## 6. Mensajes masivos / campañas nativas (reemplazar el uso de Chatwoot para esto)
+## 6. Mensajes masivos con plantillas — ✅ implementado; pendiente ensayo real
 
-Pedido explícito: tener dentro del panel lo que hoy se hace en Chatwoot para
-enviar mensajes a varios contactos a la vez, e idealmente mejor. Antes de
-construirlo hay una restricción real de WhatsApp que no se puede evitar con
-código: el adaptador de mensajería actual es `meta` (WhatsApp Business
-Platform — ver `config.messagingAdapter` en `src/flows/shared.ts`), y Meta
-**no permite enviar texto libre fuera de una ventana de 24h desde el último
-mensaje del usuario** — un envío masivo real solo es posible usando
-*message templates* pre-aprobados por Meta (ej. "Recordatorio de cita",
-"Nueva convocatoria de posgrado"), cada uno sujeto a revisión y aprobación
-de Meta antes de poder usarse.
+El CRM permite a un administrador seleccionar prospectos filtrados y escoger
+una plantilla aprobada. La API lista las plantillas de Meta, comprueba que la
+elegida no necesite parámetros, crea un trabajo persistente en Redis y evita
+repetir el mismo envío durante 24 horas. El worker procesa destinatarios de
+forma individual; un resultado incierto queda registrado para revisión y no
+se reenvía automáticamente. El panel muestra avance, éxitos y fallos. La
+selección se borra al actualizar registros, porque el Sheet puede reordenar
+las filas, y los números repetidos se cuentan una sola vez.
 
-Camino natural para construirlo bien (no como un botón que technically no
-funciona):
-- Backend: un servicio `broadcastService.ts` que use la Graph API de Meta
-  para (a) listar los templates ya aprobados en el Business Manager de la
-  universidad, y (b) enviarlos a una lista de números.
-- Frontend: en el CRM (`renderRegistros`) ya existen los filtros por
-  categoría de programa — se puede agregar un modo "seleccionar varios" +
-  botón "Enviar plantilla a los seleccionados", reutilizando el mismo
-  segmentado y las tarjetas que ya existen.
-- Requisito externo real: acceso al Business Manager / WABA de la
-  universidad para ver o crear los templates — sin eso se puede dejar la
-  UI lista pero no probarla contra un envío real.
+La prueba de navegador usa una plantilla y un trabajo sintéticos; las pruebas
+de cola usan Redis temporal. **Aún falta** ensayar con el WABA institucional,
+plantillas aprobadas y contactos autorizados, verificar los resultados en Meta
+y definir el procedimiento operativo para fallos inciertos. Las plantillas
+con variables `{{1}}` todavía no se admiten. Fuera de la ventana de 24 horas,
+Meta solo permite iniciar contacto mediante plantillas aprobadas; el panel no
+ofrece texto libre masivo.
 
 ## 5. Multi-universidad / integración con la app móvil de la UTB
 
