@@ -24,6 +24,8 @@ const EVENT_META = {
   pregrado_explorar_iniciado: { label: 'Exploró carreras', icon: '🧭', color: '#0284c7' },
   pregrado_explorar_area:     { label: 'Eligió área de pregrado', icon: '🎓', color: '#0284c7' },
   pregrado_explorar_carrera:  { label: 'Eligió carrera de pregrado', icon: '📚', color: '#0284c7' },
+  admisiones_guia_pregrado:   { label: 'Guía admisión Pregrado', icon: '📝', color: '#0284c7' },
+  admisiones_guia_posgrado:   { label: 'Guía admisión Posgrado', icon: '📝', color: '#7c3aed' },
   prospecto_pregrado_iniciado:   { label: 'Prospectos pregrado iniciados',   icon: '🏫', color: '#38bdf8' },
   prospecto_pregrado_completado: { label: 'Prospectos pregrado completados', icon: '🏫', color: '#22c55e' },
   registro_pregrado_iniciado:    { label: 'Registros pregrado iniciados',    icon: '📝', color: '#eab308' },

@@ -95,6 +95,8 @@ se creó una nueva.
 La opción *Explorar carreras* del menú de Pregrado usa las áreas y carreras ya
 presentes en la base de conocimiento institucional. Permite explorar sin
 registrarse; al pasar después a registro o asesor conserva el interés elegido.
+Ambos menús ofrecen *Cómo inscribirme*, una guía breve con requisitos, pasos y
+enlaces oficiales de su propio nivel. No sustituye el formulario institucional.
 
 Los prospectos de pregrado y posgrado ahora comparten el mismo Google Sheet,
 distinguidos por una columna de área nueva (retrocompatible: filas viejas sin

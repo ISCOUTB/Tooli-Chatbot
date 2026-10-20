@@ -41,6 +41,8 @@ export type MetricEvent =
   | 'prospecto_pregrado_completado'
   | 'registro_pregrado_iniciado'
   | 'registro_pregrado_completado'
+  | 'admisiones_guia_pregrado'
+  | 'admisiones_guia_posgrado'
   | 'pregrado_explorar_iniciado'
   | 'pregrado_explorar_area'
   | 'pregrado_explorar_carrera'

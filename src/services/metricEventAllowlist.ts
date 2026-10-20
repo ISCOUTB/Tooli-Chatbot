@@ -15,6 +15,7 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'prospecto_pregrado_completado', 'registro_pregrado_iniciado',
   'registro_pregrado_completado', 'academico_menu_shown', 'academico_notas',
   'pregrado_explorar_iniciado', 'pregrado_explorar_area', 'pregrado_explorar_carrera',
+  'admisiones_guia_pregrado', 'admisiones_guia_posgrado',
   'academico_horario', 'academico_savio', 'academico_calendario',
   'academico_recibo', 'academico_correo', 'academico_becas',
   'academico_derechos', 'verificacion_iniciada', 'verificacion_completada',

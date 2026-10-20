@@ -7,6 +7,7 @@ import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
 import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 import { iniciarExploracionPregrado } from './pregradoExplorar';
+import { formatAdmissionGuide } from './admissionGuide';
 
 /** Paso 0 — el usuario todavía no eligió Pregrado o Posgrado. */
 export async function handleMenu(ctx: FlowContext): Promise<void> {
@@ -124,6 +125,12 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
     return;
   }
 
+  if (input === '9') {
+    await messaging.sendText({ to: from, text: formatAdmissionGuide('posgrado') });
+    await track('admisiones_guia_posgrado');
+    return;
+  }
+
   await messaging.sendText({
     to: from,
     text: 'No reconocí esa opción 🤔\n\nElige un número de la lista, o escribe *menu* para volver al inicio.',
@@ -227,6 +234,12 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   // 8 — Explorar el catálogo antes de entregar datos personales.
   if (input === '8') {
     await iniciarExploracionPregrado(from);
+    return;
+  }
+
+  if (input === '9') {
+    await messaging.sendText({ to: from, text: formatAdmissionGuide('pregrado') });
+    await track('admisiones_guia_pregrado');
     return;
   }
 
