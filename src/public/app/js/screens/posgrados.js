@@ -24,8 +24,8 @@ function resumirPosgrado(series) {
   return {
     dateKeys,
     prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados,
-    conv: prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : 0,
-    regConv: regInicio > 0 ? Math.round(registros / regInicio * 100) : 0,
+    conv: prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : null,
+    regConv: regInicio > 0 ? Math.round(registros / regInicio * 100) : null,
   };
 }
 
@@ -88,10 +88,13 @@ async function renderPosgrados(main) {
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
       const daily  = (ev) => dateKeys.map(d => numv(series[d], ev));
       const fmtDay = d => d.slice(5);
+      const convTexto = conv === null ? 'conversión sin datos de inicio' : `${conv}% conversión`;
+      const regConvTexto = regConv === null ? 'conversión sin datos de inicio' : `${regConv}% conversión`;
+      const hayProgramas = especs + maestrias + doctorados > 0;
 
       content.innerHTML = `
         <div class="card op-contexto" style="margin-bottom:16px;">
-          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${conv}% conversión) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConv}% conversión). El detalle por persona está en el CRM y en el evento.</div>
+          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${convTexto}) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConvTexto}). El detalle por persona está en el CRM y en el evento.</div>
           <div class="op-contexto-acciones">
             <button type="button" class="btn btn-secondary" id="pgVerCrm">Ver CRM</button>
             <button type="button" class="btn btn-secondary" id="pgVerEvento">Ver evento</button>
@@ -101,12 +104,12 @@ async function renderPosgrados(main) {
           <div class="stat-card">
             <div class="label">Prospectos</div>
             <div class="value">${prospectos}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${conv}% conversión · ${prospInicio} iniciados</div>
+            <div style="font-size:12px;color:var(--text-muted);">${convTexto} · ${prospInicio} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Registros BD</div>
             <div class="value">${registros}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${regConv}% conversión · ${regInicio} iniciados</div>
+            <div style="font-size:12px;color:var(--text-muted);">${regConvTexto} · ${regInicio} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Especializaciones</div>
@@ -130,7 +133,7 @@ async function renderPosgrados(main) {
         <div class="posgrados-split" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Programas consultados</h3>
-            <div style="position:relative;height:200px;"><canvas id="pgChartProgramas"></canvas></div>
+            <div style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
           </div>
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Embudo prospectos</h3>
@@ -166,7 +169,7 @@ async function renderPosgrados(main) {
         options: base,
       }));
 
-      pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
+      if (hayProgramas) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
         type: 'doughnut',
         data: {
           labels: ['Especializaciones', 'Maestrías', 'Doctorados'],

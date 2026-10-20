@@ -332,6 +332,14 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 
 .main { flex: 1; min-width: 0; overflow-y: auto; }
 
+@media (max-width: 1024px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .home-grid > .widget-card { min-width: 0; }
+  .posgrados-split { grid-template-columns: minmax(0, 1fr) !important; }
+  .posgrados-split > .card { min-width: 0; }
+  #crmFilterWrap { max-width: 100%; min-width: 0; overflow-x: auto; }
+}
+
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
 .page-header h1 { font-size: 26px; font-weight: 700; color: var(--utb-blue); letter-spacing: -0.01em; }
 .page-header .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
@@ -537,7 +545,6 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   .app { flex-direction: column; padding: var(--page-gutter); gap: 12px; }
   .sidebar { display: none; }
   .main { padding: 0 2px calc(var(--tab-bar-height) + var(--safe-bottom) + 22px); width: 100%; }
-  .home-grid { grid-template-columns: 1fr !important; }
 
   /* Tab bar flotante en píldora, centrada y separada del borde — igual al
      patrón de Renova (fixed, w-fit, rounded-full, glass, shadow), no una
@@ -571,20 +578,20 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 }
 
 @media (max-width: 720px) {
-  .posgrados-split { grid-template-columns: 1fr !important; }
   /* Filtros y rangos: evita overflow horizontal en 375px — el segmentado
      hace scroll horizontal suave si no entra, la toolbar envuelve limpio */
   .crm-toolbar { gap: 10px; }
   .crm-toolbar input { max-width: 100%; flex: 1 1 100%; }
   #crmFilterWrap, #eventoFilterWrap, #inboxFilterWrap,
-  #pgRangeWrap, #metRangeWrap, #actRangeWrap,
+  #pgRangeWrap, #metRangeWrap, #actRangeWrap, #remFiltroWrap,
   #nRoleWrap, #nAreaWrap {
     max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
   #crmFilterWrap::-webkit-scrollbar, #eventoFilterWrap::-webkit-scrollbar,
   #inboxFilterWrap::-webkit-scrollbar, #pgRangeWrap::-webkit-scrollbar,
-  #metRangeWrap::-webkit-scrollbar, #actRangeWrap::-webkit-scrollbar { display: none; }
+  #metRangeWrap::-webkit-scrollbar, #actRangeWrap::-webkit-scrollbar,
+  #remFiltroWrap::-webkit-scrollbar { display: none; }
   .page-header { flex-direction: column; align-items: stretch; }
   .page-header h1 { font-size: 22px; }
   .tool-panel { padding: 22px 16px; }
@@ -1499,10 +1506,11 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
    ═══════════════════════════════════════════════════════════════════ */
 .rem-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
+.rem-form, .rem-lista-col { min-width: 0; }
 .rem-form { position: sticky; top: 8px; }
 .rem-form-title {
   display: flex;
@@ -1594,7 +1602,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   color: var(--danger);
 }
 @media (max-width: 900px) {
-  .rem-layout { grid-template-columns: 1fr; }
+  .rem-layout { grid-template-columns: minmax(0, 1fr); }
   .rem-form { position: static; }
 }
 
@@ -1907,6 +1915,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   line-height: 1.45;
   animation: fade-rise-in 0.3s var(--ease-spring) backwards;
 }
+.rem-ventana[hidden] { display: none; }
 .rem-ventana svg { flex: 0 0 auto; margin-top: 1px; }
 
 /* Aviso de que el panel cambió en el servidor (lo manda el service worker) */

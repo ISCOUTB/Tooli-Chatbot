@@ -48,14 +48,14 @@ describe('resumirPosgrado', () => {
     // El mock local no emite las claves de posgrado: el resumen debe dar 0.
     const r = P.resumirPosgrado({ '2026-09-10': { menu_shown: 90 } });
     assert.equal(r.prospectos, 0);
-    assert.equal(r.conv, 0);
-    assert.equal(r.regConv, 0);
+    assert.equal(r.conv, null);
+    assert.equal(r.regConv, null);
   });
 
-  it('sin iniciados la conversión es 0, no división por cero', () => {
+  it('sin iniciados la conversión no se presenta como cero', () => {
     const r = P.resumirPosgrado({ '2026-09-10': { prospecto_completado: '5' } });
     assert.equal(r.prospectos, 5);
-    assert.equal(r.conv, 0);
+    assert.equal(r.conv, null);
   });
 
   it('serie vacía o ausente da ceros', () => {
