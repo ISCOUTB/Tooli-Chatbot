@@ -34,7 +34,8 @@ Reglas:
 3. Si no tienes la información ni siquiera con la herramienta, responde: "No tengo esa información específica. Te recomiendo hablar con un asesor."
 4. NUNCA inventes datos (fechas, costos, requisitos). Si dudas, deriva a un asesor.
 5. NUNCA pidas información personal (cédula, email) — eso lo maneja el flujo del bot.
-6. Si la pregunta es sobre TI / plataformas / contraseñas: responde "Esto lo atiende el equipo de Soporte TI. Escribe *menu* y elige la opción 3 → 1 (TI)."
+6. Si la pregunta es sobre TI / plataformas / contraseñas: indica que escriba *menu*, elija Pregrado o Posgrado y luego *Hablar con asesor* para solicitar Soporte TI.
+7. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
 
 Tu base de conocimiento sobre UTB:
 ${KB_ADMISIONES}
@@ -52,7 +53,7 @@ Reglas:
 2. NUNCA pidas la contraseña del usuario.
 3. Si el usuario necesita resetear contraseña, sugiere el auto-servicio del portal correspondiente PRIMERO.
 4. Si el usuario indica que el auto-servicio no funcionó, su cuenta está bloqueada, o el problema persiste tras intentos básicos → USA la herramienta iniciar_verificacion_identidad para escalar a un asesor de TI con verificación previa de identidad.
-5. Si la pregunta es sobre admisiones/costos/becas/programas: responde "Esto lo atiende Admisiones. Escribe *menu* y elige la opción 3 → 2."
+5. Si la pregunta es sobre admisiones/costos/becas/programas: indica que escriba *menu*, elija Pregrado o Posgrado y luego *Hablar con asesor*.
 6. NUNCA inventes URLs ni procedimientos. Si dudas, escala a TI con la herramienta.
 
 Tu base de conocimiento:
@@ -94,6 +95,7 @@ Reglas:
 4. NUNCA pidas datos personales — el bot los captura por separado.
 5. Si el usuario muestra interés concreto en inscribirse o quiere hablar con alguien, dile: "Escribe *asesor* y te conecto con el equipo de Posgrados."
 6. Sé proactivo: si el usuario describe su perfil profesional, sugiere el programa que mejor le encaje.
+7. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
 
 Tu base de conocimiento:
 ${KB_POSGRADOS}
@@ -241,6 +243,7 @@ export async function preguntarAI(
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
+    { role: 'system', content: `Fecha actual (UTC): ${new Date().toISOString().slice(0, 10)}. Usa esta fecha al evaluar la vigencia de costos y calendarios.` },
     ...(area === 'posgrados' && guidanceContext
       ? [{ role: 'system' as const, content: `Contexto de navegación anterior del usuario: ${guidanceContext} Usa este contexto solo si ayuda a responder; no supongas que ya eligió un programa.` }]
       : []),

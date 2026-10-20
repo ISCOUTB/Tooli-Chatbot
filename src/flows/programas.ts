@@ -13,7 +13,7 @@ import {
 
 const ESPECIALIZACIONES_INFO =
   '📚 *Especializaciones UTB*\n' +
-  '_Duración: 2 semestres — Inscripción: $247.000_\n\n' +
+  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
   '• Telecomunicaciones y Redes — $10.2M/sem\n' +
   '• Logística del Transporte — $9.8M/sem\n' +
   '• Gestión Ambiental Sostenible — $9.8M/sem\n' +
@@ -23,26 +23,29 @@ const ESPECIALIZACIONES_INFO =
   '• Análisis y Diseño Estructural — $13M/sem\n' +
   '• Ingeniería de Software _(virtual)_ — $8.3M/sem\n' +
   '• Gerencia de Servicios de Salud _(virtual)_ — $7.95M/sem\n' +
-  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem';
+  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem\n\n' +
+  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
 
 const MAESTRIAS_INFO =
   '🎓 *Maestrías UTB*\n' +
-  '_Duración: 3-4 semestres — Inscripción: $284.000_\n\n' +
+  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
   '• Gestión de la Innovación — $9.8M/sem · 4 sem\n' +
   '• Ingeniería — $10.95M/sem · 4 sem\n' +
   '• Gerencia de Proyectos — $13.4M/sem · 4 sem\n' +
   '• *MBA* — $17.9M/sem · 3 sem\n' +
   '• Gerencia Tributaria — $10.95M/sem · 3 sem\n' +
   '• *Ciberseguridad* — $13M/sem · 3 sem\n' +
-  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem · 3 sem';
+  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem · 3 sem\n\n' +
+  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
 
 const DOCTORADOS_INFO =
   '🔬 *Doctorados UTB*\n' +
-  '_Duración: 8 semestres — Investigación avanzada_\n\n' +
+  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
   '• Doctorado en Ingeniería — 8 SMMLV/sem\n' +
   '• Doctorado en Desarrollo Regional y Local — $15.1M/sem\n' +
   '• Doctorado en Sostenibilidad — $12.3M/sem\n\n' +
-  '_Requisito: título de maestría o pregrado con alto promedio._';
+  '_Consulta los requisitos propios de cada programa._\n\n' +
+  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
 
 // ── Helper: muestra el selector de categoría como lista interactiva ───────────
 
