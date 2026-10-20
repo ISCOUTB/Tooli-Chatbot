@@ -19,6 +19,7 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'academico_horario', 'academico_savio', 'academico_calendario',
   'academico_recibo', 'academico_correo', 'academico_becas',
   'academico_derechos', 'verificacion_iniciada', 'verificacion_completada',
+  'savio_cursos_consultados', 'savio_cuenta_no_encontrada', 'savio_error',
   'notas_consultadas', 'notas_no_encontradas',
 ]);
 

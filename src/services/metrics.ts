@@ -58,6 +58,9 @@ export type MetricEvent =
   | 'academico_correo'
   | 'academico_becas'
   | 'academico_derechos'
+  | 'savio_cursos_consultados'
+  | 'savio_cuenta_no_encontrada'
+  | 'savio_error'
   // Verificación de identidad (OTP correo)
   | 'verificacion_iniciada'
   | 'verificacion_completada'

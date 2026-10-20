@@ -126,10 +126,27 @@ Las URLs **no son inventadas**: salen de `src/services/knowledgeBaseTI.ts`, que 
 documentaba las plataformas reales de la universidad (Banner/autoservicio, Savio,
 Iceberg, Office 365) y de los enlaces institucionales que ya usaban otros flujos.
 
+Desde *Mi cuenta vinculada*, el estudiante puede asociar el WhatsApp a un
+correo institucional mediante un código enviado a ese correo, consultar el
+estado, cambiar el vínculo y desvincularse. El código T o la cédula por sí solos
+no autorizan el acceso. La verificación dura 120 días y al vincular el mismo
+correo desde otro número se revoca el vínculo anterior.
+Es un vínculo por control del correo, no una sesión SSO de Microsoft o Savio:
+el inicio institucional disponible para estudiantes todavía no expone una
+integración de acceso delegado para Tooli.
+
+Hay un cliente de **solo lectura** para listar cursos de Savio por el correo
+verificado. `TOOLI_SAVIO_ENABLED=0` deja el portal como alternativa; para
+habilitarlo se necesita un token de servicio Moodle limitado a
+`core_user_get_users_by_field` y `core_enrol_get_users_courses`, y comprobar
+los permisos reales en staging. No pide contraseñas por WhatsApp ni guarda el
+token en el historial. Las tareas, entregas y calificaciones de Savio todavía
+requieren una integración adicional con permisos por usuario y pruebas reales.
+
 Las notas usan el flujo protegido de Banner. Los recibos se descargan desde
 el hub cuando la consulta académica está habilitada; con ella deshabilitada,
 el hub remite al portal oficial. **Sigue sin ser posible** consultar horarios
-o tareas en vivo: no hay API académica accesible desde este repo para esos
+o tareas en vivo: no hay API académica autorizada y probada para esos
 datos. La costura está definida en la interfaz
 `AcademicoProvider` (en `academicoLinks.ts`) y deliberadamente **no tiene
 implementación**: el día que exista el acceso se implementa ese contrato y el flujo

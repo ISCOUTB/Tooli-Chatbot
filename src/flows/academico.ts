@@ -17,6 +17,8 @@ import { parseGlobalCommand } from './commands';
 import { AreaRecurso, getRecursos } from '../services/academicoLinks';
 import { iniciarConsultaDeNotas } from './notas';
 import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
+import { sendAcademicAccount } from './academicAccount';
+import { iniciarConsultaSavio } from './savio';
 import type { FlowArea } from './commands';
 
 /** Métrica por recurso: explícita (y no un template literal) para que el
@@ -72,6 +74,7 @@ export async function sendMenuAcademico(to: string, area: AreaRecurso): Promise<
             title: `${r.emoji} ${r.titulo}`,
             description: r.resumen,
           })),
+          { id: String(recursos.length + 1), title: '🔐 Mi cuenta vinculada', description: 'Vincular o desvincular este WhatsApp de tu cuenta UTB' },
           { id: '0', title: '🔙 Volver', description: 'Regresar al menú anterior' },
         ],
       },
@@ -107,6 +110,10 @@ export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
   }
 
   const recursos = getRecursos(area);
+  if (input === String(recursos.length + 1)) {
+    await sendAcademicAccount(from, area);
+    return;
+  }
   const elegido = /^\d+$/.test(input) ? recursos[Number(input) - 1] : undefined;
 
   // Las notas ya no se resuelven con un enlace: el bot las consulta de verdad
@@ -133,6 +140,12 @@ export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
         `_Para consultar otros movimientos financieros, usa el portal oficial: ${elegido.url}_\n\n` +
         'Escribe *0* para volver a tu menú o *menu* para ir al inicio.',
     });
+    return;
+  }
+
+  if (elegido?.id === 'savio') {
+    await track('academico_savio');
+    await iniciarConsultaSavio(from, area);
     return;
   }
 

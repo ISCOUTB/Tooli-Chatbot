@@ -9,6 +9,7 @@ import {
   handlePregradoProspectoNombre, handlePregradoProspectoEmail, handlePregradoProspectoCarrera,
 } from './pregrado';
 import { handleAcademicoMenu } from './academico';
+import { handleAcademicAccount, handleAcademicUnlink } from './academicAccount';
 import { handleExplorarArea, handleExplorarCarrera, handleExplorarAccion } from './pregradoExplorar';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
@@ -61,6 +62,8 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   notas_password: handleNotasPassword,
   notas_mfa: handleNotasMfa,
   academico_menu: handleAcademicoMenu,
+  academico_cuenta: handleAcademicAccount,
+  academico_desvincular: handleAcademicUnlink,
   chatting_with_ai: handleChattingWithAI,
   with_agent: handleWithAgent,
   // ── Legacy (sesiones activas anteriores) ────────────────────────────────────

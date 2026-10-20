@@ -11,6 +11,38 @@ La configuración de Compose ahora publica los puertos 3000, 8081, 3001, 9090, 9
 5. Redis de Tooli y Chatwoot usan ahora AOF con volúmenes. Incluye `redis-data` y `chatwoot-redis-data` en las copias de seguridad y limita acceso a sus snapshots: pueden contener sesiones, usuarios, mensajes y tareas. El Redis anterior no persistía datos; los datos ya perdidos por reinicios no se recuperan con este cambio.
 6. Los registros históricos `activity:*` en Redis pudieron contener contraseñas SSO, OTP y cédulas durante 30 días. Antes de activar la persistencia, púrgales o redáctalos siguiendo el procedimiento de datos de UTB. La redacción nueva solo evita almacenar esos datos en pasos sensibles futuros.
 
+## Vinculación de estudiantes y Savio
+
+El vínculo WhatsApp ↔ correo institucional se confirma con un código de seis
+dígitos enviado por correo. El código vence en diez minutos, limita intentos y
+no se guarda en claro en Redis. Un correo conserva un solo número vinculado;
+verificarlo desde otro número revoca el anterior. El estudiante puede retirar
+el vínculo desde *Mi vida académica → Mi cuenta vinculada*. Antes de ensayarlo
+con estudiantes, configura `RESEND_API_KEY` y un `MAIL_FROM` de un dominio
+verificado que pueda entregar correo a cuentas UTB. Los vínculos creados antes
+de esta versión no tienen el índice inverso y requieren una nueva verificación.
+
+La consulta de cursos de Savio está apagada por defecto. Para habilitarla:
+
+1. Crea en Savio un servicio Moodle de **solo lectura** con las funciones
+   `core_user_get_users_by_field` y `core_enrol_get_users_courses`, y un token
+   de servicio con permisos mínimos. No uses un token de administrador.
+2. En staging, confirma que el servicio puede buscar una cuenta por su correo
+   institucional exacto y que Tooli entrega solo los cursos de esa cuenta. El
+   token de servicio puede tener alcance sobre más cuentas, según los permisos
+   que conceda Moodle. Prueba una cuenta sin
+   cursos, una inexistente y un fallo de permisos.
+3. Configura `SAVIO_WS_TOKEN` y `TOOLI_SAVIO_ENABLED=1` en `.env` y prueba desde
+   WhatsApp la vinculación, consulta, transferencia a otro número y revocación.
+   Si el servicio falla o no está configurado, el bot entrega el enlace oficial
+   de Savio. No actives la consulta de tareas hasta validar permisos por usuario.
+
+El cliente usa `POST` al endpoint de servicios web REST de Moodle y no coloca
+el token en la URL. Requiere un token de **servicios web existentes**, distinto
+de los tokens de la nueva REST API de Moodle 5.3. Consulta la
+[configuración oficial de servicios web](https://docs.moodle.org/503/en/Using_web_services)
+y la [distinción entre tipos de token](https://docs.moodle.org/503/en/REST_API_tokens).
+
 Después de configurar los secretos, verifica `docker compose config --quiet`, inicia los servicios y prueba el webhook legítimo de cada proveedor. La configuración de Compose se puede revisar sin secretos locales con `docker compose --env-file .env.example config --no-env-resolution --quiet`; esto solo valida la sintaxis, no las conexiones ni la persistencia real.
 
 Los QR NutriA nuevos usan diez caracteres aleatorios. El escáner acepta también los códigos anteriores de cuatro caracteres hasta que caduquen. La reserva y el canje atómicos pasaron pruebas sintéticas concurrentes contra Redis real temporal; antes de un evento, prueba el QR y el escáner físicos con dos canjes simultáneos en un entorno de ensayo.

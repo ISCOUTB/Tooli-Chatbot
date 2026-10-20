@@ -12,7 +12,7 @@ const PRIVATE_INPUT_STEPS = new Set([
 
 export function sanitizeActivityText(direction: 'in' | 'out', step: string | undefined, text: string): string {
   if (step && PRIVATE_INPUT_STEPS.has(step)) return '[contenido privado]';
-  if (direction === 'out' && /(?:tus notas del per[ií]odo|recibo de matr[ií]cula|turno de matr[ií]cula|te envi[eé] un c[oó]digo)/i.test(text)) {
+  if (direction === 'out' && /(?:tus notas del per[ií]odo|tus cursos en savio|recibo de matr[ií]cula|turno de matr[ií]cula|te envi[eé] un c[oó]digo)/i.test(text)) {
     return '[contenido privado]';
   }
   return text.length > 200 ? text.slice(0, 200) + '…' : text;
