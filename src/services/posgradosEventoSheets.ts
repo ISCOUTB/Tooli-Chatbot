@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskEmail, maskPhone } from './logSafe';
 
 export interface RegistroPosgrado {
   whatsapp: string;
@@ -32,8 +33,11 @@ function getSheetsClient(readonly = false) {
 export async function guardarRegistroPosgrado(data: RegistroPosgrado): Promise<number> {
   const sheetId = config.posgradosEvento.sheetId;
   if (!sheetId) {
-    console.warn('[posgrados] POSGRADOS_EVENTO_SHEET_ID no configurado — guardando solo en logs');
-    console.log('[posgrados] REGISTRO:', JSON.stringify(data));
+    console.warn('[posgrados] POSGRADOS_EVENTO_SHEET_ID no configurado — registro no persistido', {
+      whatsapp: maskPhone(data.whatsapp),
+      correo: maskEmail(data.correo),
+      interesFinanciacion: data.interesFinanciacion,
+    });
     return 0;
   }
 
@@ -62,11 +66,11 @@ export async function guardarRegistroPosgrado(data: RegistroPosgrado): Promise<n
     },
   });
 
-  console.log('[posgrados] registro guardado:', data.nombre, '·', data.correo);
-
   const updatedRange = res.data.updates?.updatedRange ?? '';
   const match = updatedRange.match(/![A-Z]+(\d+):/);
-  return match ? parseInt(match[1], 10) : 0;
+  if (res.data.updates?.updatedRows !== 1 || !match) return 0;
+  console.log('[posgrados] registro guardado:', maskPhone(data.whatsapp), '·', maskEmail(data.correo));
+  return parseInt(match[1], 10);
 }
 
 /**
@@ -77,12 +81,13 @@ export async function actualizarPosgradoInteres(fila: number, valor: string): Pr
   if (!sheetId || !fila) return;
 
   const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.update({
+  const res = await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
     range: `F${fila}`,
     valueInputOption: 'RAW',
     requestBody: { values: [[valor]] },
   });
+  if (res.data.updatedRows !== 1) throw new Error('No se confirmó la actualización del programa');
 
   console.log('[posgrados] posgrado de interés actualizado — fila', fila, ':', valor);
 }
@@ -95,12 +100,13 @@ export async function actualizarConsentimiento(fila: number, valor: string): Pro
   if (!sheetId || !fila) return;
 
   const sheets = getSheetsClient();
-  await sheets.spreadsheets.values.update({
+  const res = await sheets.spreadsheets.values.update({
     spreadsheetId: sheetId,
     range: `G${fila}`,
     valueInputOption: 'RAW',
     requestBody: { values: [[valor]] },
   });
+  if (res.data.updatedRows !== 1) throw new Error('No se confirmó la actualización del consentimiento');
 
   console.log('[posgrados] consentimiento actualizado — fila', fila, ':', valor);
 }

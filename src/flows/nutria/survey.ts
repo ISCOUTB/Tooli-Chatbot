@@ -5,6 +5,7 @@ import { guardarEncuestaNutria } from '../../services/nutriaSheets';
 import { crearCodigoNutria } from '../../services/nutriaCodigoService';
 import { guardarImagenMeta } from '../../services/nutriaImageService';
 import { config } from '../../config';
+import { describeExternalError } from '../../services/logSafe';
 
 interface Ctx {
   from: string;
@@ -356,10 +357,10 @@ export async function handleNutriaCapturaPantalla(ctx: Ctx): Promise<void> {
   // Descargar y guardar imagen
   let imagenMetricas = 'Error al guardar';
   try {
-    const filename = await guardarImagenMeta(mediaId, config.nutria.token, from);
+    const filename = await guardarImagenMeta(mediaId, config.nutria.token);
     imagenMetricas = filename;
   } catch (err) {
-    console.error('[nutria] error guardando imagen:', err);
+    console.error('[nutria] error guardando imagen:', describeExternalError(err));
   }
 
   await setNutriaSession(from, { step: 'nutria_tiempo_redes', data: { ...session?.data, imagenMetricas } });
@@ -794,7 +795,7 @@ export async function handleNutriaContacto(ctx: Ctx): Promise<void> {
       contacto,
     });
   } catch (err) {
-    console.error('[nutria] error guardando encuesta:', err);
+    console.error('[nutria] error guardando encuesta:', describeExternalError(err));
   }
 
   await setNutriaSession(from, { step: 'nutria_completada', data: {} });
@@ -828,7 +829,7 @@ export async function handleNutriaContacto(ctx: Ctx): Promise<void> {
         `🔑 Código: *${codigo}*`,
     });
   } catch (err) {
-    console.error('[nutria] error generando QR:', err);
+    console.error('[nutria] error generando QR:', describeExternalError(err));
   }
 }
 

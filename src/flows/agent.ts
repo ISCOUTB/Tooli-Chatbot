@@ -4,29 +4,52 @@ import { track } from '../services/metrics';
 import {
   FlowContext,
   messaging,
-  sendMenu,
   sendAreaPrompt,
   sendAiHint,
-  isMenuCommand,
+  salirAlMenuRaiz,
+  volverAlMenuDeOrigen,
   PLATAFORMAS_TI,
   NIVELES_ADMISIONES,
   ETAPAS_ADMISIONES,
 } from './shared';
+import { parseGlobalCommand, resolveOriginArea } from './commands';
+import type { SessionData } from './commands';
 import { iniciarConversacionAsesor, iniciarVerificacionIdentidad } from './agentHandoff';
 
+/**
+ * Salida compartida de los pasos de asesor: “menu”/“salir” a la raíz,
+ * “volver”/`0` al menú del área de origen. Devuelve true si consumió el mensaje.
+ */
+async function atenderSalidaCompartida(
+  from: string,
+  text: string,
+  data: SessionData | undefined,
+): Promise<boolean> {
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
+    return true;
+  }
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, data);
+    return true;
+  }
+  return false;
+}
+
 export async function handleAgentOutsideHours(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
+  const { from, text, session } = ctx;
   const input = text.trim();
   if (input === '1') {
-    await setSession(from, { step: 'agent_area', data: { outsideHours: 'true' } });
-    await sendAreaPrompt(from);
+    await setSession(from, { step: 'agent_area', data: { ...session?.data, outsideHours: 'true' } });
+    await sendAreaPrompt(from, resolveOriginArea(session?.data) ?? undefined);
     return;
   }
-  if (input === '2' || isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  if (input === '2') {
+    await salirAlMenuRaiz(from);
     return;
   }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
   await messaging.sendText({
     to: from,
     text: 'Responde *1* para dejar mensaje o *2* para volver al menú.',
@@ -36,11 +59,8 @@ export async function handleAgentOutsideHours(ctx: FlowContext): Promise<void> {
 export async function handleAgentArea(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
+  const origin = resolveOriginArea(session?.data);
   if (input === '1') {
     await setSession(from, { step: 'agent_ti_p1', data: { ...session?.data, area: 'ti' } });
     await messaging.sendText({
@@ -57,11 +77,31 @@ export async function handleAgentArea(ctx: FlowContext): Promise<void> {
     return;
   }
   if (input === '2') {
-    await setSession(from, { step: 'agent_admisiones_p1', data: { ...session?.data, area: 'admisiones' } });
+    // Desde Posgrado no se degrada a Admisiones general: se propaga el área
+    // `posgrados`, que `agentHandoff.ts` ya atiende de forma explícita.
+    const area = origin === 'posgrado' ? 'posgrados' : 'admisiones';
+    if (area === 'posgrados') {
+      await setSession(from, {
+        step: 'agent_admisiones_p2',
+        data: { ...session?.data, area, nivel: NIVELES_ADMISIONES['2'] },
+      });
+      await messaging.sendText({
+        to: from,
+        text:
+          '📝 *Admisiones Posgrados*\n\n¿En qué etapa del proceso estás?\n\n' +
+          '*1.* Necesito información general\n' +
+          '*2.* Estoy aplicando / inscribiéndome\n' +
+          '*3.* Ya fui admitido y tengo dudas\n' +
+          '*4.* Soy estudiante actual con duda académica',
+      });
+      return;
+    }
+    await setSession(from, { step: 'agent_admisiones_p1', data: { ...session?.data, area } });
     await messaging.sendText({
       to: from,
       text:
-        '📝 *Soporte Admisiones*\n\n¿Sobre qué nivel necesitas ayuda?\n\n' +
+        '📝 *Soporte Admisiones*' +
+        '\n\n¿Sobre qué nivel necesitas ayuda?\n\n' +
         '*1.* Pregrado\n' +
         '*2.* Posgrado (maestría / especialización)\n' +
         '*3.* Educación continua / cursos\n' +
@@ -75,11 +115,7 @@ export async function handleAgentArea(ctx: FlowContext): Promise<void> {
 export async function handleAgentTiP1(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
   const plataforma = PLATAFORMAS_TI[input];
   if (!plataforma) {
     await messaging.sendText({ to: from, text: 'Responde con un número del *1* al *6*.' });
@@ -97,11 +133,7 @@ export async function handleAgentTiP1(ctx: FlowContext): Promise<void> {
 
 export async function handleAgentTiP2(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
 
   const descripcion = text.trim();
   const data: Record<string, string> = { ...session?.data, descripcion };
@@ -138,7 +170,7 @@ export async function handleAgentTiP2(ctx: FlowContext): Promise<void> {
 
     await sendAiHint(from);
   } catch (err) {
-    console.error('[ai-ti] error:', err);
+    console.error('[ai-ti] error:', err instanceof AIUnavailableError ? err.reason : 'unknown');
     await track('ai_failed', { area: 'ti', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
     await notifyAIDownAndEscalate(from, data);
   }
@@ -147,11 +179,7 @@ export async function handleAgentTiP2(ctx: FlowContext): Promise<void> {
 export async function handleAgentAdmisionesP1(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
   const nivel = NIVELES_ADMISIONES[input];
   if (!nivel) {
     await messaging.sendText({ to: from, text: 'Responde con un número del *1* al *4*.' });
@@ -175,11 +203,7 @@ export async function handleAgentAdmisionesP1(ctx: FlowContext): Promise<void> {
 export async function handleAgentAdmisionesP2(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  if (isMenuCommand(input)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
   const etapa = ETAPAS_ADMISIONES[input];
   if (!etapa) {
     await messaging.sendText({ to: from, text: 'Responde con un número del *1* al *4*.' });
@@ -197,25 +221,22 @@ export async function handleAgentAdmisionesP2(ctx: FlowContext): Promise<void> {
 
 export async function handleAgentAdmisionesP3(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await atenderSalidaCompartida(from, text, session?.data)) return;
 
   const descripcion = text.trim();
   const data: Record<string, string> = { ...session?.data, descripcion };
+  const areaAi = data.area === 'posgrados' ? 'posgrados' : 'admisiones';
 
   await messaging.sendText({ to: from, text: '🤖 Déjame intentar ayudarte con eso… ⏳' });
-  await track('ai_request', { area: 'admisiones' });
+  await track('ai_request', { area: areaAi });
 
   try {
-    const ai = await preguntarAI('admisiones', descripcion);
+    const ai = await preguntarAI(areaAi, descripcion);
 
     await messaging.sendText({ to: from, text: `🤖 *Asistente UTB*\n\n${ai.answer}` });
 
-    if (ai.usedTool) await track('ai_used_tool', { area: 'admisiones' });
-    await track('ai_resolved', { area: 'admisiones' });
+    if (ai.usedTool) await track('ai_used_tool', { area: areaAi });
+    await track('ai_resolved', { area: areaAi });
 
     const history: ChatTurn[] = [
       { role: 'user', content: descripcion },
@@ -233,8 +254,8 @@ export async function handleAgentAdmisionesP3(ctx: FlowContext): Promise<void> {
 
     await sendAiHint(from);
   } catch (err) {
-    console.error('[ai-admisiones] error:', err);
-    await track('ai_failed', { area: 'admisiones', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
+    console.error('[ai-admisiones] error:', err instanceof AIUnavailableError ? err.reason : 'unknown');
+    await track('ai_failed', { area: areaAi, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
     await notifyAIDownAndEscalate(from, data);
   }
 }

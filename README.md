@@ -1,5 +1,15 @@
 # Tooli — Chatbot de WhatsApp para la UTB
 
+> **Estado de producción:** antes de usar datos reales, configura los secretos y
+> completa la migración descrita en [PRODUCCION_SEGURIDAD.md](PRODUCCION_SEGURIDAD.md).
+> Las consultas directas de notas están apagadas por defecto
+> (`TOOLI_NOTAS_SSO_ENABLED=0`) porque piden una contraseña institucional por
+> WhatsApp y el SSO automatizado aún no tiene validación integral. Turno y recibo
+> también se dirigen al portal oficial por defecto
+> (`TOOLI_ACADEMIC_LOOKUP_ENABLED=0`): la fuente actual no permite comprobar
+> que el código consultado pertenece al remitente. Habilitar estos flujos exige
+> resolver y aprobar esas verificaciones con la UTB.
+
 Plataforma conversacional de la **Universidad Tecnológica de Bolívar** que atiende por WhatsApp
 dos necesidades distintas de la universidad con una misma base técnica:
 
@@ -183,6 +193,9 @@ MOCK_ANON=1 node tools/mock-panel-server.cjs   # para ver la pantalla de login
 
 Sirve datos de ejemplo con la misma forma que la API real y aplica las mismas cabeceras de
 seguridad, para que lo que se ve en local sea lo que se ve en producción.
+Con el mock en marcha, `node tools/qa-panel-all.cjs` revisa las doce pantallas
+a 375, 800 y 1280 px (errores JavaScript, alertas y desbordes) y guarda capturas
+en `tmp/`.
 
 ---
 
@@ -197,10 +210,23 @@ Usa el runner incluido en Node (`node:test`) con `tsx`: no hay framework de prue
 dependencias extra que mantener. Los archivos viven junto al código que prueban
 (`src/services/logSafe.test.ts`, `src/public/app/js/core/format.test.js`).
 
-Se prueba lo que falla en silencio: el enmascarado de datos personales en los logs, las
-validaciones de entrada del bot (código estudiantil, cédula, correo institucional), las reglas de
-los recordatorios y el escapado del CSV. Lo que necesita Redis o la API de Meta no se prueba con
-dobles artificiales — se marca como pendiente en vez de fingir cobertura.
+Se prueba lo que falla en silencio: privacidad de logs, validaciones de entrada,
+recordatorios, colas de mensajes y escapado del CSV. Para verificar los scripts
+Lua contra Redis real, inicia un contenedor temporal dedicado en
+`127.0.0.1:6389` y usa exclusivamente la base `/15`:
+
+```bash
+docker run --rm --name tooli-redis-qa -p 127.0.0.1:6389:6379 -d redis:7-alpine
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-reminders-redis.mjs
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-inbound-redis.mjs
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-broadcast-redis.mjs
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-chatwoot-webhook-redis.mjs
+REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-nutria-redis.mjs
+docker stop tooli-redis-qa
+```
+
+Estas pruebas usan datos sintéticos y no envían WhatsApp. Las integraciones con
+Meta, Chatwoot, Sheets y SSO institucional siguen requiriendo validación de ensayo.
 
 `.env.test` trae valores falsos: `src/config` valida el entorno al importarse, así que sin él no se
 puede ni importar un módulo del servidor para probarlo.

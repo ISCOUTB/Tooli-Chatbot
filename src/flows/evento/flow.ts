@@ -4,6 +4,7 @@ import { Session } from '../../services/session';
 import { getEventoSession, setEventoSession, eventoMessaging } from './shared';
 import { guardarRegistroEvento, actualizarConfirmacionEvento } from '../../services/eventoSheets';
 import { generarCertificado } from '../../services/certificadoService';
+import { describeExternalError } from '../../services/logSafe';
 
 interface Ctx {
   from: string;
@@ -290,7 +291,7 @@ export async function handleEventoContacto(ctx: Ctx): Promise<void> {
       aceptaContacto,
     });
   } catch (err) {
-    console.error('[evento] error guardando registro:', err);
+    console.error('[evento] error guardando registro:', describeExternalError(err));
   }
 
   const nombre = primerNombre(d.nombre ?? '');
@@ -307,7 +308,7 @@ export async function handleEventoContacto(ctx: Ctx): Promise<void> {
         '¡Compártelo con orgullo, este logro es tuyo! 🚀',
     });
   } catch (err) {
-    console.error('[evento] error generando/enviando certificado:', err);
+    console.error('[evento] error generando/enviando certificado:', describeExternalError(err));
     // Fallback: felicitación en texto si el certificado falla
     await eventoMessaging.sendText({
       to: from,
@@ -349,7 +350,7 @@ export async function handleEventoQuiereInfo(ctx: Ctx): Promise<void> {
   // No quiere info → cerrar amablemente
   if (input === 'no') {
     try { await actualizarConfirmacionEvento(fila, 'No quiso info'); }
-    catch (err) { console.error('[evento] error actualizando confirmación:', err); }
+    catch (err) { console.error('[evento] error actualizando confirmación:', describeExternalError(err)); }
 
     await setEventoSession(from, { step: 'evento_completada', data: {} });
     await eventoMessaging.sendText({
@@ -376,7 +377,7 @@ export async function handleEventoQuiereInfo(ctx: Ctx): Promise<void> {
       caption: invitacionCaption,
     });
   } catch (err) {
-    console.error('[evento] error enviando flyer del workshop:', err);
+    console.error('[evento] error enviando flyer del workshop:', describeExternalError(err));
     await eventoMessaging.sendText({ to: from, text: invitacionCaption }).catch(() => {});
   }
 
@@ -420,7 +421,7 @@ export async function handleEventoConfirmar(ctx: Ctx): Promise<void> {
   try {
     await actualizarConfirmacionEvento(fila, confirma);
   } catch (err) {
-    console.error('[evento] error actualizando confirmación:', err);
+    console.error('[evento] error actualizando confirmación:', describeExternalError(err));
   }
 
   const nombre = primerNombre(session?.data?.nombre ?? '');

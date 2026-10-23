@@ -16,7 +16,7 @@
       <div class="product">Tooli · Asesores</div>
     </div>
 
-    <nav id="nav"></nav>
+    <nav id="nav" aria-label="Secciones del panel"></nav>
 
     <div class="user-block">
       <div class="name" id="userName">…</div>
@@ -25,11 +25,11 @@
     </div>
   </aside>
 
-  <main class="main" id="main"></main>
+  <main class="main" id="main" tabindex="-1"></main>
 </div>
 
-<nav class="tab-bar" id="tabBar"></nav>
-<div class="toast-stack" id="toastStack"></div>
+<nav class="tab-bar" id="tabBar" aria-label="Navegación móvil"></nav>
+<div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
 <script type="module" src="/app/js/app.js"></script>
 

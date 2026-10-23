@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+!.env.chatwoot.example
+node_modules
+dist
+uploads
+tmp
+tmp-iceberg
+*.key
+*.pem
+*.log
+*.zip

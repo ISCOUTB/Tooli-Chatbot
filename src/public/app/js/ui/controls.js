@@ -18,8 +18,10 @@ function attachTooltip(el, text) {
 function buildSegmented(options, activeValue, onChange) {
   const wrap = document.createElement('div');
   wrap.className = 'segmented';
+  wrap.setAttribute('role', 'group');
   const thumb = document.createElement('div');
   thumb.className = 'segmented-thumb';
+  thumb.setAttribute('aria-hidden', 'true');
   wrap.appendChild(thumb);
   const buttons = options.map(opt => {
     const btn = document.createElement('button');
@@ -36,10 +38,17 @@ function buildSegmented(options, activeValue, onChange) {
     return btn;
   });
   function setActive(value) {
-    buttons.forEach(b => b.classList.toggle('active', b.dataset.value === value));
+    buttons.forEach(b => {
+      const active = b.dataset.value === value;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-pressed', String(active));
+    });
     const activeBtn = buttons.find(b => b.dataset.value === value);
     if (activeBtn) { thumb.style.left = `${activeBtn.offsetLeft}px`; thumb.style.width = `${activeBtn.offsetWidth}px`; }
   }
+  // El estado accesible debe existir al insertar el control; solo la posición
+  // del thumb necesita esperar a que el elemento tenga medidas en el DOM.
+  setActive(activeValue);
   requestAnimationFrame(() => setActive(activeValue));
   return wrap;
 }

@@ -11,9 +11,12 @@ import { toolsRouter } from './routes/toolsRoutes';
 import { healthRouter } from './routes/health';
 import { seedDefaultAdmin } from './services/usersService';
 import { startReminderWorker } from './services/reminderService';
+import { startBroadcastWorker } from './services/broadcastJobService';
+import { startInboundWorker } from './services/inboundInbox';
 import { securityHeaders, bodySizeLimit, errorHandler, notFoundHandler } from './middleware/security';
 import { checkRateLimit } from './services/rateLimit';
 import { validateJwtSecret } from './middleware/auth';
+import { requireAuth } from './middleware/auth';
 
 const app = express();
 
@@ -23,7 +26,14 @@ app.set('trust proxy', 1);
 
 app.use(securityHeaders);
 app.use(bodySizeLimit);
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, _res, body) => {
+    if (req.url?.startsWith('/meta-webhook')) {
+      (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(body);
+    }
+  },
+}));
 app.use(cookieParser());
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -64,8 +74,11 @@ app.use('/nutria', express.static(path.resolve(__dirname, 'public/nutria')));
 // Dashboard público Posgrados (presentación + QR del chat)
 app.use('/posgrados', express.static(path.resolve(__dirname, 'public/posgrados')));
 
-// Imágenes subidas por usuarios (capturas de pantalla métricas)
-app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
+// Capturas de pantalla NutriA: contienen datos privados del participante.
+app.use('/uploads', requireAuth, (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+}, express.static(path.resolve(__dirname, '../uploads')));
 
 app.use('/public', express.static(path.resolve(__dirname, 'public')));
 
@@ -77,6 +90,8 @@ app.use(errorHandler);
   await seedDefaultAdmin();
   // Dispara los recordatorios programados que ya vencieron (ver reminderService.ts).
   startReminderWorker();
+  startBroadcastWorker();
+  startInboundWorker();
   app.listen(config.port, () => {
     console.log(`Tooli Chatbot escuchando en puerto ${config.port}`);
     console.log(`UI Asesores → http://localhost:${config.port}/app/`);

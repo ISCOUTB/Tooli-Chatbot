@@ -1,6 +1,14 @@
+import { toast } from './dom.js';
+
 async function doLogout() {
-  await api('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/app/login.html';
+  try {
+    const response = await api('/api/auth/logout', { method: 'POST' });
+    if (!response) return;
+    if (!response.ok) throw new Error('Logout failed');
+    window.location.href = '/app/login.html';
+  } catch {
+    toast('No se pudo cerrar sesión. Revisa tu conexión.');
+  }
 }
 
 async function api(path, opts = {}) {

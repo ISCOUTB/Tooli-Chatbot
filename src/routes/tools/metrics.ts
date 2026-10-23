@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { AuthedRequest } from '../../middleware/auth';
 import { getMetrics, track } from '../../services/metrics';
+import { isMetricEvent } from '../../services/metricEventAllowlist';
 import { Response } from 'express';
 
 export const metricsRouter = Router();
@@ -30,10 +31,11 @@ metricsRouter.get('/metrics/range', async (req, res) => {
 
 metricsRouter.post('/track', async (req: AuthedRequest, res: Response) => {
   const { event, props } = req.body ?? {};
-  if (!event) {
-    res.status(400).json({ error: 'missing_event' });
+  if (!isMetricEvent(event) || (props !== undefined && (typeof props !== 'object' || props === null || Array.isArray(props))) ||
+      (props?.area !== undefined && !['ti', 'admisiones', 'posgrados'].includes(props.area))) {
+    res.status(400).json({ error: 'invalid_metric' });
     return;
   }
-  await track(event, { ...props, source: 'asesor', asesor: req.user?.username });
+  await track(event, { area: props?.area });
   res.json({ ok: true });
 });

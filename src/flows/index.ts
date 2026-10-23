@@ -1,4 +1,4 @@
-import { getSession } from '../services/session';
+import { getSession, setSession } from '../services/session';
 import { FlowContext, sendMenu } from './shared';
 import { handleMenu, handleMenuPosgrado, handleMenuPregrado } from './menu';
 import { handleProgramasCategoria, handleProgramasDetalle } from './programas';
@@ -9,6 +9,8 @@ import {
   handlePregradoProspectoNombre, handlePregradoProspectoEmail, handlePregradoProspectoCarrera,
 } from './pregrado';
 import { handleAcademicoMenu } from './academico';
+import { handleAcademicAccount, handleAcademicUnlink } from './academicAccount';
+import { handleExplorarArea, handleExplorarCarrera, handleExplorarAccion } from './pregradoExplorar';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
@@ -42,6 +44,9 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   registro_programa: handleRegistroPrograma,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
+  pregrado_explorar_area: handleExplorarArea,
+  pregrado_explorar_carrera: handleExplorarCarrera,
+  pregrado_explorar_accion: handleExplorarAccion,
   pregrado_registro_nombre: handlePregradoRegistroNombre,
   pregrado_registro_email: handlePregradoRegistroEmail,
   pregrado_registro_carrera: handlePregradoRegistroCarrera,
@@ -57,6 +62,8 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   notas_password: handleNotasPassword,
   notas_mfa: handleNotasMfa,
   academico_menu: handleAcademicoMenu,
+  academico_cuenta: handleAcademicAccount,
+  academico_desvincular: handleAcademicUnlink,
   chatting_with_ai: handleChattingWithAI,
   with_agent: handleWithAgent,
   // ── Legacy (sesiones activas anteriores) ────────────────────────────────────
@@ -81,7 +88,8 @@ export async function handleMessage(from: string, text: string): Promise<void> {
 
   const handler = HANDLERS[step];
   if (!handler) {
-    console.warn(`[flows] step desconocido "${step}", mostrando menú`);
+    console.warn(`[flows] step desconocido "${step}", recuperando al menú`);
+    await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
   }

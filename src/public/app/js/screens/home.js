@@ -53,6 +53,10 @@ async function renderHome(main) {
       <div id="roleWidgetBody">${Array.from({ length: 4 }).map(() => `<div class="skeleton skeleton-line" style="height:12px;margin:8px 6px;"></div>`).join('')}</div>
     </div>
   `;
+  const attention = main.querySelector('#attentionList');
+  const funnel = main.querySelector('#funnelBody');
+  const role = main.querySelector('#roleWidgetBody');
+  const stats = main.querySelector('#stats');
 
   const QUICK_ITEMS = [
     { icon: 'message', label: 'Conversaciones', sub: 'Bandeja de WhatsApp', go: () => navigate('conversaciones') },
@@ -98,6 +102,7 @@ async function renderHome(main) {
         api('/api/tools/crm/fichas').then(r => r.json()),
         api('/api/tools/recordatorios').then(r => r.json()),
       ]);
+      if (!attention.isConnected) return;
 
       // Recordatorios que no salieron: nadie se entera si no se avisa acá.
       if (remRes.status === 'fulfilled') {
@@ -130,31 +135,32 @@ async function renderHome(main) {
       }
     } catch { /* noop */ }
 
-    const list = $('#attentionList');
+    if (!attention.isConnected) return;
     if (!rows.length) {
-      list.innerHTML = `<div class="widget-empty">${icon('check', 16)} Todo al día — nada requiere atención ahora mismo.</div>`;
+      attention.innerHTML = `<div class="widget-empty">${icon('check', 16)} Todo al día — nada requiere atención ahora mismo.</div>`;
       return;
     }
-    list.innerHTML = rows.slice(0, 6).map(r => `
+    attention.innerHTML = rows.slice(0, 6).map(r => `
       <button type="button" class="attention-row" data-go="${r.go}" style="width:100%;background:none;border:none;text-align:left;cursor:pointer;font-family:inherit;">
         <span class="attention-dot ${r.tone}"></span>
         <span class="attention-text">${r.html}</span>
         <span class="quick-chevron">${icon('chevronRight', 14)}</span>
       </button>
     `).join('');
-    $$('#attentionList [data-go]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.go)));
+    $$('[data-go]', attention).forEach(b => b.addEventListener('click', () => navigate(b.dataset.go)));
   })();
 
   // ── Embudo del equipo: cuántos prospectos hay en cada etapa (dato real de
   //    las fichas del CRM, no una estimación) ──
   (async () => {
-    const cont = $('#funnelBody');
+    const cont = funnel;
     if (!cont) return;
     let fichas = homeFichas;
     if (!fichas) {
       try { fichas = Object.values((await (await api('/api/tools/crm/fichas')).json()).fichas ?? {}); }
-      catch { cont.innerHTML = `<div class="widget-empty">No se pudo cargar el embudo.</div>`; return; }
+      catch { if (cont.isConnected) cont.innerHTML = `<div class="widget-empty">No se pudo cargar el embudo.</div>`; return; }
     }
+    if (!cont.isConnected) return;
     if (!fichas.length) {
       cont.innerHTML = `<div class="widget-empty">${icon('tag', 16)} Nadie ha movido prospectos todavía. Abre una ficha en el CRM y marca en qué punto va.</div>`;
       return;
@@ -168,16 +174,17 @@ async function renderHome(main) {
         <div class="funnel-value">${counts[e.value]}</div>
       </div>
     `).join('');
-    $$('#funnelBody .funnel-row').forEach(r => r.addEventListener('click', () => navigate('registros')));
+    $$('.funnel-row', cont).forEach(r => r.addEventListener('click', () => navigate('registros')));
   })();
 
   // ── Widget de rol: admin ve actividad del equipo, asesor ve la suya ──
   (async () => {
-    const body = $('#roleWidgetBody');
+    const body = role;
     try {
       if (isAdmin) {
         const r = await api('/api/tools/audit/summary?days=7');
         const { summary } = await r.json();
+        if (!body.isConnected) return;
         const rows = Object.entries(summary).map(([username, counts]) => ({
           username, total: Object.values(counts).reduce((a, b) => a + b, 0),
         })).sort((a, b) => b.total - a.total);
@@ -193,6 +200,7 @@ async function renderHome(main) {
       } else {
         const r = await api('/api/tools/audit/me');
         const { entries } = await r.json();
+        if (!body.isConnected) return;
         if (!entries.length) { body.innerHTML = `<div class="widget-empty">${icon('check', 16)} Aún no has hecho acciones en el panel hoy.</div>`; return; }
         body.innerHTML = entries.slice(0, 6).map(e => {
           const meta = AUDIT_LABELS[e.action] ?? { label: e.action, icon: '•' };
@@ -200,22 +208,23 @@ async function renderHome(main) {
         }).join('');
       }
     } catch {
-      body.innerHTML = '<div class="alert alert-error" style="margin:4px;">No se pudo cargar la actividad.</div>';
+      if (body.isConnected) body.innerHTML = '<div class="alert alert-error" style="margin:4px;">No se pudo cargar la actividad.</div>';
     }
   })();
 
   try {
     const r = await api('/api/tools/metrics/today');
     const { metrics: m } = await r.json();
+    if (!stats.isConnected) return;
     const num = (k) => parseInt(m[k] ?? '0') || 0;
     const totalMsgs = num('menu_shown') + num('ai_request') + num('turno_consultado') + num('recibo_descargado');
-    const setStat = (k, v) => { const el = document.querySelector(`[data-stat="${k}"]`); el.classList.remove('skeleton'); el.classList.add('count-up'); el.textContent = '0'; countUp(el, v); };
+    const setStat = (k, v) => { const el = stats.querySelector(`[data-stat="${k}"]`); el.classList.remove('skeleton'); el.classList.add('count-up'); el.textContent = '0'; countUp(el, v); };
     setStat('msgs', totalMsgs);
     setStat('ai', num('ai_request'));
     setStat('prospectos', num('prospecto_completado'));
     setStat('handoffs', num('agent_handoff'));
   } catch {
-    $$('.stat-card .value').forEach(el => { el.classList.remove('skeleton'); el.textContent = '—'; });
+    if (stats.isConnected) $$('.stat-card .value', stats).forEach(el => { el.classList.remove('skeleton'); el.textContent = '—'; });
   }
 }
 

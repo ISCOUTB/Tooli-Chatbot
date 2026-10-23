@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskEmail, maskPhone } from './logSafe';
 
 export interface RegistroProspecto {
   nombre: string;
@@ -22,9 +23,12 @@ export interface RegistroProspecto {
 export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<void> {
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) {
-    console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — registro solo en logs');
-    console.log('[registro] PROSPECTO:', data);
-    return;
+    console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — prospecto no persistido', {
+      whatsapp: maskPhone(data.whatsapp),
+      email: maskEmail(data.email),
+      area: data.area ?? 'Posgrado',
+    });
+    throw new Error('POSGRADO_REGISTRO_SHEET_ID no configurado');
   }
 
   const auth = new google.auth.GoogleAuth({
@@ -40,7 +44,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
     timeStyle: 'short',
   });
 
-  await sheets.spreadsheets.values.append({
+  const response = await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
     range: 'Registros!A:F',
     valueInputOption: 'RAW',
@@ -57,7 +61,11 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
     },
   });
 
-  console.log('[registro] prospecto guardado en Sheets:', data.nombre, data.email);
+  if (response.data.updates?.updatedRows !== 1) {
+    throw new Error('Sheets no confirmó la inserción de una fila de registro');
+  }
+
+  console.log('[registro] prospecto guardado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email), data.area ?? 'Posgrado');
 }
 
 /**

@@ -4,6 +4,7 @@ import { crmEstadoMeta } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
+import { newPasswordError } from '../core/password.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -27,15 +28,15 @@ async function renderUsuarios(main) {
     <div id="newUserPanel" class="hidden tool-panel" style="margin-bottom: 24px;">
       <h2>Crear nuevo usuario</h2>
       <form id="newUserForm">
-        <div class="field"><label>Usuario</label><input type="text" id="nUsername" required></div>
-        <div class="field"><label>Nombre completo</label><input type="text" id="nFullName" required></div>
-        <div class="field"><label>Email (opcional)</label><input type="email" id="nEmail"></div>
-        <div class="field"><label>Contraseña inicial</label><input type="password" id="nPassword" minlength="6" required></div>
-        <div class="field"><label>Rol</label><div id="nRoleWrap"></div></div>
-        <div class="field"><label>Área</label><div id="nAreaWrap"></div></div>
-        <div id="newUserAlert"></div>
+        <div class="field"><label for="nUsername">Usuario</label><input type="text" id="nUsername" autocomplete="off" required></div>
+        <div class="field"><label for="nFullName">Nombre completo</label><input type="text" id="nFullName" required></div>
+        <div class="field"><label for="nEmail">Email (opcional)</label><input type="email" id="nEmail"></div>
+        <div class="field"><label for="nPassword">Contraseña inicial</label><input type="password" id="nPassword" autocomplete="new-password" minlength="12" maxlength="72" aria-describedby="nPasswordHelp" required><div class="field-help" id="nPasswordHelp">Entre 12 caracteres y 72 bytes. Los acentos y emojis ocupan más de un byte.</div></div>
+        <div class="field"><div id="nRoleLabel">Rol</div><div id="nRoleWrap" role="group" aria-labelledby="nRoleLabel"></div></div>
+        <div class="field"><div id="nAreaLabel">Área</div><div id="nAreaWrap" role="group" aria-labelledby="nAreaLabel"></div></div>
+        <div id="newUserAlert" role="alert" aria-live="polite"></div>
         <div style="display: flex; gap: 8px;">
-          <button type="submit" class="btn btn-primary">Crear usuario</button>
+          <button type="submit" class="btn btn-primary" id="createUserBtn">Crear usuario</button>
           <button type="button" class="btn btn-ghost" id="cancelNewUser">Cancelar</button>
         </div>
       </form>
@@ -45,8 +46,12 @@ async function renderUsuarios(main) {
   `;
 
   setPullToRefresh(() => loadUsers());
+  let loadSeq = 0;
   async function loadUsers() {
-    $('#usersTable').innerHTML = `<div class="crm-grid stagger-in">${Array.from({ length: 4 }).map(() => `
+    const table = main.querySelector('#usersTable');
+    if (!table) return;
+    const seq = ++loadSeq;
+    table.innerHTML = `<div class="crm-grid stagger-in">${Array.from({ length: 4 }).map(() => `
       <div class="crm-card advisor-card">
         <div class="skeleton" style="width:56px;height:56px;border-radius:50%;margin-bottom:12px;"></div>
         <div class="skeleton skeleton-line" style="width:70%;height:14px;margin-bottom:8px;"></div>
@@ -54,11 +59,26 @@ async function renderUsuarios(main) {
       </div>
     `).join('')}</div>`;
 
-    const [{ users }, auditSummary, fichasMap] = await Promise.all([
-      api('/api/auth/users').then(r => r.json()),
-      api('/api/tools/audit/summary?days=7').then(r => r.json()).then(d => d.summary ?? {}).catch(() => ({})),
-      api('/api/tools/crm/fichas').then(r => r.json()).then(d => d.fichas ?? {}).catch(() => ({})),
-    ]);
+    let users, auditSummary, fichasMap;
+    try {
+      [users, auditSummary, fichasMap] = await Promise.all([
+        api('/api/auth/users').then(async r => {
+          if (!r?.ok) throw new Error('No se pudieron cargar los usuarios');
+          const data = await r.json();
+          if (!Array.isArray(data.users)) throw new Error('Respuesta inválida');
+          return data.users;
+        }),
+        api('/api/tools/audit/summary?days=7').then(r => r?.ok ? r.json() : {}).then(d => d.summary ?? {}).catch(() => ({})),
+        api('/api/tools/crm/fichas').then(r => r?.ok ? r.json() : {}).then(d => d.fichas ?? {}).catch(() => ({})),
+      ]);
+    } catch {
+      if (seq === loadSeq && main.querySelector('#usersTable')) {
+        $('#usersTable').innerHTML = '<div class="alert alert-error" role="alert">No se pudieron cargar los asesores. <button type="button" class="btn btn-secondary" id="retryUsers">Reintentar</button></div>';
+        $('#retryUsers').addEventListener('click', loadUsers);
+      }
+      return;
+    }
+    if (seq !== loadSeq || !main.querySelector('#usersTable')) return;
 
     // Cartera de cada asesor: cuántos prospectos tiene asignados y en qué etapa.
     // Es el dato que un jefe pregunta primero y que la auditoría sola no responde
@@ -78,11 +98,13 @@ async function renderUsuarios(main) {
         groups: [
           [{ label: 'Eliminar usuario', icon: icon('trash', 16), destructive: true, onClick: async () => {
             haptic([20, 30, 20]);
-            const r = await api(`/api/auth/users/${username}`, { method: 'DELETE' });
-            if (!r.ok) { toast('No se pudo eliminar'); haptic([20,30,20]); return; }
-            toast('Usuario eliminado');
-            haptic(15);
-            loadUsers();
+            try {
+              const r = await api(`/api/auth/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+              if (!r?.ok) throw new Error();
+              toast('Usuario eliminado');
+              haptic(15);
+              loadUsers();
+            } catch { toast('No se pudo eliminar'); haptic([20, 30, 20]); }
           } }],
           [{ label: 'Cancelar', cancel: true }],
         ],
@@ -138,10 +160,10 @@ async function renderUsuarios(main) {
             const counts = auditSummary[u.username] ?? {};
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
             return `
-            <div class="crm-card advisor-card" data-longpress data-username="${u.username}">
+            <div class="crm-card advisor-card" data-longpress data-username="${escapeHtml(u.username)}" tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(u.fullName)}">
               <div class="advisor-card-top">
-                <div class="avatar" style="background:${avatarTone(u.username)};width:52px;height:52px;font-size:17px;">${initialsFor(u.username, u.fullName)}</div>
-                <span class="badge ${u.role}">${u.role === 'admin' ? 'Admin' : 'Asesor'}</span>
+                <div class="avatar" style="background:${avatarTone(u.username)};width:52px;height:52px;font-size:17px;">${escapeHtml(initialsFor(u.username, u.fullName))}</div>
+                <span class="badge ${u.role === 'admin' ? 'admin' : 'asesor'}">${u.role === 'admin' ? 'Admin' : 'Asesor'}</span>
               </div>
               <div class="crm-card-name">${escapeHtml(u.fullName)}</div>
               <div class="crm-card-row">@${escapeHtml(u.username)}</div>
@@ -149,7 +171,7 @@ async function renderUsuarios(main) {
               <div class="advisor-stat-strip">
                 <div class="advisor-stat"><div class="advisor-stat-value">${total}</div><div class="advisor-stat-label">acciones · 7d</div></div>
                 <div class="advisor-stat"><div class="advisor-stat-value">${cartera[u.username]?.total ?? 0}</div><div class="advisor-stat-label">a cargo</div></div>
-                <div class="advisor-stat"><div class="advisor-stat-value">${areaLabel(u.area)}</div><div class="advisor-stat-label">área</div></div>
+                <div class="advisor-stat"><div class="advisor-stat-value">${escapeHtml(areaLabel(u.area))}</div><div class="advisor-stat-label">área</div></div>
               </div>
             </div>
           `; }).join('')}
@@ -160,6 +182,7 @@ async function renderUsuarios(main) {
       const username = card.dataset.username;
       const u = users.find(x => x.username === username);
       card.addEventListener('click', () => openAdvisorProfile(u));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAdvisorProfile(u); } });
       const actions = [
         { label: 'Ver perfil', icon: '👤', onClick: () => openAdvisorProfile(u) },
         { label: 'Copiar usuario', icon: '🔗', onClick: () => copyToClipboard(username, 'Usuario copiado') },
@@ -192,29 +215,47 @@ async function renderUsuarios(main) {
     requestAnimationFrame(() => { fixSegThumb(nRoleSeg); fixSegThumb(nAreaSeg); });
   });
   $('#cancelNewUser').addEventListener('click', () => $('#newUserPanel').classList.add('hidden'));
+  $('#nPassword').addEventListener('input', () => $('#nPassword').removeAttribute('aria-invalid'));
 
   $('#newUserForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    $('#newUserAlert').innerHTML = '';
-    const r = await api('/api/auth/users', {
-      method: 'POST',
-      body: JSON.stringify({
-        username: $('#nUsername').value,
-        fullName: $('#nFullName').value,
-        email: $('#nEmail').value || undefined,
-        password: $('#nPassword').value,
-        role: nRoleVal,
-        area: nAreaVal,
-      }),
-    });
-    if (!r.ok) {
-      const err = await r.json();
-      $('#newUserAlert').innerHTML = `<div class="alert alert-error">${err.error || 'No se pudo crear el usuario'}</div>`;
+    const passwordInput = $('#nPassword');
+    const policyError = newPasswordError(passwordInput.value);
+    if (policyError) {
+      passwordInput.setAttribute('aria-invalid', 'true');
+      $('#newUserAlert').textContent = policyError;
+      passwordInput.focus();
       return;
     }
-    $('#newUserPanel').classList.add('hidden');
-    $('#newUserForm').reset();
-    loadUsers();
+    const submit = $('#createUserBtn');
+    submit.disabled = true;
+    $('#newUserAlert').textContent = '';
+    try {
+      const r = await api('/api/auth/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: $('#nUsername').value.trim(),
+          fullName: $('#nFullName').value.trim(),
+          email: $('#nEmail').value.trim() || undefined,
+          password: $('#nPassword').value,
+          role: nRoleVal,
+          area: nAreaVal,
+        }),
+      });
+      if (!main.querySelector('#newUserPanel')) return;
+      if (!r?.ok) {
+        const err = await r?.json().catch(() => ({}));
+        $('#newUserAlert').textContent = err?.error || 'No se pudo crear el usuario';
+        return;
+      }
+      $('#newUserPanel').classList.add('hidden');
+      $('#newUserForm').reset();
+      loadUsers();
+    } catch {
+      if (main.querySelector('#newUserAlert')) $('#newUserAlert').textContent = 'Sin conexión con el servidor. Intenta de nuevo.';
+    } finally {
+      submit.disabled = false;
+    }
   });
 
   loadUsers();

@@ -36,7 +36,7 @@ function updateOfflineBanner() {
     banner = document.createElement('div');
     banner.id = 'offlineBanner';
     banner.className = 'offline-banner';
-    banner.innerHTML = `<span class="pulse-dot down"></span> Sin conexión — mostrando lo último guardado`;
+    banner.innerHTML = `<span class="pulse-dot down"></span> Sin conexión — los datos del panel requieren internet`;
     document.body.appendChild(banner);
   }
   requestAnimationFrame(() => banner.classList.add('show'));

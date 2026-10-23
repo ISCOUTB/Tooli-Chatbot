@@ -1,6 +1,8 @@
+import { api } from '../core/api.js';
 import { $, $$, escapeHtml } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
+import { sesion } from '../core/session.js';
 import { attachTooltip } from '../ui/controls.js';
 
 const HEALTH_LABELS = {
@@ -20,13 +22,74 @@ async function renderHealth(main) {
         ${Array.from({ length: 4 }).map(() => `<div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);"><div class="skeleton skeleton-line" style="width:110px;height:12px;"></div><div class="skeleton skeleton-line" style="width:70px;height:12px;"></div><div class="skeleton skeleton-line" style="flex:1;height:12px;"></div></div>`).join('')}
       </div>
     </div>
+    ${sesion.user?.role === 'admin' ? '<section id="inboundReviews" aria-live="polite"></section>' : ''}
   `;
+  let loadSeq = 0;
+  let reviewSeq = 0;
+  const loadReviews = async () => {
+    const wrap = main.querySelector('#inboundReviews');
+    if (!wrap) return;
+    const seq = ++reviewSeq;
+    wrap.innerHTML = '<div class="card"><h2>Mensajes por revisar</h2><p>Cargando bandeja entrante…</p></div>';
+    try {
+      const response = await api('/api/tools/inbound/reviews');
+      if (!response) return;
+      if (!response.ok) throw new Error('reviews_unavailable');
+      const { reviews } = await response.json();
+      if (!wrap.isConnected || seq !== reviewSeq) return;
+      wrap.innerHTML = `
+        <div class="card" style="margin-top:20px;">
+          <h2>Mensajes por revisar · ${reviews.length}</h2>
+          <p class="field-help">El procesamiento de ese contacto queda detenido hasta revisar en Conversaciones si hubo respuesta. Reintenta solo cuando confirmes que no se envió nada.</p>
+          ${reviews.length ? reviews.map(item => `
+            <div style="border-top:1px solid var(--border);padding:14px 0;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+              <div style="min-width:0;overflow-wrap:anywhere;">
+                <strong>${escapeHtml(item.from)}</strong> · ${escapeHtml(item.source)}
+                <div class="field-help">${escapeHtml(new Date(item.createdAt).toLocaleString('es-CO'))} · Mensaje ${escapeHtml(item.messageId)}</div>
+                <div class="field-help">${escapeHtml(item.reviewReason ?? 'Resultado no confirmado')}</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" data-review-id="${escapeHtml(item.id)}" data-decision="acknowledge">Marcar revisado</button>
+                <button type="button" class="btn btn-secondary" data-review-id="${escapeHtml(item.id)}" data-decision="retry">Reintentar</button>
+              </div>
+            </div>
+          `).join('') : '<p>No hay mensajes pendientes de revisión.</p>'}
+        </div>`;
+      $$('button[data-review-id]', wrap).forEach(button => button.addEventListener('click', async () => {
+        const decision = button.dataset.decision;
+        const id = button.dataset.reviewId;
+        const question = decision === 'retry'
+          ? 'Reintentar puede duplicar una respuesta si el proveedor ya la entregó. ¿Confirmaste que no hubo respuesta y quieres reintentar?'
+          : '¿Confirmaste el resultado del mensaje? Se desbloqueará el siguiente mensaje de este contacto.';
+        if (!window.confirm(question)) return;
+        button.disabled = true;
+        try {
+          const result = await api(`/api/tools/inbound/reviews/${encodeURIComponent(id)}/resolve`, {
+            method: 'POST', body: JSON.stringify({ decision }),
+          });
+          if (!result?.ok) throw new Error('resolve_failed');
+          await loadReviews();
+        } catch {
+          button.disabled = false;
+          const warning = document.createElement('p');
+          warning.className = 'alert alert-error';
+          warning.textContent = 'No se pudo resolver el mensaje. Actualiza e intenta de nuevo.';
+          button.parentElement?.after(warning);
+        }
+      }));
+    } catch {
+      if (wrap.isConnected && seq === reviewSeq) wrap.innerHTML = '<div class="alert alert-error" style="margin-top:20px;">No se pudo consultar la bandeja de mensajes pendientes.</div>';
+    }
+  };
   setPullToRefresh(() => load());
   const load = async () => {
-    const refreshBtn = $('#refreshHealth');
+    const refreshBtn = main.querySelector('#refreshHealth');
+    const content = main.querySelector('#healthContent');
+    if (!refreshBtn || !content) return;
+    const seq = ++loadSeq;
     refreshBtn.disabled = true;
     refreshBtn.querySelector('.refresh-icon')?.classList.add('spin-once');
-    $('#healthContent').innerHTML = `
+    content.innerHTML = `
       <div class="card">
         <div class="skeleton skeleton-line" style="width:220px;height:20px;margin-bottom:18px;"></div>
         ${Array.from({ length: 4 }).map(() => `<div style="display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--border);"><div class="skeleton skeleton-line" style="width:120px;"></div><div class="skeleton skeleton-line" style="width:80px;"></div><div class="skeleton skeleton-line" style="width:200px;"></div></div>`).join('')}
@@ -34,9 +97,10 @@ async function renderHealth(main) {
     try {
       const r = await fetch('/health/deep', { credentials: 'same-origin' });
       const data = await r.json();
+      if (!content.isConnected || seq !== loadSeq) return;
       const entries = Object.entries(data.checks);
       const byStatus = entries.reduce((acc, [, c]) => { acc[c.status] = (acc[c.status] ?? 0) + 1; return acc; }, {});
-      $('#healthContent').innerHTML = `
+      content.innerHTML = `
         <div class="widget-card" style="margin-bottom:16px;">
           <div class="widget-card-head">
             <h3>Estado general</h3>
@@ -60,14 +124,15 @@ async function renderHealth(main) {
           `).join('')}
         </div>
       `;
-      $$('.health-card[data-service]').forEach(card => {
+      $$('.health-card[data-service]', content).forEach(card => {
         const c = data.checks[card.dataset.service];
         if (c?.detail) attachTooltip(card.querySelector('.crm-card-name'), c.detail);
       });
     } catch {
-      $('#healthContent').innerHTML = '<div class="alert alert-error">No se pudo verificar el estado.</div>';
+      if (content.isConnected && seq === loadSeq) content.innerHTML = '<div class="alert alert-error">No se pudo verificar el estado.</div>';
     } finally {
-      refreshBtn.disabled = false;
+      if (seq === loadSeq) refreshBtn.disabled = false;
+      if (content.isConnected && seq === loadSeq) await loadReviews();
     }
   };
   $('#refreshHealth').addEventListener('click', load);

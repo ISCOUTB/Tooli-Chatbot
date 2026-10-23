@@ -4,7 +4,7 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
     env_file: .env
     volumes:
       - ./uploads:/app/uploads
@@ -17,7 +17,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --save "" --appendonly no
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,7 +34,7 @@ services:
     environment:
       POSTGRES_DB: evolution
       POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD:?Set EVOLUTION_DB_PASSWORD in .env}
     volumes:
       - evolution-pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -51,10 +53,10 @@ services:
       dockerfile: Dockerfile.evolution
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:8081:8080"
     environment:
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/evolution
+      - DATABASE_URL=postgresql://user:${EVOLUTION_DB_PASSWORD:?Set EVOLUTION_DB_PASSWORD in .env}@postgres:5432/evolution
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
       - WEBHOOK_GLOBAL_URL=http://backend:3000/webhook
@@ -100,7 +102,9 @@ services:
   chatwoot-redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --save "" --appendonly no
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - chatwoot-redis-data:/data
     networks:
       - tooli-net
 
@@ -121,8 +125,10 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:3001:3000"
     env_file: .env.chatwoot
+    volumes:
+      - chatwoot-storage:/app/storage
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
     depends_on:
@@ -140,6 +146,8 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     env_file: .env.chatwoot
+    volumes:
+      - chatwoot-storage:/app/storage
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     depends_on:
@@ -156,7 +164,7 @@ services:
     image: prom/prometheus:v2.55.0
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "${BIND_ADDRESS:-127.0.0.1}:9090:9090"
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml.tpl:ro
       - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -174,7 +182,7 @@ services:
     image: prom/alertmanager:v0.27.0
     restart: unless-stopped
     ports:
-      - "9093:9093"
+      - "${BIND_ADDRESS:-127.0.0.1}:9093:9093"
     volumes:
       - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml.tpl:ro
       - alertmanager-data:/alertmanager
@@ -189,10 +197,10 @@ services:
     image: grafana/grafana:11.3.0
     restart: unless-stopped
     ports:
-      - "3002:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:3002:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in .env}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_AUTH_ANONYMOUS_ENABLED=false
     volumes:
@@ -205,6 +213,9 @@ services:
       - tooli-net
 
 volumes:
+  redis-data:
+  chatwoot-redis-data:
+  chatwoot-storage:
   evolution-instances:
   evolution-pg-data:
   chatwoot-pg-data:

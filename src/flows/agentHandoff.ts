@@ -4,6 +4,7 @@ import { ChatTurn } from '../services/aiAssistant';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
 import { track } from '../services/metrics';
 import { messaging } from './shared';
+import { parseOriginArea } from './commands';
 
 export interface HandoffOptions {
   aiNoResolvio?: boolean;
@@ -71,6 +72,8 @@ export async function iniciarConversacionAsesor(
     contexto += `👤 Nombre: ${data.nombre ?? '(no disponible)'}\n`;
     contexto += `📧 Correo: ${data.correo ?? '(no disponible)'}\n`;
     contexto += `🎓 Posgrado de interés: ${data.posgradoInteres ?? '(no especificado)'}\n`;
+    if (data.nivel) contexto += `🏷️ Nivel: ${data.nivel}\n`;
+    if (data.etapa) contexto += `📌 Etapa: ${data.etapa}\n`;
     if (data.descripcion) contexto += `📝 Consulta: ${data.descripcion}\n`;
   } else {
     contexto += `🎓 Nivel: ${data.nivel}\n`;
@@ -113,6 +116,7 @@ export async function iniciarConversacionAsesor(
   try {
     const contact = await getOrCreateContact(from, `Usuario ${from.slice(-4)}`);
     const labels: string[] = [];
+    if (area === 'posgrados') labels.push('posgrado-prospecto');
     if (fueraHorario) labels.push('fuera-horario');
     if (opts.aiNoResolvio) labels.push('ai-no-resolvio');
     if (opts.conVerificacionIdentidad) labels.push('identidad-verificada');
@@ -127,7 +131,7 @@ export async function iniciarConversacionAsesor(
         ...(area === 'ti'
           ? { plataforma: data.plataforma }
           : area === 'posgrados'
-          ? { nombre: data.nombre ?? '', correo: data.correo ?? '', posgrado_interes: data.posgradoInteres ?? '' }
+          ? { nombre: data.nombre ?? '', correo: data.correo ?? '', posgrado_interes: data.posgradoInteres ?? '', ...(data.nivel ? { nivel: data.nivel } : {}), ...(data.etapa ? { etapa: data.etapa } : {}) }
           : { nivel: data.nivel, etapa: data.etapa }),
         ...(opts.conVerificacionIdentidad
           ? {
@@ -144,7 +148,7 @@ export async function iniciarConversacionAsesor(
 
     await setSession(from, {
       step: 'with_agent',
-      data: { conversationId: String(conversationId), area },
+      data: { conversationId: String(conversationId), area, ...(parseOriginArea(data.originArea) ? { originArea: data.originArea } : {}) },
     });
 
     await track('agent_handoff', {
@@ -167,8 +171,8 @@ export async function iniciarConversacionAsesor(
           'Cualquier mensaje que escribas le llegará al asesor. Para terminar la conversación, escribe *salir*.',
       });
     }
-  } catch (err) {
-    console.error('[chatwoot] error creando conversación:', err);
+  } catch {
+    console.error('[chatwoot] no se pudo crear la conversación');
     await setSession(from, { step: 'menu', data: {} });
     await messaging.sendText({
       to: from,

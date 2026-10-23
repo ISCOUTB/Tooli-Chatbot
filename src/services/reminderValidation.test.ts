@@ -37,6 +37,11 @@ describe('validarTelefono', () => {
     assert.throws(() => validarTelefono('1'.repeat(16)), ReminderValidationError);
   });
 
+  it('rechaza ceros iniciales y texto incrustado para evitar otro destinatario', () => {
+    assert.throws(() => validarTelefono('0000000000'), ReminderValidationError);
+    assert.throws(() => validarTelefono('llamar-573001234567-ahora'), ReminderValidationError);
+  });
+
   it('acepta exactamente los límites, 10 y 15 dígitos', () => {
     assert.equal(validarTelefono('1'.repeat(10)).length, 10);
     assert.equal(validarTelefono('1'.repeat(15)).length, 15);
@@ -89,6 +94,26 @@ describe('parseFecha', () => {
 
   it('rechaza una fecha con formato correcto pero inexistente', () => {
     assert.throws(() => parseFecha('2026-02-31T10:00:00Z'), ReminderValidationError);
+  });
+
+  it('rechaza segundos fuera de rango sin normalizar en silencio', () => {
+    assert.throws(() => parseFecha('2026-09-20T10:00:99Z'), ReminderValidationError);
+    assert.equal(parseFecha('2026-09-20T10:00:45Z'), Date.parse('2026-09-20T10:00:45Z'));
+  });
+
+  it('rechaza offsets de zona imposibles (±14:00 es el máximo real)', () => {
+    assert.throws(() => parseFecha('2026-09-20T10:00:00+15:00'), ReminderValidationError);
+    assert.throws(() => parseFecha('2026-09-20T10:00:00-23:00'), ReminderValidationError);
+    assert.equal(parseFecha('2026-09-20T10:00:00+14:00'), Date.parse('2026-09-20T10:00:00+14:00'));
+  });
+
+  it('rechaza epoch fraccionario o negativo', () => {
+    assert.throws(() => parseFecha(1789435482440.5), ReminderValidationError);
+    assert.throws(() => parseFecha(-1), ReminderValidationError);
+    assert.throws(() => parseFecha(NaN), ReminderValidationError);
+    assert.throws(() => parseFecha(1e20), ReminderValidationError);
+    assert.throws(() => parseFecha(Number.MAX_SAFE_INTEGER), ReminderValidationError);
+    assert.equal(parseFecha(8.64e15), 8.64e15);
   });
 });
 

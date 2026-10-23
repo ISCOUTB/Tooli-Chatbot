@@ -2,14 +2,30 @@ import { setSession } from '../services/session';
 import { preguntarAI, AIUnavailableError, ChatTurn } from '../services/aiAssistant';
 import { track } from '../services/metrics';
 import { isAiDisabled } from '../services/botUserService';
-import { FlowContext, messaging, sendAiHint, normalize } from './shared';
+import { FlowContext, messaging, sendMenu, sendAiHint, normalize, volverAlMenuDeOrigen } from './shared';
 import { iniciarConversacionAsesor, iniciarVerificacionIdentidad } from './agentHandoff';
+import { parseGlobalCommand, resolveAiArea } from './commands';
+import { resumenOrientacion } from './programasCatalog';
 
 const TURN_LIMIT_SUGGEST_AGENT = 15;
 
 export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = normalize(text);
+  const command = parseGlobalCommand(text);
+  const data = session?.data ?? {};
+
+  // “volver”/`0` regresa al menú del área de origen (fallback: raíz).
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, data);
+    return;
+  }
+
+  if (command === 'salir' || command === 'menu') {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return;
+  }
 
   // Un asesor apagó la IA para esta conversación puntual (toggle en el panel
   // de Conversaciones) — en vez de responder con el modelo, escala directo a
@@ -21,8 +37,6 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
   }
 
   if (
-    input === 'salir' ||
-    input === 'menu' ||
     input === 'gracias' ||
     input === 'listo' ||
     input === 'terminar'
@@ -41,10 +55,32 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  const history: ChatTurn[] = JSON.parse(session?.data.aiHistory ?? '[]');
-  const turnCount = parseInt(session?.data.aiTurnCount ?? '0');
-  const areaRaw = session?.data.area ?? 'posgrados';
-  const area = (['ti', 'admisiones', 'posgrados'].includes(areaRaw) ? areaRaw : 'posgrados') as 'ti' | 'admisiones' | 'posgrados';
+  // Sin área válida no se asume Posgrado: se usa `originArea` o recuperación explícita.
+  const area = resolveAiArea(data);
+  if (!area) {
+    await setSession(from, { step: 'menu', data: {} });
+    await messaging.sendText({
+      to: from,
+      text:
+        '⚠️ Perdí el contexto de esta conversación (área desconocida).\n\nTe llevo al inicio para que elijas de nuevo.',
+    });
+    await sendMenu(from);
+    return;
+  }
+  let history: ChatTurn[] = [];
+  try {
+    const parsed: unknown = JSON.parse(data.aiHistory ?? '[]');
+    if (Array.isArray(parsed)) {
+      history = parsed.filter((turn): turn is ChatTurn =>
+        turn != null &&
+        (turn.role === 'user' || turn.role === 'assistant') &&
+        typeof turn.content === 'string',
+      );
+    }
+  } catch {
+    // Una sesión antigua dañada no debe impedir que la persona continúe.
+  }
+  const turnCount = Number.parseInt(data.aiTurnCount ?? '0', 10) || 0;
   const tituloAsistente =
     area === 'ti' ? '🤖 *Asistente TI*' :
     area === 'admisiones' ? '🤖 *Asistente Admisiones UTB*' :
@@ -53,7 +89,8 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
   await track('ai_request', { area: area as 'ti' | 'admisiones' | 'posgrados' });
 
   try {
-    const ai = await preguntarAI(area, text.trim(), history);
+    const orientacion = area === 'posgrados' ? resumenOrientacion(data.orientacionArea ?? '') : null;
+    const ai = await preguntarAI(area, text.trim(), history, orientacion ?? undefined);
 
     await messaging.sendText({ to: from, text: `${tituloAsistente}\n\n${ai.answer}` });
 
@@ -103,7 +140,7 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
       await sendAiHint(from);
     }
   } catch (err) {
-    console.error('[chatting_with_ai] error:', err);
+    console.error('[chatting_with_ai] error:', err instanceof AIUnavailableError ? err.reason : 'unknown');
     await track('ai_failed', { area, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
 
     if (err instanceof AIUnavailableError) {

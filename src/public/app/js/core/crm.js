@@ -106,11 +106,14 @@ function wireFicha(sheet, phone, ficha, onChange) {
       const data = await r.json();
       if (!r.ok) throw new Error(data.message ?? 'error');
       f = data.ficha;
+      if (!sheet.isConnected) return false;
       onChange?.();
       return true;
     } catch (err) {
-      toast('No se pudo guardar');
-      haptic([20, 30, 20]);
+      if (sheet.isConnected) {
+        toast('No se pudo guardar');
+        haptic([20, 30, 20]);
+      }
       return false;
     }
   };
@@ -199,12 +202,13 @@ function wireFicha(sheet, phone, ficha, onChange) {
       const data = await r.json();
       if (!r.ok) throw new Error();
       f = data.ficha ?? f;
+      if (!sheet.isConnected) return;
       const li = $$$(`[data-nota="${id}"]`);
       li?.classList.add('saliendo');
       setTimeout(() => li?.remove(), 220);
       $$$('#fichaNotasCount').textContent = f.notas.length;
       onChange?.();
-    } catch { toast('No se pudo eliminar la nota'); }
+    } catch { if (sheet.isConnected) toast('No se pudo eliminar la nota'); }
   });
 }
 

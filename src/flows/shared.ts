@@ -2,7 +2,9 @@ import { EvolutionAPIAdapter } from '../adapters/messaging/EvolutionAPIAdapter';
 import { MetaCloudAdapter } from '../adapters/messaging/MetaCloudAdapter';
 import { IMessagingAdapter } from '../adapters/messaging/IMessagingAdapter';
 import { config } from '../config';
-import { Session } from '../services/session';
+import { Session, setSession } from '../services/session';
+import { returnMenuStep } from './commands';
+import type { FlowArea, SessionData } from './commands';
 
 export const messaging: IMessagingAdapter =
   config.messagingAdapter === 'meta'
@@ -53,17 +55,46 @@ export async function sendAiHint(to: string): Promise<void> {
   });
 }
 
-export async function sendAreaPrompt(to: string): Promise<void> {
+export async function sendAreaPrompt(to: string, originArea?: FlowArea): Promise<void> {
+  const desdePosgrado = originArea === 'posgrado';
   await messaging.sendButtons({
     to,
     title: '🧑‍💼 Hablar con un asesor',
-    description: '¿En qué área necesitas ayuda?',
+    description: desdePosgrado
+      ? '¿En qué área necesitas ayuda? (vienes del menú de Posgrado)'
+      : '¿En qué área necesitas ayuda?',
     footer: 'Escribe menu para volver al inicio',
     buttons: [
       { id: '1', displayText: '🖥️ Soporte TI' },
-      { id: '2', displayText: '📝 Admisiones' },
+      { id: '2', displayText: desdePosgrado ? '📝 Admisiones Posgrados' : '📝 Admisiones' },
     ],
   });
+}
+
+/** Salida compartida al menú raíz (“menu”/“salir”). */
+export async function salirAlMenuRaiz(to: string): Promise<void> {
+  await setSession(to, { step: 'menu', data: {} });
+  await sendMenu(to);
+}
+
+/**
+ * Retorno compartido al menú del área de origen (“volver”/`0`).
+ * Sin origen válido cae explícitamente al menú raíz (sesiones legacy/corruptas).
+ */
+export async function volverAlMenuDeOrigen(to: string, data: SessionData | undefined | null): Promise<void> {
+  const step = returnMenuStep(data);
+  if (step === 'menu_posgrado') {
+    await setSession(to, { step, data: {} });
+    await sendMenuPosgrado(to);
+    return;
+  }
+  if (step === 'menu_pregrado') {
+    await setSession(to, { step, data: {} });
+    await sendMenuPregrado(to);
+    return;
+  }
+  await setSession(to, { step: 'menu', data: {} });
+  await sendMenu(to);
 }
 
 /** Punto de entrada del bot: primero se identifica si es un contacto de
@@ -102,6 +133,7 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
           { id: '6', title: '🧾 Recibo matrícula',    description: 'Descarga el PDF de tu recibo de pago' },
           { id: '7', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '8', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
+          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Pregrado',  description: 'Volver al menú de inicio' },
         ],
       },
@@ -127,6 +159,8 @@ export async function sendMenuPregrado(to: string): Promise<void> {
           { id: '5', title: '🧾 Recibo matrícula',    description: 'Descarga el PDF de tu recibo de pago' },
           { id: '6', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '7', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
+          { id: '8', title: '🧭 Explorar carreras',    description: 'Conoce las áreas y carreras sin registrarte' },
+          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver al menú de inicio' },
         ],
       },

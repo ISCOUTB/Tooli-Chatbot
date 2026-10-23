@@ -1,11 +1,9 @@
 # Pendientes — Panel de asesores (Tooli)
 
-Ideas y funciones grandes que se discutieron para el panel de asesores pero que
-**todavía no están implementadas** porque dependen de una decisión de producto,
-credenciales externas, o de un sistema de la universidad que aún no está
-conectado. Se documentan aquí para no perderlas y para dejar explícito qué es
-real hoy en la UI y qué no — el panel no debe simular una función que no
-funciona de verdad.
+Estado de las funciones grandes discutidas para el panel: algunas ya están
+implementadas y otras dependen de una decisión de producto, credenciales
+externas o un sistema de la universidad que aún no está conectado. Se
+documenta qué funciona hoy y qué requiere integración o pruebas reales.
 
 ## 1. Semestre y carrera del estudiante
 
@@ -53,31 +51,24 @@ mostrado en el panel como un dashboard real (podio + gráfico de barras +
 detalle por tipo de acción) en `renderActividad` dentro de
 `src/public/app/index.html`.
 
-## 6. Mensajes masivos / campañas nativas (reemplazar el uso de Chatwoot para esto)
+## 6. Mensajes masivos con plantillas — ✅ implementado; pendiente ensayo real
 
-Pedido explícito: tener dentro del panel lo que hoy se hace en Chatwoot para
-enviar mensajes a varios contactos a la vez, e idealmente mejor. Antes de
-construirlo hay una restricción real de WhatsApp que no se puede evitar con
-código: el adaptador de mensajería actual es `meta` (WhatsApp Business
-Platform — ver `config.messagingAdapter` en `src/flows/shared.ts`), y Meta
-**no permite enviar texto libre fuera de una ventana de 24h desde el último
-mensaje del usuario** — un envío masivo real solo es posible usando
-*message templates* pre-aprobados por Meta (ej. "Recordatorio de cita",
-"Nueva convocatoria de posgrado"), cada uno sujeto a revisión y aprobación
-de Meta antes de poder usarse.
+El CRM permite a un administrador seleccionar prospectos filtrados y escoger
+una plantilla aprobada. La API lista las plantillas de Meta, comprueba que la
+elegida no necesite parámetros, crea un trabajo persistente en Redis y evita
+repetir el mismo envío durante 24 horas. El worker procesa destinatarios de
+forma individual; un resultado incierto queda registrado para revisión y no
+se reenvía automáticamente. El panel muestra avance, éxitos y fallos. La
+selección se borra al actualizar registros, porque el Sheet puede reordenar
+las filas, y los números repetidos se cuentan una sola vez.
 
-Camino natural para construirlo bien (no como un botón que technically no
-funciona):
-- Backend: un servicio `broadcastService.ts` que use la Graph API de Meta
-  para (a) listar los templates ya aprobados en el Business Manager de la
-  universidad, y (b) enviarlos a una lista de números.
-- Frontend: en el CRM (`renderRegistros`) ya existen los filtros por
-  categoría de programa — se puede agregar un modo "seleccionar varios" +
-  botón "Enviar plantilla a los seleccionados", reutilizando el mismo
-  segmentado y las tarjetas que ya existen.
-- Requisito externo real: acceso al Business Manager / WABA de la
-  universidad para ver o crear los templates — sin eso se puede dejar la
-  UI lista pero no probarla contra un envío real.
+La prueba de navegador usa una plantilla y un trabajo sintéticos; las pruebas
+de cola usan Redis temporal. **Aún falta** ensayar con el WABA institucional,
+plantillas aprobadas y contactos autorizados, verificar los resultados en Meta
+y definir el procedimiento operativo para fallos inciertos. Las plantillas
+con variables `{{1}}` todavía no se admiten. Fuera de la ventana de 24 horas,
+Meta solo permite iniciar contacto mediante plantillas aprobadas; el panel no
+ofrece texto libre masivo.
 
 ## 5. Multi-universidad / integración con la app móvil de la UTB
 
@@ -96,23 +87,27 @@ interés ni asesor propio para aspirantes de pregrado, solo Turno/Recibo de
 matrícula. Se agregó (`src/flows/pregrado.ts`, `src/flows/menu.ts`,
 `src/flows/shared.ts`): el menú inicial ahora pregunta Pregrado o Posgrado
 primero, y cada rama tiene su propio registro de interés (carrera como texto
-libre — no hay un listado de carreras de pregrado en el sistema, así que no
-se inventó uno) y su propio asesor vía Chatwoot (etiqueta `pregrado-prospecto`).
+libre) y su propio asesor vía Chatwoot (etiqueta `pregrado-prospecto`).
 El asistente IA de pregrado reutiliza el área `admisiones` de `aiAssistant.ts`,
 que ya tenía su propia base de conocimiento y busca páginas `/pregrado/` — no
 se creó una nueva.
+
+La opción *Explorar carreras* del menú de Pregrado usa las áreas y carreras ya
+presentes en la base de conocimiento institucional. Permite explorar sin
+registrarse; al pasar después a registro o asesor conserva el interés elegido.
+Ambos menús ofrecen *Cómo inscribirme*, una guía breve con requisitos, pasos y
+enlaces oficiales de su propio nivel. No sustituye el formulario institucional.
 
 Los prospectos de pregrado y posgrado ahora comparten el mismo Google Sheet,
 distinguidos por una columna de área nueva (retrocompatible: filas viejas sin
 esa columna se leen como "Posgrado"). El panel (CRM, Actividad de asesores,
 bandeja de Conversaciones) ya distingue el área en badges y filtros.
 
-**Honestidad sobre las pruebas:** se verificó con `tsc --noEmit` (compila
-limpio) y revisión manual cuidadosa, y se probó en navegador la parte del
-panel (CRM). **No se pudo probar el flujo conversacional real de WhatsApp
-end-to-end** en este entorno porque no hay Redis ni credenciales de Meta
-disponibles aquí — antes de considerar esto "en producción", conviene
-probarlo manualmente por WhatsApp (o en el ambiente de staging que exista)
+**Honestidad sobre las pruebas:** compilan los flujos y pasan las pruebas
+automatizadas del catálogo y la navegación. **Falta probar el flujo
+conversacional real de WhatsApp de punta a punta** con Redis, Meta, Chatwoot y
+Google Sheets institucionales en staging; antes de considerarlo en producción,
+conviene probarlo manualmente por WhatsApp
 siguiendo el camino completo: menú → elegir Pregrado → registrarse → ver
 que la fila aparece en el CRM con área "Pregrado".
 
@@ -131,8 +126,28 @@ Las URLs **no son inventadas**: salen de `src/services/knowledgeBaseTI.ts`, que 
 documentaba las plataformas reales de la universidad (Banner/autoservicio, Savio,
 Iceberg, Office 365) y de los enlaces institucionales que ya usaban otros flujos.
 
-**Lo que sigue sin ser posible:** consultar la nota o el horario *en vivo*. No hay
-API académica accesible desde este repo. La costura está definida en la interfaz
+Desde *Mi cuenta vinculada*, el estudiante puede asociar el WhatsApp a un
+correo institucional mediante un código enviado a ese correo, consultar el
+estado, cambiar el vínculo y desvincularse. El código T o la cédula por sí solos
+no autorizan el acceso. La verificación dura 120 días y al vincular el mismo
+correo desde otro número se revoca el vínculo anterior.
+Es un vínculo por control del correo, no una sesión SSO de Microsoft o Savio:
+el inicio institucional disponible para estudiantes todavía no expone una
+integración de acceso delegado para Tooli.
+
+Hay un cliente de **solo lectura** para listar cursos de Savio por el correo
+verificado. `TOOLI_SAVIO_ENABLED=0` deja el portal como alternativa; para
+habilitarlo se necesita un token de servicio Moodle limitado a
+`core_user_get_users_by_field` y `core_enrol_get_users_courses`, y comprobar
+los permisos reales en staging. No pide contraseñas por WhatsApp ni guarda el
+token en el historial. Las tareas, entregas y calificaciones de Savio todavía
+requieren una integración adicional con permisos por usuario y pruebas reales.
+
+Las notas usan el flujo protegido de Banner. Los recibos se descargan desde
+el hub cuando la consulta académica está habilitada; con ella deshabilitada,
+el hub remite al portal oficial. **Sigue sin ser posible** consultar horarios
+o tareas en vivo: no hay API académica autorizada y probada para esos
+datos. La costura está definida en la interfaz
 `AcademicoProvider` (en `academicoLinks.ts`) y deliberadamente **no tiene
 implementación**: el día que exista el acceso se implementa ese contrato y el flujo
 pasa a mostrar el dato donde hoy entrega el enlace. No implementarlo con datos

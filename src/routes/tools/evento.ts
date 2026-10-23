@@ -9,6 +9,7 @@ import { AuthedRequest } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { actualizarSeguimientoEvento, leerRegistrosEventoPosgrado } from '../../services/posgradosEventoSheets';
 import { Response } from 'express';
+import { describeError, maskPhone } from '../../services/logSafe';
 
 export const eventoRouter = Router();
 
@@ -21,9 +22,9 @@ eventoRouter.get('/registros-evento-posgrado', async (_req, res) => {
   try {
     const rows = await leerRegistrosEventoPosgrado();
     res.json({ rows });
-  } catch (err: any) {
-    console.error('[tools/registros-evento-posgrado] error:', err);
-    res.status(500).json({ error: 'internal_error', message: err?.message });
+  } catch (err: unknown) {
+    console.error('[tools/registros-evento-posgrado] error:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });
 
@@ -44,11 +45,11 @@ eventoRouter.post('/registros-evento-posgrado/:fila/seguimiento', async (req: Au
   try {
     await actualizarSeguimientoEvento(fila, estado);
     await logAudit(req.user!.username, 'seguimiento_evento_actualizado', `${estado} · fila ${fila}`);
-    console.log(`[asesor] ${req.user?.username} marcó fila ${fila} como "${estado}"`);
+    console.log(`[asesor] seguimiento de fila ${fila} actualizado a "${estado}"`);
     res.json({ ok: true });
-  } catch (err: any) {
-    console.error('[tools/registros-evento-posgrado/seguimiento] error:', err);
-    res.status(500).json({ error: 'internal_error', message: err?.message });
+  } catch (err: unknown) {
+    console.error('[tools/registros-evento-posgrado/seguimiento] error:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });
 
@@ -87,13 +88,13 @@ eventoRouter.post('/registros-evento-posgrado/:fila/invitar', async (req: Authed
   try {
     await messaging.sendText({ to, text: texto });
     // Marca como invitado si no lo estaba ya — no bloquea el éxito del envío si falla el Sheet
-    try { await actualizarSeguimientoEvento(fila, 'Invitado a próximo evento'); } catch (e) { console.warn('[invitar] no se pudo actualizar seguimiento:', e); }
-    await logAudit(req.user!.username, 'invitacion_evento_enviada', `fila ${fila} · +${to.slice(-4)}`);
+    try { await actualizarSeguimientoEvento(fila, 'Invitado a próximo evento'); } catch (err: unknown) { console.warn('[invitar] no se pudo actualizar seguimiento:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } })); }
+    await logAudit(req.user!.username, 'invitacion_evento_enviada', `fila ${fila} · ${maskPhone(to)}`);
     await logAudit(req.user!.username, 'seguimiento_evento_actualizado', 'Invitado a próximo evento · fila ' + fila);
-    console.log(`[asesor] ${req.user?.username} invitó a fila ${fila} (+${to.slice(-4)}) al próximo evento`);
+    console.log(`[asesor] invitación enviada a fila ${fila} (${maskPhone(to)})`);
     res.json({ ok: true });
-  } catch (err: any) {
-    console.error('[tools/registros-evento-posgrado/invitar] error:', err?.response?.data ?? err?.message ?? err);
-    res.status(502).json({ error: 'send_failed', message: err?.message ?? 'No se pudo enviar el mensaje' });
+  } catch (err: unknown) {
+    console.error('[tools/registros-evento-posgrado/invitar] error:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(502).json({ error: 'send_failed', message: 'No se pudo enviar el mensaje' });
   }
 });

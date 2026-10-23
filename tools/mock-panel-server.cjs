@@ -1,5 +1,5 @@
 /* Servidor de PRUEBA para revisar el panel en el navegador sin Redis, sin Meta
-   y sin Google Sheets. No forma parte del proyecto: se borra antes de comitear. */
+   y sin Google Sheets. Solo expone datos sintéticos en localhost. */
 const express = require('express');
 const path = require('path');
 const app = express();
@@ -20,6 +20,7 @@ app.use((_q, res, next) => {
 });
 
 const ROL = process.env.MOCK_ROL || 'admin';
+let mockAuthenticated = !process.env.MOCK_ANON;
 const hoy = Date.now();
 const hace = (min) => hoy - min * 60000;
 
@@ -66,26 +67,47 @@ const FICHAS = {
   573001234567: { estado: 'contactado', asignadoA: 'luis', etiquetas: ['beca', 'maestría'],
     notas: [{ id: 'n1', autor: 'luis', ts: hace(120), texto: 'Pidió info de financiación. Le envié el link.' }] },
 };
+const USUARIOS = [
+  { username: 'admin', fullName: 'Ángel Acero', role: 'admin', area: 'all' },
+  { username: 'luis', fullName: 'Luis Pérez', role: 'asesor', area: 'admisiones' },
+  { username: 'ana', fullName: 'Ana Díaz', role: 'asesor', area: 'posgrados' },
+];
+const RECORDATORIOS = [
+  { id: 'r1', telefono: '573001234567', mensaje: 'Recuerda tu cita de asesoría mañana', scheduledAt: hoy + 864e5, estado: 'programado', createdBy: 'luis' },
+  { id: 'r2', telefono: '573009876543', mensaje: 'Vence tu pago de matrícula', scheduledAt: hoy - 864e5, estado: 'enviado', createdBy: 'admin' },
+  { id: 'r3', telefono: '573021110022', mensaje: 'Invitación al evento', scheduledAt: hoy - 2 * 864e5, estado: 'fallido', error: 'Fuera de la ventana de 24h', createdBy: 'ana' },
+];
 
 const j = (res, data) => res.json(data);
 
 // MOCK_ANON=1 simula "sin sesión", para poder ver la pantalla de login.
-app.get('/api/auth/me', (_q, res) => process.env.MOCK_ANON
+app.get('/api/auth/me', (_q, res) => !mockAuthenticated
   ? res.status(401).json({ error: 'no autenticado' })
   : j(res, {
   user: { username: ROL === 'admin' ? 'admin' : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
   urls: { chatwoot: 'https://chat.example.com', grafana: 'https://grafana.example.com' },
-  capabilities: { chatwootSso: true },
+  capabilities: { chatwootSso: true, metaWindow: true },
 }));
-app.post('/api/auth/login', (req, res) => (req.body.password === 'demo'
-  ? j(res, { ok: true })
-  : res.status(401).json({ error: 'Usuario o contraseña incorrectos' })));
-app.post('/api/auth/logout', (_q, res) => j(res, { ok: true }));
-app.get('/api/auth/users', (_q, res) => j(res, { users: [
-  { username: 'admin', fullName: 'Ángel Acero', role: 'admin', area: 'all' },
-  { username: 'luis', fullName: 'Luis Pérez', role: 'asesor', area: 'admisiones' },
-  { username: 'ana', fullName: 'Ana Díaz', role: 'asesor', area: 'posgrados' },
-] }));
+app.post('/api/auth/login', (req, res) => {
+  if (req.body.password !== 'demo') return res.status(401).json({ error: 'invalid_credentials' });
+  mockAuthenticated = true;
+  j(res, { ok: true });
+});
+app.post('/api/auth/logout', (_q, res) => { mockAuthenticated = false; j(res, { ok: true }); });
+app.get('/api/auth/users', (_q, res) => j(res, { users: USUARIOS }));
+app.post('/api/auth/users', (req, res) => {
+  const { username, fullName, email, role, area } = req.body;
+  if (USUARIOS.some(u => u.username === username)) return res.status(409).json({ error: 'El usuario ya existe' });
+  const user = { username, fullName, email, role, area };
+  USUARIOS.push(user);
+  j(res, { ok: true, user });
+});
+app.delete('/api/auth/users/:username', (req, res) => {
+  const i = USUARIOS.findIndex(u => u.username === req.params.username);
+  if (i < 0) return res.status(404).json({ error: 'No existe' });
+  USUARIOS.splice(i, 1);
+  j(res, { ok: true });
+});
 
 app.get('/api/tools/bot-users', (_q, res) => j(res, { phones: CONVS.map(c => c.phone) }));
 app.post('/api/tools/bot-users/batch', (req, res) => {
@@ -99,9 +121,15 @@ app.post('/api/tools/bot-users/batch', (req, res) => {
 });
 app.get('/api/tools/bot-users/:phone', (req, res) => {
   const u = CONVS.find(c => c.phone === req.params.phone) || CONVS[0];
-  j(res, { ...u, recentMessages: [...(MENSAJES[req.params.phone] || MENSAJES['573001234567'])].reverse() });
+  j(res, { ...u, recentMessages: [...(MENSAJES[req.params.phone] || [u.lastMessage])].reverse() });
 });
 app.post('/api/tools/bot-users/:phone/reply', (req, res) => {
+  const u = CONVS.find(c => c.phone === req.params.phone);
+  const latestInbound = [...(MENSAJES[req.params.phone] || (u ? [u.lastMessage] : []))]
+    .filter(m => m.direction === 'in').reduce((latest, m) => Math.max(latest, m.ts), 0);
+  if (!latestInbound || Date.now() - latestInbound >= 24 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: 'fuera_de_ventana', message: 'No hay un mensaje entrante reciente verificable. Usa una plantilla aprobada por Meta.' });
+  }
   const msgs = MENSAJES[req.params.phone] || (MENSAJES[req.params.phone] = []);
   msgs.push({ ts: Date.now(), direction: 'out', text: req.body.text });
   j(res, { ok: true });
@@ -135,18 +163,29 @@ app.get('/api/tools/audit/summary', (_q, res) => j(res, { summary: AUDIT }));
 app.get('/api/tools/registros-posgrado', (_q, res) => j(res, { rows: REGISTROS }));
 app.get('/api/tools/registros-evento-posgrado', (_q, res) => j(res, { rows: EVENTO }));
 app.post('/api/tools/registros-evento-posgrado/:fila/seguimiento', (req, res) => {
-  const f = EVENTO[Number(req.params.fila) - 1]; if (f) f[7] = req.body.estado; j(res, { ok: true });
+  const f = EVENTO[Number(req.params.fila) - 2]; if (f) f[7] = req.body.estado; j(res, { ok: true });
 });
-app.post('/api/tools/registros-evento-posgrado/:fila/invitar', (_q, res) => j(res, { ok: true }));
+app.post('/api/tools/registros-evento-posgrado/:fila/invitar', (req, res) => {
+  const f = EVENTO[Number(req.params.fila) - 2];
+  if (!f) return res.status(404).json({ error: 'not_found' });
+  f[7] = 'Invitado a próximo evento';
+  j(res, { ok: true });
+});
 
 app.get('/api/tools/crm/fichas', (_q, res) => j(res, { fichas: FICHAS }));
 app.get('/api/tools/crm/:phone', (req, res) => j(res, { ficha: FICHAS[req.params.phone] || null }));
 app.post('/api/tools/crm/:phone/:ruta', (req, res) => {
   const f = FICHAS[req.params.phone] || (FICHAS[req.params.phone] = { estado: 'nuevo', etiquetas: [], notas: [] });
   if (req.params.ruta === 'estado') f.estado = req.body.estado;
-  if (req.params.ruta === 'asignar') f.asignadoA = req.body.asignadoA;
-  if (req.params.ruta === 'etiqueta') f.etiquetas = req.body.etiquetas ?? f.etiquetas;
+  if (req.params.ruta === 'asignar') f.asignadoA = req.body.username;
+  if (req.params.ruta === 'etiquetas') f.etiquetas = req.body.etiquetas ?? f.etiquetas;
   if (req.params.ruta === 'nota') f.notas.unshift({ id: 'n' + Date.now(), autor: 'admin', ts: Date.now(), texto: req.body.texto });
+  j(res, { ficha: f });
+});
+app.delete('/api/tools/crm/:phone/nota/:id', (req, res) => {
+  const f = FICHAS[req.params.phone];
+  if (!f) return res.status(404).json({ error: 'not_found' });
+  f.notas = f.notas.filter(n => n.id !== req.params.id);
   j(res, { ficha: f });
 });
 
@@ -156,19 +195,75 @@ app.get('/api/tools/quick-replies', (_q, res) => j(res, { replies: [
 ] }));
 app.post('/api/tools/quick-replies', (_q, res) => j(res, { ok: true }));
 
-app.get('/api/tools/recordatorios', (_q, res) => j(res, { reminders: [
-  { id: 'r1', telefono: '573001234567', mensaje: 'Recuerda tu cita de asesoría mañana', scheduledAt: hoy + 864e5, estado: 'programado', createdBy: 'luis' },
-  { id: 'r2', telefono: '573009876543', mensaje: 'Vence tu pago de matrícula', scheduledAt: hoy - 864e5, estado: 'enviado', createdBy: 'admin' },
-  { id: 'r3', telefono: '573021110022', mensaje: 'Invitación al evento', scheduledAt: hoy - 2 * 864e5, estado: 'fallido', error: 'Fuera de la ventana de 24h', createdBy: 'ana' },
-] }));
-app.post('/api/tools/recordatorios', (_q, res) => j(res, { ok: true, id: 'r' + Date.now() }));
-app.delete('/api/tools/recordatorios/:id', (_q, res) => j(res, { ok: true }));
+app.get('/api/tools/recordatorios', (_q, res) => j(res, { reminders: RECORDATORIOS }));
+app.post('/api/tools/recordatorios', (req, res) => {
+  const texto = String(req.body.telefono ?? '').trim();
+  const telefono = texto.replace(/\D/g, '');
+  if (!/^\+?[\d\s().-]+$/.test(texto) || !/^[1-9]\d{9,14}$/.test(telefono)) {
+    return res.status(400).json({ error: 'validation_error', message: 'telefono inválido (usa E.164 de 10–15 dígitos)' });
+  }
+  const reminder = { ...req.body, telefono, scheduledAt: Date.parse(req.body.scheduledAt), id: 'r' + Date.now(), estado: 'programado', createdBy: 'admin' };
+  RECORDATORIOS.unshift(reminder);
+  j(res, { ok: true, reminder });
+});
+app.delete('/api/tools/recordatorios/:id', (req, res) => {
+  const reminder = RECORDATORIOS.find(r => r.id === req.params.id);
+  if (!reminder || reminder.estado !== 'programado') return res.status(409).json({ error: 'not_cancellable' });
+  reminder.estado = 'cancelado';
+  j(res, { ok: true, reminder });
+});
 
-app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: [] }));
-app.post('/api/tools/broadcast/send', (_q, res) => j(res, { ok: true, enviados: 0 }));
-app.get('/api/tools/turno/:codigo', (req, res) => j(res, { turno: {
+const BROADCAST_JOBS = new Map();
+const BROADCAST_DEDUPE = new Map();
+const MOCK_TEMPLATES = [{ name: 'aviso_academico_demo', language: 'es_CO', category: 'UTILITY', components: [{ type: 'BODY', text: 'Aviso académico de prueba' }] }];
+app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: process.env.MOCK_NO_TEMPLATES ? [] : MOCK_TEMPLATES }));
+const REVIEWS = [{
+  id: '00000000-0000-4000-8000-000000000001', source: 'meta', from: '573001234567',
+  messageId: 'wamid.demo.1', createdAt: hoy - 600000,
+  reviewReason: 'Resultado del handler no confirmado tras vencerse el lease.',
+}];
+app.get('/api/tools/inbound/reviews', (_q, res) => j(res, { reviews: REVIEWS }));
+app.post('/api/tools/inbound/reviews/:id/resolve', (req, res) => {
+  const i = REVIEWS.findIndex(item => item.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'not_found' });
+  REVIEWS.splice(i, 1);
+  j(res, { ok: true });
+});
+app.post('/api/tools/broadcast/send', (req, res) => {
+  const { templateName, language, telefonos } = req.body;
+  if (!MOCK_TEMPLATES.some(t => t.name === templateName && t.language === language)) return res.status(400).json({ error: 'validation_error', message: 'Template no aprobado' });
+  if (!Array.isArray(telefonos) || !telefonos.length || telefonos.length > 200) return res.status(400).json({ error: 'validation_error', message: 'Destinatarios inválidos' });
+  const numeros = [...new Set(telefonos)].sort();
+  const key = JSON.stringify({ templateName, language, numeros });
+  const previous = BROADCAST_DEDUPE.get(key);
+  if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous) });
+  const job = { id: 'bc' + Date.now(), templateName, language, createdBy: 'admin', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0 };
+  BROADCAST_JOBS.set(job.id, job);
+  BROADCAST_DEDUPE.set(key, job.id);
+  res.status(202).json({ ok: true, job });
+});
+app.get('/api/tools/broadcast/jobs/:id', (req, res) => {
+  const job = BROADCAST_JOBS.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'not_found' });
+  job.estado = 'completado';
+  job.enviados = [...job.destinatarios];
+  job.nextIndex = job.destinatarios.length;
+  j(res, { job });
+});
+app.get('/api/tools/turno/:codigo', (req, res) => {
+  if (!/^T\d{8}$/.test(req.params.codigo)) return res.status(400).json({ error: 'codigo_invalido' });
+  if (req.params.codigo === 'T00000000') return res.status(404).json({ error: 'no_encontrado' });
+  j(res, { turno: {
   nombre: 'María José', apellido: 'Restrepo', programa: 'Maestría en Ingeniería',
-  turno: '12', fecha: '2026-10-12', hora: '09:00' } }));
+  turno: '12', fecha: '2026-10-12', hora: '09:00' } });
+});
+app.post('/api/tools/recibo', (req, res) => {
+  if (!/^T\d{8}$/.test(req.body.codigo)) return res.status(400).json({ error: 'codigo_invalido' });
+  if (!/^\d{6,12}$/.test(req.body.cedula)) return res.status(400).json({ error: 'cedula_invalida' });
+  if (req.body.codigo === 'T00000000') return res.status(200).json({ noRecibos: true, nombre: 'Estudiante de prueba' });
+  if (req.body.cedula === '1234567890') return res.status(400).json({ error: 'login_failed' });
+  res.set('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF'));
+});
 app.get('/api/auth/chatwoot-sso', (_q, res) => j(res, { url: 'https://chat.example.com/sso' }));
 app.get('/health/deep', (_q, res) => j(res, {
   status: 'degraded',

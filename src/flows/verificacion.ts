@@ -1,14 +1,17 @@
 import { setSession } from '../services/session';
-import { startVerification, checkCode } from '../services/identityService';
+import { startVerification, checkCode, VerificationRateLimitError } from '../services/identityService';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, isMenuCommand, EMAIL_REGEX } from './shared';
+import { FlowContext, messaging, salirAlMenuRaiz, volverAlMenuDeOrigen, EMAIL_REGEX } from './shared';
+import { parseGlobalCommand, returnMenuStep } from './commands';
+import type { FlowArea } from './commands';
+import { RECURSOS_ACADEMICOS } from '../services/academicoLinks';
 
 // Flujo de verificación de identidad por OTP al correo institucional.
 // Estados: verif_email -> verif_codigo.
 // `after` (opcional) recuerda a qué flujo volver tras verificar (p. ej. 'recibo').
 
-export async function startVerificationFlow(from: string, after?: string): Promise<void> {
-  await setSession(from, { step: 'verif_email', data: after ? { after } : {} });
+export async function startVerificationFlow(from: string, after?: string, originArea?: FlowArea): Promise<void> {
+  await setSession(from, { step: 'verif_email', data: { ...(after ? { after } : {}), ...(originArea ? { originArea } : {}) } });
   await messaging.sendText({
     to: from,
     text:
@@ -21,9 +24,13 @@ export async function startVerificationFlow(from: string, after?: string): Promi
 
 export async function handleVerifEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
+    return;
+  }
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
     return;
   }
 
@@ -40,11 +47,13 @@ export async function handleVerifEmail(ctx: FlowContext): Promise<void> {
 
   try {
     await startVerification(from, email);
-  } catch (err) {
-    console.error('[verif] error enviando OTP:', err);
+  } catch (error) {
+    console.error('[verif] no se pudo enviar OTP');
     await messaging.sendText({
       to: from,
-      text: 'No pude enviar el código en este momento. Intenta más tarde o escribe *menu*.',
+      text: error instanceof VerificationRateLimitError
+        ? 'Espera un minuto antes de pedir otro código. Escribe *menu* para salir.'
+        : 'No pude enviar el código en este momento. Intenta más tarde o escribe *menu*.',
     });
     return;
   }
@@ -61,9 +70,13 @@ export async function handleVerifEmail(ctx: FlowContext): Promise<void> {
 
 export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  if (isMenuCommand(text)) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await salirAlMenuRaiz(from);
+    return;
+  }
+  if (command === 'volver') {
+    await volverAlMenuDeOrigen(from, session?.data);
     return;
   }
 
@@ -90,8 +103,34 @@ export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
   // ✅ Verificado. Si venía de otro flujo, lo retomamos.
   await track('verificacion_completada');
   const after = session?.data.after;
+  if (after === 'academico_cuenta') {
+    const area = session?.data.originArea;
+    if (area === 'pregrado' || area === 'posgrado') {
+      await messaging.sendText({ to: from, text: '✅ Vinculé este WhatsApp con tu cuenta institucional verificada.' });
+      const { sendAcademicAccount } = await import('./academicAccount');
+      await sendAcademicAccount(from, area);
+      return;
+    }
+  }
+  if (after === 'savio') {
+    const area = session?.data.originArea;
+    if (area === 'pregrado' || area === 'posgrado') {
+      const { sendSavioCourses } = await import('./savio');
+      await sendSavioCourses(from, area);
+      return;
+    }
+  }
   if (after === 'notas') {
-    await setSession(from, { step: 'notas_password', data: {} });
+    if (process.env.TOOLI_NOTAS_SSO_ENABLED !== '1') {
+      const notasUrl = RECURSOS_ACADEMICOS.find((r) => r.id === 'notas')?.url ?? 'https://autoservicio4prod.utb.edu.co';
+      await setSession(from, { step: returnMenuStep(session?.data), data: {} });
+      await messaging.sendText({
+        to: from,
+        text: `✅ Identidad verificada. Consulta tus notas directamente en el autoservicio oficial: ${notasUrl}\n\nNo envíes tu contraseña por WhatsApp.`,
+      });
+      return;
+    }
+    await setSession(from, { step: 'notas_password', data: { ...session?.data, after: '' } });
     await messaging.sendText({
       to: from,
       text:
@@ -102,7 +141,7 @@ export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  await setSession(from, { step: 'menu', data: {} });
+  await setSession(from, { step: returnMenuStep(session?.data), data: {} });
   await messaging.sendText({
     to: from,
     text:

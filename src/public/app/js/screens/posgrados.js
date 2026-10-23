@@ -1,8 +1,33 @@
 import { api } from '../core/api.js';
-import { $, loadScript } from '../core/dom.js';
+import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+
+/* ============= LÓGICA PURA DE POSGRADOS (probada en posgrados.test.js) ======
+   Serie del endpoint real `/api/tools/metrics/range` (contadores en Redis,
+   ver src/services/metrics.ts): objeto fecha → { evento: "conteo" }. Las
+   claves que faltan cuentan como 0: el mock local no emite las de posgrado. */
+function resumirPosgrado(series) {
+  const s = series ?? {};
+  const dateKeys = Object.keys(s).sort();
+  const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
+  const sumAll = (ev) => dateKeys.reduce((a, d) => a + numv(s[d], ev), 0);
+  const prospectos = sumAll('prospecto_completado');
+  const prospInicio = sumAll('prospecto_iniciado');
+  const registros = sumAll('registro_completado');
+  const regInicio = sumAll('registro_iniciado');
+  const especs = sumAll('programas_especializaciones');
+  const maestrias = sumAll('programas_maestrias');
+  const doctorados = sumAll('programas_doctorados');
+  return {
+    dateKeys,
+    prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados,
+    conv: prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : null,
+    regConv: regInicio > 0 ? Math.round(registros / regInicio * 100) : null,
+  };
+}
 
 /* ============= POSGRADOS ============= */
 let pgCharts = [];
@@ -30,6 +55,7 @@ async function renderPosgrados(main) {
     </div>
   `;
   let pgDays = '7';
+  let pgLoadId = 0;
   $('#pgRangeWrap').appendChild(buildSegmented(
     [{ value: '7', label: '7 días' }, { value: '14', label: '14 días' }, { value: '30', label: '30 días' }],
     pgDays,
@@ -47,40 +73,43 @@ async function renderPosgrados(main) {
 
   setPullToRefresh(() => loadPg());
   async function loadPg() {
+    const content = $('#pgContent');
+    if (!content) return;
+    const loadId = ++pgLoadId;
     destroyPgCharts();
-    $('#pgContent').innerHTML = pgSkeleton();
+    content.innerHTML = pgSkeleton();
     const days = pgDays;
     try {
       const r = await api(`/api/tools/metrics/range?days=${days}`);
+      if (!r || !content.isConnected || loadId !== pgLoadId) return;
       const { days: series } = await r.json();
-      const dateKeys = Object.keys(series).sort();
-
+      if (!content.isConnected || loadId !== pgLoadId) return;
+      const { dateKeys, prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados, conv, regConv } = resumirPosgrado(series ?? {});
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
-      const sumAll = (ev) => dateKeys.reduce((a, d) => a + numv(series[d], ev), 0);
       const daily  = (ev) => dateKeys.map(d => numv(series[d], ev));
       const fmtDay = d => d.slice(5);
+      const convTexto = conv === null ? 'conversión sin datos de inicio' : `${conv}% conversión`;
+      const regConvTexto = regConv === null ? 'conversión sin datos de inicio' : `${regConv}% conversión`;
+      const hayProgramas = especs + maestrias + doctorados > 0;
 
-      const prospectos  = sumAll('prospecto_completado');
-      const prospInicio = sumAll('prospecto_iniciado');
-      const registros   = sumAll('registro_completado');
-      const regInicio   = sumAll('registro_iniciado');
-      const especs      = sumAll('programas_especializaciones');
-      const maestrias   = sumAll('programas_maestrias');
-      const doctorados  = sumAll('programas_doctorados');
-      const conv = prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : 0;
-      const regConv = regInicio > 0 ? Math.round(registros / regInicio * 100) : 0;
-
-      $('#pgContent').innerHTML = `
+      content.innerHTML = `
+        <div class="card op-contexto" style="margin-bottom:16px;">
+          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${convTexto}) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConvTexto}). El detalle por persona está en el CRM y en el evento.</div>
+          <div class="op-contexto-acciones">
+            <button type="button" class="btn btn-secondary" id="pgVerCrm">Ver CRM</button>
+            <button type="button" class="btn btn-secondary" id="pgVerEvento">Ver evento</button>
+          </div>
+        </div>
         <div class="stats-grid" style="margin-bottom:20px;">
           <div class="stat-card">
             <div class="label">Prospectos</div>
             <div class="value">${prospectos}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${conv}% conversión · ${prospInicio} iniciados</div>
+            <div style="font-size:12px;color:var(--text-muted);">${convTexto} · ${prospInicio} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Registros BD</div>
             <div class="value">${registros}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${regConv}% conversión · ${regInicio} iniciados</div>
+            <div style="font-size:12px;color:var(--text-muted);">${regConvTexto} · ${regInicio} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Especializaciones</div>
@@ -104,7 +133,7 @@ async function renderPosgrados(main) {
         <div class="posgrados-split" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Programas consultados</h3>
-            <div style="position:relative;height:200px;"><canvas id="pgChartProgramas"></canvas></div>
+            <div style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
           </div>
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Embudo prospectos</h3>
@@ -113,7 +142,11 @@ async function renderPosgrados(main) {
         </div>
       `;
 
+      $('#pgVerCrm')?.addEventListener('click', () => navigate('registros'));
+      $('#pgVerEvento')?.addEventListener('click', () => navigate('evento-posgrado'));
+
       await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+      if (!content.isConnected || loadId !== pgLoadId) return;
 
       const ticks = { color: '#94a3b8' };
       const grid  = { color: '#e2e8f0' };
@@ -136,7 +169,7 @@ async function renderPosgrados(main) {
         options: base,
       }));
 
-      pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
+      if (hayProgramas) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
         type: 'doughnut',
         data: {
           labels: ['Especializaciones', 'Maestrías', 'Doctorados'],
@@ -158,12 +191,13 @@ async function renderPosgrados(main) {
       }));
 
     } catch (err) {
+      if (!content.isConnected || loadId !== pgLoadId) return;
       console.error(err);
-      $('#pgContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas de posgrados.</div>';
+      content.innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas de posgrados.</div>';
     }
   }
 
   loadPg();
 }
 
-export { renderPosgrados };
+export { renderPosgrados, resumirPosgrado };

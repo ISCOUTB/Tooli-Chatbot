@@ -1,6 +1,8 @@
 import { api } from '../core/api.js';
 import { $, escapeHtml, haptic, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { estadoVentanaRecordatorio } from '../core/reminder-window.js';
+import { sesion } from '../core/session.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { buildSegmented } from '../ui/controls.js';
 import { openPhonePreview } from '../ui/phone-preview.js';
@@ -13,6 +15,7 @@ import { ActionSheet } from '../ui/sheet.js';
    dice explícitamente en vez de simularlo. */
 const REM_ESTADOS = {
   programado: { label: 'Programado', icon: '⏰', color: '#0284c7' },
+  procesando: { label: 'En proceso', icon: '⌛', color: '#a16207' },
   enviado:    { label: 'Enviado',    icon: '✅', color: '#16a34a' },
   fallido:    { label: 'Falló',      icon: '⚠️', color: '#dc2626' },
   cancelado:  { label: 'Cancelado',  icon: '✖️', color: '#64748b' },
@@ -41,6 +44,7 @@ function setRemPrefill(datos) {
 }
 let remFiltro = 'programado';
 let remLista = [];
+let remLoadSeq = 0;
 
 async function renderRecordatorios(main) {
   // Por defecto, la próxima hora en punto: lo más común es "mándalo mañana a las 8".
@@ -58,9 +62,9 @@ async function renderRecordatorios(main) {
       <form class="card rem-form" id="remForm">
         <h3 class="rem-form-title">${icon('plus', 16)} Programar uno nuevo</h3>
         <label class="rem-label" for="remTel">WhatsApp del destinatario</label>
-        <input type="tel" id="remTel" class="rem-input" placeholder="573001234567" inputmode="numeric" required>
-        <div class="rem-help">Con indicativo de país, sin + ni espacios.</div>
-        <div class="rem-ventana" id="remVentana" hidden></div>
+        <input type="tel" id="remTel" class="rem-input" placeholder="573001234567" autocomplete="tel" required>
+        <div class="rem-help">Incluye indicativo de país; se aceptan +, espacios y guiones.</div>
+        <div class="rem-ventana" id="remVentana" role="status" aria-live="polite" hidden></div>
 
         <label class="rem-label" for="remMsg">Mensaje</label>
         <textarea id="remMsg" class="rem-input" rows="4" maxlength="4096" required
@@ -99,6 +103,9 @@ async function renderRecordatorios(main) {
   `;
 
   const msg = $('#remMsg');
+  const remForm = main.querySelector('#remForm');
+  const remTel = main.querySelector('#remTel');
+  const remVentana = main.querySelector('#remVentana');
   msg.addEventListener('input', () => { $('#remCount').textContent = msg.value.length; });
 
   if (remPrefill) {
@@ -123,46 +130,83 @@ async function renderRecordatorios(main) {
     openPhonePreview(tel, 'Tooli · UTB', [[{ ts: cuando, direction: 'out', text: texto }]]);
   });
 
-  /* Aviso de la ventana de 24h de Meta: si la persona no ha escrito hace más de
-     un día, un mensaje de texto libre será rechazado al momento del envío. No se
-     bloquea —puede volver a escribir antes de la hora programada— pero el asesor
-     tiene que saberlo antes de programar algo que quizá no salga. */
-  const avisoVentana = async () => {
-    const tel = $('#remTel').value.replace(/\D/g, '');
-    const aviso = $('#remVentana');
-    if (!aviso) return;
-    if (tel.length < 10) { aviso.hidden = true; return; }
-    try {
-      const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [tel] }) });
-      const info = (await r.json()).users?.[0];
-      const ultimoEntrante = info?.recentMessages?.find(m => m.direction === 'in');
-      if (!ultimoEntrante) {
-        aviso.innerHTML = `${icon('clock', 13)} Esta persona no ha escrito nunca al bot. WhatsApp solo permite texto libre dentro de las 24 h siguientes a un mensaje suyo.`;
-        aviso.hidden = false;
-        return;
-      }
-      const horas = Math.floor((Date.now() - ultimoEntrante.ts) / 3_600_000);
-      if (horas >= 23) {
-        aviso.innerHTML = `${icon('clock', 13)} Escribió hace ${horas} h. Si no vuelve a escribir antes de la hora programada, Meta rechazará el mensaje por la ventana de 24 h.`;
-        aviso.hidden = false;
-      } else {
-        aviso.hidden = true;
-      }
-    } catch { aviso.hidden = true; }
+  /* El aviso usa la hora PROGRAMADA. Al cambiarla se recalcula con el mismo
+     historial, y nunca se oculta un fallo de consulta como si hubiera ventana. */
+  let consulta = { telefono: '', estado: 'pendiente', ultimoEntranteTs: null };
+  let consultaSeq = 0;
+  let consultaTimer;
+  const pintarAvisoVentana = () => {
+    if (!remTel.isConnected) return;
+    if (!sesion.caps.metaWindow) { remVentana.hidden = true; return; }
+    const telefono = remTel.value.replace(/\D/g, '');
+    if (consulta.telefono !== telefono || consulta.estado === 'pendiente') {
+      remVentana.hidden = true;
+      return;
+    }
+    let aviso = '';
+    if (consulta.estado === 'error') {
+      aviso = 'No se pudo verificar la ventana de WhatsApp. Revisa la conversación antes de programar.';
+    } else {
+      const scheduledAt = new Date(main.querySelector('#remFecha').value).getTime();
+      const estado = estadoVentanaRecordatorio(consulta.ultimoEntranteTs, scheduledAt);
+      if (estado === 'sin-historial') aviso = 'No hay un mensaje entrante reciente registrado. Si la persona no escribe antes del envío, Meta puede rechazar el texto libre.';
+      if (estado === 'fuera') aviso = 'La hora programada queda fuera de las 24 h desde el último mensaje entrante. Si la persona no vuelve a escribir, Meta rechazará el texto libre.';
+    }
+    remVentana.innerHTML = aviso ? `${icon('clock', 13)} ${aviso}` : '';
+    remVentana.hidden = !aviso;
   };
-  $('#remTel').addEventListener('change', avisoVentana);
-  $('#remTel').addEventListener('blur', avisoVentana);
-  if ($('#remTel').value) avisoVentana();
+  const avisoVentana = async () => {
+    if (!remTel.isConnected) return;
+    if (!sesion.caps.metaWindow) { remVentana.hidden = true; return; }
+    const telefono = remTel.value.replace(/\D/g, '');
+    const texto = remTel.value.trim();
+    if (!/^\+?[\d\s().-]+$/.test(texto) || !/^[1-9]\d{9,14}$/.test(telefono)) {
+      remVentana.hidden = true;
+      return;
+    }
+    if (consulta.telefono === telefono && consulta.estado === 'ok') {
+      pintarAvisoVentana();
+      return;
+    }
+    const seq = ++consultaSeq;
+    consulta = { telefono, estado: 'pendiente', ultimoEntranteTs: null };
+    remVentana.hidden = true;
+    try {
+      const r = await api('/api/tools/bot-users/batch', { method: 'POST', body: JSON.stringify({ phones: [telefono] }) });
+      if (!r?.ok) throw new Error('No se pudo consultar la conversación');
+      const info = (await r.json()).users?.[0];
+      if (!remTel.isConnected || seq !== consultaSeq || remTel.value.replace(/\D/g, '') !== telefono) return;
+      const entradas = (info?.recentMessages ?? []).filter(m => m.direction === 'in' && Number.isFinite(m.ts) && m.ts <= Date.now());
+      consulta = { telefono, estado: 'ok', ultimoEntranteTs: entradas.length ? Math.max(...entradas.map(m => m.ts)) : null };
+    } catch {
+      if (!remTel.isConnected || seq !== consultaSeq || remTel.value.replace(/\D/g, '') !== telefono) return;
+      consulta = { telefono, estado: 'error', ultimoEntranteTs: null };
+    }
+    pintarAvisoVentana();
+  };
+  remTel.addEventListener('input', () => {
+    ++consultaSeq;
+    clearTimeout(consultaTimer);
+    remVentana.hidden = true;
+    consultaTimer = setTimeout(avisoVentana, 350);
+  });
+  remTel.addEventListener('change', () => { clearTimeout(consultaTimer); void avisoVentana(); });
+  remTel.addEventListener('blur', () => { clearTimeout(consultaTimer); void avisoVentana(); });
+  main.querySelector('#remFecha').addEventListener('input', pintarAvisoVentana);
+  main.querySelector('#remFecha').addEventListener('change', pintarAvisoVentana);
+  if (remTel.value) void avisoVentana();
 
-  $('#remForm').addEventListener('submit', async (e) => {
+  remForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#remSubmit');
     const fb = $('#remFeedback');
-    const telefono = $('#remTel').value.replace(/\D/g, '');
+    const telefono = remTel.value.trim();
     const mensaje = msg.value.trim();
     const fechaLocal = $('#remFecha').value;
 
-    if (!fechaLocal) { fb.innerHTML = `<span class="rem-error">Elige la fecha y hora de envío.</span>`; return; }
+    const scheduledAt = new Date(fechaLocal).getTime();
+    if (!Number.isFinite(scheduledAt)) { fb.textContent = 'Elige una fecha y hora válidas.'; return; }
+    if (scheduledAt < Date.now() + 30_000) { fb.textContent = 'Elige una hora al menos 30 segundos en el futuro.'; return; }
     btn.disabled = true;
     btn.classList.add('is-loading');
     fb.innerHTML = '';
@@ -170,9 +214,11 @@ async function renderRecordatorios(main) {
     try {
       const r = await api('/api/tools/recordatorios', {
         method: 'POST',
-        body: JSON.stringify({ telefono, mensaje, scheduledAt: new Date(fechaLocal).toISOString() }),
+        body: JSON.stringify({ telefono, mensaje, scheduledAt: new Date(scheduledAt).toISOString() }),
       });
+      if (!remForm.isConnected || !r) return;
       const data = await r.json();
+      if (!remForm.isConnected) return;
       if (!r.ok) {
         fb.innerHTML = `<span class="rem-error">${icon('x', 13)} ${escapeHtml(data.message ?? 'No se pudo programar')}</span>`;
         haptic([20, 30, 20]);
@@ -182,11 +228,11 @@ async function renderRecordatorios(main) {
       toast('Recordatorio programado ✓');
       msg.value = '';
       $('#remCount').textContent = '0';
-      fb.innerHTML = `<span class="rem-ok">${icon('check', 13)} Se enviará ${tiempoRelativoFuturo(new Date(fechaLocal).getTime())}</span>`;
+      fb.innerHTML = `<span class="rem-ok">${icon('check', 13)} Se enviará ${tiempoRelativoFuturo(scheduledAt)}</span>`;
       remFiltro = 'programado';
       await cargarRecordatorios();
     } catch {
-      fb.innerHTML = `<span class="rem-error">${icon('x', 13)} Sin conexión con el servidor.</span>`;
+      if (remForm.isConnected) fb.innerHTML = `<span class="rem-error">${icon('x', 13)} Sin conexión con el servidor.</span>`;
     } finally {
       btn.disabled = false;
       btn.classList.remove('is-loading');
@@ -203,12 +249,21 @@ async function renderRecordatorios(main) {
 }
 
 async function cargarRecordatorios() {
+  const content = $('#remContent');
+  if (!content) return;
+  const seq = ++remLoadSeq;
   try {
     const r = await api('/api/tools/recordatorios');
+    if (!r?.ok) throw new Error('No se pudieron cargar los recordatorios');
     const { reminders } = await r.json();
-    remLista = reminders ?? [];
+    if (!content.isConnected || seq !== remLoadSeq) return;
+    if (!Array.isArray(reminders)) throw new Error('Respuesta inválida');
+    remLista = reminders;
   } catch {
-    $('#remContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar los recordatorios.</div>';
+    if (content.isConnected && seq === remLoadSeq) {
+      content.innerHTML = '<div class="alert alert-error" role="alert">No se pudieron cargar los recordatorios. <button type="button" class="btn btn-secondary" id="retryRem">Reintentar</button></div>';
+      content.querySelector('#retryRem')?.addEventListener('click', cargarRecordatorios);
+    }
     return;
   }
 
@@ -225,6 +280,7 @@ async function cargarRecordatorios() {
       (v) => { remFiltro = v; pintarRecordatorios(); },
     ));
   }
+  if (!counts[remFiltro]) remFiltro = 'todos';
   pintarRecordatorios();
 }
 
@@ -251,7 +307,7 @@ function pintarRecordatorios() {
       <div class="card rem-card" data-rem="${escapeHtml(rem.id)}">
         <div class="rem-card-top">
           <span class="badge" style="background:${meta.color}1f;color:${meta.color};">${meta.icon} ${meta.label}</span>
-          <span class="rem-card-cuando" title="${new Date(rem.scheduledAt).toLocaleString('es-CO')}">
+          <span class="rem-card-cuando" title="${escapeHtml(new Date(rem.scheduledAt).toLocaleString('es-CO'))}">
             ${icon('clock', 12)} ${tiempoRelativoFuturo(rem.scheduledAt)}
           </span>
           ${rem.estado === 'programado' ? `<button type="button" class="btn btn-secondary crm-mini-btn rem-cancel" data-cancel="${escapeHtml(rem.id)}">Cancelar</button>` : ''}

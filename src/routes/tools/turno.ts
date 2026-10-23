@@ -7,6 +7,7 @@ import { AuthedRequest } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { consultarTurno } from '../../services/turnosService';
 import { Response } from 'express';
+import { describeError, maskCode } from '../../services/logSafe';
 
 export const turnoRouter = Router();
 
@@ -22,10 +23,10 @@ turnoRouter.get('/turno/:codigo', async (req: AuthedRequest, res: Response) => {
       res.status(404).json({ error: 'no_encontrado' });
       return;
     }
-    await logAudit(req.user!.username, 'turno_consultado', codigo);
+    await logAudit(req.user!.username, 'turno_consultado', maskCode(codigo));
     res.json({ turno });
-  } catch (err: any) {
-    console.error('[tools/turno] error:', err);
-    res.status(500).json({ error: 'internal_error', message: err?.message });
+  } catch (err: unknown) {
+    console.error('[tools/turno] error:', describeError({ response: { status: (err as { response?: { status?: number } })?.response?.status } }));
+    res.status(500).json({ error: 'internal_error', message: 'Error interno del servidor' });
   }
 });

@@ -22,6 +22,7 @@
  */
 
 import { messaging } from './shared';
+import { validarTelefono, validarMensaje } from '../services/reminderValidation';
 
 export interface RecordatorioPayload {
   /** Número en formato E.164 sin + (ej: 573001234567) — se normaliza automáticamente */
@@ -31,30 +32,15 @@ export interface RecordatorioPayload {
 }
 
 /** Exportada para reusarla en `reminderService.ts` (no duplicar la validación). */
-export function normalizarTelefono(raw: string): string {
-  // quita todo lo que no sea dígito, mantiene country code si viene
-  return raw.replace(/\D/g, '');
-}
-
-function validarPayload(p: RecordatorioPayload): string | null {
-  if (!p.telefono || !p.mensaje) return 'telefono y mensaje son requeridos';
-  const tel = normalizarTelefono(p.telefono);
-  // E.164 colombiano mínimo 10 dígitos (57 + 10), aceptamos 10-15 dígitos generales
-  if (tel.length < 10 || tel.length > 15) return 'telefono inválido (debe tener 10–15 dígitos)';
-  if (p.mensaje.length < 1 || p.mensaje.length > 4096) return 'mensaje debe tener entre 1 y 4096 caracteres';
-  return null;
-}
+export { normalizarTelefono } from '../services/reminderValidation';
 
 /**
  * Envía un recordatorio por WhatsApp usando el adaptador configurado.
  * Lanza Error si la validación falla o si el envío falla.
  */
 export async function enviarRecordatorio(payload: RecordatorioPayload): Promise<{ ok: true; to: string }> {
-  const err = validarPayload(payload);
-  if (err) throw new Error(err);
-
-  const to = normalizarTelefono(payload.telefono);
-  const text = payload.mensaje.trim();
+  const to = validarTelefono(payload.telefono);
+  const text = validarMensaje(payload.mensaje);
 
   await messaging.sendText({ to, text });
 

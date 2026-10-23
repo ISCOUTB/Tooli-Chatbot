@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskPhone } from './logSafe';
 
 export interface RegistroEvento {
   whatsapp: string;
@@ -37,8 +38,10 @@ function getSheetsClient(readonly = false) {
 export async function guardarRegistroEvento(data: RegistroEvento): Promise<number> {
   const sheetId = config.evento.sheetId;
   if (!sheetId) {
-    console.warn('[evento] EVENTO_SHEET_ID no configurado — guardando solo en logs');
-    console.log('[evento] REGISTRO:', JSON.stringify(data));
+    console.warn('[evento] EVENTO_SHEET_ID no configurado — registro no persistido', {
+      whatsapp: maskPhone(data.whatsapp),
+      aceptaContacto: data.aceptaContacto,
+    });
     return 0;
   }
 
@@ -70,7 +73,7 @@ export async function guardarRegistroEvento(data: RegistroEvento): Promise<numbe
     },
   });
 
-  console.log('[evento] registro guardado:', data.nombre, '·', data.diplomado);
+  console.log('[evento] registro guardado:', maskPhone(data.whatsapp), '·', data.diplomado);
 
   // Extraer el número de fila del rango actualizado, ej: "Hoja1!A45:I45" → 45
   const updatedRange = res.data.updates?.updatedRange ?? '';
