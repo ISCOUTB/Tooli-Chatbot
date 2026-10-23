@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { config } from '../config';
+import { describeError } from '../services/logSafe';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -42,7 +43,7 @@ export function bodySizeLimit(req: Request, res: Response, next: NextFunction): 
 }
 
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
-  console.error('[error]', err);
+  console.error('[error]', describeError({ status: (err as any).status }));
   const status = (err as any).status ?? 500;
   const message = isProduction ? 'Error interno del servidor' : err.message;
   res.status(status).json({ error: 'internal_error', message });

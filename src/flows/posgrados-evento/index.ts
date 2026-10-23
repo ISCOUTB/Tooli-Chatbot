@@ -8,6 +8,7 @@ import {
   handlePosgradoPrograma,
   handlePosgradoConsent,
   handlePosgradoCompletada,
+  handlePosgradoRegistroPendiente,
 } from './flow';
 
 type Handler = (ctx: { from: string; text: string; session: any }) => Promise<void>;
@@ -18,6 +19,7 @@ const HANDLERS: Record<string, Handler> = {
   posg_correo:     handlePosgradoCorreo,
   posg_programa:   handlePosgradoPrograma,
   posg_completada: handlePosgradoCompletada,
+  posg_registro_pendiente: handlePosgradoRegistroPendiente,
 };
 
 // Pasos del flujo principal a los que cedemos el control (IA / asesor humano)

@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { config } from '../config';
+import { maskPhone } from './logSafe';
 
 export interface EncuestaNutria {
   whatsapp: string;
@@ -44,8 +45,10 @@ export interface EncuestaNutria {
 export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void> {
   const sheetId = config.nutria.sheetId;
   if (!sheetId) {
-    console.warn('[nutria] NUTRIA_SHEET_ID no configurado — guardando solo en logs');
-    console.log('[nutria] ENCUESTA:', JSON.stringify(data));
+    console.warn('[nutria] NUTRIA_SHEET_ID no configurado — encuesta no persistida', {
+      whatsapp: maskPhone(data.whatsapp),
+      contacto: data.contacto,
+    });
     return;
   }
 
@@ -62,7 +65,9 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     timeStyle: 'short',
   });
 
-  const whatsappAnon = data.whatsapp;
+  // El número se conserva en el Sheet privado porque la campaña contacta a
+  // quien dio su consentimiento. Toda salida pública debe enmascararlo.
+  const whatsapp = data.whatsapp;
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
@@ -72,7 +77,7 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     requestBody: {
       values: [[
         ahora,
-        whatsappAnon,
+        whatsapp,
         data.edad,
         data.genero,
         data.tiempoCelular,
@@ -98,7 +103,7 @@ export async function guardarEncuestaNutria(data: EncuestaNutria): Promise<void>
     },
   });
 
-  console.log('[nutria] encuesta guardada:', whatsappAnon, data.edad, data.genero);
+  console.log('[nutria] encuesta guardada:', maskPhone(whatsapp), data.edad, data.genero);
 }
 
 /**

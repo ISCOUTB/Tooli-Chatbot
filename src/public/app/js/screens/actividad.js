@@ -27,6 +27,8 @@ async function renderActividad(main) {
       <div class="widget-card">${Array.from({ length: 5 }).map(() => `<div class="skeleton skeleton-line" style="height:14px;margin:10px 6px;"></div>`).join('')}</div>
     </div>
   `;
+  const content = main.querySelector('#actContent');
+  let loadSeq = 0;
 
   let actDays = '7';
   $('#actRangeWrap').appendChild(buildSegmented(
@@ -36,19 +38,21 @@ async function renderActividad(main) {
 
   setPullToRefresh(() => load());
   async function load() {
+    const seq = ++loadSeq;
     if (actChart) { actChart.destroy(); actChart = null; }
     try {
       const [summaryRes, usersRes] = await Promise.all([
         api(`/api/tools/audit/summary?days=${actDays}`).then(r => r.json()),
         api('/api/auth/users').then(r => r.json()).catch(() => ({ users: [] })),
       ]);
+      if (!content.isConnected || seq !== loadSeq) return;
       const fullNameOf = Object.fromEntries((usersRes.users ?? []).map(u => [u.username, u.fullName]));
       const advisors = Object.entries(summaryRes.summary ?? {})
         .map(([username, counts]) => ({ username, counts, total: Object.values(counts).reduce((a, b) => a + b, 0) }))
         .sort((a, b) => b.total - a.total);
 
       if (!advisors.length) {
-        $('#actContent').innerHTML = `
+        content.innerHTML = `
           <div class="card" style="text-align:center;padding:44px 20px;">
             <div style="font-size:32px;margin-bottom:8px;">📊</div>
             <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Sin actividad aún</div>
@@ -73,7 +77,7 @@ async function renderActividad(main) {
         .filter(a => a.count > 0)
         .sort((a, b) => b.count - a.count);
 
-      $('#actContent').innerHTML = `
+      content.innerHTML = `
         <div class="stats-grid stagger-in" style="margin-bottom:16px;">
           ${advisors.slice(0, 3).map((a, i) => `
             <div class="stat-card">
@@ -123,7 +127,8 @@ async function renderActividad(main) {
       `;
 
       await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
-      actChart = new Chart(document.getElementById('actChartCanvas'), {
+      if (!content.isConnected || seq !== loadSeq) return;
+      actChart = new Chart(content.querySelector('#actChartCanvas'), {
         type: 'bar',
         data: {
           labels: advisors.map(a => fullNameOf[a.username] ?? a.username),
@@ -140,7 +145,7 @@ async function renderActividad(main) {
       });
     } catch (err) {
       console.error(err);
-      $('#actContent').innerHTML = '<div class="alert alert-error">No se pudo cargar la actividad.</div>';
+      if (content.isConnected && seq === loadSeq) content.innerHTML = '<div class="alert alert-error">No se pudo cargar la actividad.</div>';
     }
   }
   load();

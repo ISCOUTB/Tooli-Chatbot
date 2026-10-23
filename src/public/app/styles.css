@@ -332,6 +332,14 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 
 .main { flex: 1; min-width: 0; overflow-y: auto; }
 
+@media (max-width: 1024px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .home-grid > .widget-card { min-width: 0; }
+  .posgrados-split { grid-template-columns: minmax(0, 1fr) !important; }
+  .posgrados-split > .card { min-width: 0; }
+  #crmFilterWrap { max-width: 100%; min-width: 0; overflow-x: auto; }
+}
+
 .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
 .page-header h1 { font-size: 26px; font-weight: 700; color: var(--utb-blue); letter-spacing: -0.01em; }
 .page-header .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
@@ -483,14 +491,17 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .action-sheet {
   width: 100%; max-width: 400px; transform: translateY(16px); opacity: 0;
   transition: transform 0.4s var(--ease-spring), opacity 0.3s var(--ease-out);
-  touch-action: none;
+  /* pan-y para que el contenido con muchas acciones haga scroll; el arrastre
+     para cerrar nace solo del grabber/cabecera (ver sheet.js, Esc.4). */
+  touch-action: pan-y;
+  max-height: min(88vh, 720px); overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet-backdrop.open .action-sheet { transform: translateY(0); opacity: 1; }
 
-.sheet-grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(120, 120, 128, 0.36); margin: 0 auto 10px; cursor: grab; }
+.sheet-grabber { width: 36px; height: 5px; border-radius: 3px; background: rgba(120, 120, 128, 0.36); margin: 0 auto 10px; cursor: grab; touch-action: none; }
 @media (min-width: 640px) { .sheet-grabber { display: none; } }
 
-.sheet-header { text-align: center; padding: 2px 20px 14px; }
+.sheet-header { text-align: center; padding: 2px 20px 14px; touch-action: none; }
 .sheet-title { font-weight: 600; font-size: 14px; color: var(--text); }
 .sheet-subtitle { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
 
@@ -534,7 +545,6 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   .app { flex-direction: column; padding: var(--page-gutter); gap: 12px; }
   .sidebar { display: none; }
   .main { padding: 0 2px calc(var(--tab-bar-height) + var(--safe-bottom) + 22px); width: 100%; }
-  .home-grid { grid-template-columns: 1fr !important; }
 
   /* Tab bar flotante en píldora, centrada y separada del borde — igual al
      patrón de Renova (fixed, w-fit, rounded-full, glass, shadow), no una
@@ -568,20 +578,20 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 }
 
 @media (max-width: 720px) {
-  .posgrados-split { grid-template-columns: 1fr !important; }
   /* Filtros y rangos: evita overflow horizontal en 375px — el segmentado
      hace scroll horizontal suave si no entra, la toolbar envuelve limpio */
   .crm-toolbar { gap: 10px; }
   .crm-toolbar input { max-width: 100%; flex: 1 1 100%; }
   #crmFilterWrap, #eventoFilterWrap, #inboxFilterWrap,
-  #pgRangeWrap, #metRangeWrap, #actRangeWrap,
+  #pgRangeWrap, #metRangeWrap, #actRangeWrap, #remFiltroWrap,
   #nRoleWrap, #nAreaWrap {
     max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
   #crmFilterWrap::-webkit-scrollbar, #eventoFilterWrap::-webkit-scrollbar,
   #inboxFilterWrap::-webkit-scrollbar, #pgRangeWrap::-webkit-scrollbar,
-  #metRangeWrap::-webkit-scrollbar, #actRangeWrap::-webkit-scrollbar { display: none; }
+  #metRangeWrap::-webkit-scrollbar, #actRangeWrap::-webkit-scrollbar,
+  #remFiltroWrap::-webkit-scrollbar { display: none; }
   .page-header { flex-direction: column; align-items: stretch; }
   .page-header h1 { font-size: 22px; }
   .tool-panel { padding: 22px 16px; }
@@ -634,6 +644,12 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .inbox-thread-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .inbox-thread-header .back-link { display: none; }
 .inbox-thread-footer { padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+/* Teclado virtual (Esc.2): --kb lo fija JS desde visualViewport con los px
+   que el teclado invade; más la safe-area para no chocar con el home bar. */
+.inbox-thread-footer { padding-bottom: calc(12px + var(--kb, 0px) + env(safe-area-inset-bottom, 0px)); }
+/* Render inicial del hilo: las burbujas entran sin animar la lista completa
+   (Esc.6). Solo la burbuja optimista (.sending) conserva su entrada. */
+.thread-initial .bubble { animation: none; }
 
 .inbox-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; }
 .thread-meta { align-self: center; font-size: 11.5px; color: var(--text-muted); background: rgba(0, 48, 135, 0.06); padding: 4px 12px; border-radius: 999px; margin-bottom: 12px; }
@@ -664,7 +680,20 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   .inbox-thread { display: none; }
   .inbox.thread-open .inbox-list { display: none; }
   .inbox.thread-open .inbox-thread { display: flex; }
-  .inbox-thread-header .back-link { display: inline-flex; font-size: 20px; padding: 4px; }
+  /* Objetivo táctil mínimo 44px (Esc.1): con 4px de padding era casi intocable. */
+  .inbox-thread-header .back-link { display: inline-flex !important; align-items: center; justify-content: center; font-size: 20px; min-width: 44px; min-height: 44px; padding: 10px; margin-left: -10px; }
+}
+/* iOS hace auto-zoom con inputs <16px (Esc.2): el composer sube a 16px solo
+   en móvil; en escritorio conserva 14px. */
+@media (max-width: 720px) {
+  .composer-input { font-size: 16px; }
+}
+/* Anillo de foco visible en los controles de la bandeja (Esc.1/4). */
+.inbox-row:focus-visible, .back-link:focus-visible,
+.composer-send:focus-visible, .composer-quick:focus-visible,
+.swipe-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(0, 48, 135, 0.18);
 }
 
 /* Swipe-to-reveal aplicado a las filas de la bandeja */
@@ -1477,10 +1506,11 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
    ═══════════════════════════════════════════════════════════════════ */
 .rem-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
+.rem-form, .rem-lista-col { min-width: 0; }
 .rem-form { position: sticky; top: 8px; }
 .rem-form-title {
   display: flex;
@@ -1572,7 +1602,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   color: var(--danger);
 }
 @media (max-width: 900px) {
-  .rem-layout { grid-template-columns: 1fr; }
+  .rem-layout { grid-template-columns: minmax(0, 1fr); }
   .rem-form { position: static; }
 }
 
@@ -1819,6 +1849,49 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .inbox-nuevos:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(0, 48, 135, 0.7); }
 .inbox-nuevos:active { transform: scale(0.97); }
 
+/* ═══════════════════════════════════════════════════════════════════
+   A02 — Segmentación Pregrado/Posgrado y contexto operativo.
+   Solo reglas nuevas y acotadas; no se reescribe nada existente.
+   ═══════════════════════════════════════════════════════════════════ */
+/* Resumen de segmento (CRM y evento): línea de texto que envuelve limpio. */
+.seg-resumen {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: -6px 0 14px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+/* Contexto operativo en Posgrados: texto + dos botones internos. */
+.op-contexto-texto {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+.op-contexto-acciones {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.op-contexto-acciones .btn {
+  min-height: 44px;
+  justify-content: center;
+}
+/* Los botones nuevos usan el anillo de foco global (:focus-visible); acá
+   solo se asegura que el segmentado con rol radio lo muestre completo. */
+.segmented[role="radiogroup"] button[role="radio"]:focus-visible {
+  box-shadow: 0 0 0 3px rgba(30, 115, 190, 0.45), 0 0 0 6px rgba(30, 115, 190, 0.16);
+}
+@media (max-width: 375px) {
+  .seg-resumen { font-size: 12px; margin-bottom: 12px; }
+  .op-contexto-acciones .btn { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-resumen, .op-contexto { animation: none !important; transition: none !important; }
+}
+
 /* Aviso de Bloq Mayús en el login */
 .caps-warn {
   margin-top: 7px;
@@ -1842,6 +1915,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   line-height: 1.45;
   animation: fade-rise-in 0.3s var(--ease-spring) backwards;
 }
+.rem-ventana[hidden] { display: none; }
 .rem-ventana svg { flex: 0 0 auto; margin-top: 1px; }
 
 /* Aviso de que el panel cambió en el servidor (lo manda el service worker) */
@@ -1884,3 +1958,32 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   border-color: #d6dce8;
   box-shadow: 0 10px 26px -14px rgba(0, 48, 135, 0.4), var(--shadow-sm);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   U01 — Bandeja móvil: teclado virtual, hilo largo y composer.
+   Solo reglas nuevas; no se reescribe nada existente.
+   ═══════════════════════════════════════════════════════════════════ */
+/* El hilo es el posicionamiento del botón "ir al fondo". */
+.inbox-thread { position: relative; }
+/* Blancos táctiles mínimos de 44px en el composer. */
+.composer-input { min-height: 44px; }
+.composer-send, .composer-quick { width: 44px; height: 44px; }
+/* Botón flotante "ir al fondo": píldora de vidrio como la tab bar. */
+.thread-jump {
+  position: absolute; left: 50%; bottom: calc(var(--composer-height, 84px) + var(--kb, 0px) + 8px); transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  border: 1px solid var(--glass-border); border-radius: 999px; padding: 9px 15px;
+  background: var(--glass-bg-strong); backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  color: var(--utb-blue); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  box-shadow: var(--glass-shadow); z-index: 5;
+}
+.thread-jump[hidden] { display: none; }
+.thread-jump:active { transform: translateX(-50%) scale(0.95); }
+/* Reintentar dentro del hint del composer: botón de texto, no otro primario. */
+.hint-retry {
+  background: none; border: none; padding: 2px 6px; margin-left: 6px;
+  font: inherit; font-size: 12px; font-weight: 700; color: var(--utb-blue);
+  cursor: pointer; border-radius: 6px;
+}
+.hint-retry:hover { text-decoration: underline; }

@@ -9,8 +9,12 @@ import { icon } from '../core/icons.js';
    lo que ve el estudiante — no una recreación aproximada del hilo. */
 function openPhonePreview(phone, nombre, groups) {
   haptic(15);
+  const prevFocus = document.activeElement;
   const overlay = document.createElement('div');
   overlay.className = 'phone-preview-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', `Vista previa de la conversación con ${nombre ?? `+${phone}`}`);
   const now = new Date();
   const clock = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -34,7 +38,7 @@ function openPhonePreview(phone, nombre, groups) {
             <div class="wa-bubble-row ${m.direction === 'out' ? 'me' : 'them'}">
               <div class="wa-bubble ${m.direction === 'out' ? 'me' : 'them'}">
                 ${formatWhatsApp(escapeHtml(m.text))}
-                <span class="wa-bubble-meta">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}${m.direction === 'out' ? ' <span class=\"wa-ticks\">✓✓</span>' : ''}</span>
+                <span class="wa-bubble-meta">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}${m.direction === 'out' ? ' <span class="wa-ticks">✓✓</span>' : ''}</span>
               </div>
             </div>
           `).join('')).join('')}
@@ -52,16 +56,36 @@ function openPhonePreview(phone, nombre, groups) {
   const wrap = overlay.querySelector('.wa-messages');
   if (wrap) wrap.scrollTop = wrap.scrollHeight;
 
+  // El overlay vive en <body>, fuera de #main: navegar sin cerrarlo lo
+  // dejaría flotando sobre otra pantalla con sus listeners vivos (Esc.8).
+  let cerrada = false;
+  let focusTimer = null;
   const close = () => {
+    if (cerrada) return;
+    cerrada = true;
+    if (focusTimer) clearTimeout(focusTimer);
     haptic(10);
     overlay.classList.remove('open');
     setTimeout(() => overlay.remove(), 280);
     document.removeEventListener('keydown', onKey);
+    if (typeof window !== 'undefined') window.removeEventListener('hashchange', close);
+    // Devolver el foco a quien abrió la vista previa (Esc.1/4).
+    if (prevFocus?.isConnected) prevFocus.focus({ preventScroll: true });
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  overlay.querySelector('.phone-preview-close').addEventListener('click', close);
+  const closeBtn = overlay.querySelector('.phone-preview-close');
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    // Es el único control interactivo del diálogo: Tab no debe escapar hacia
+    // la pantalla que permanece detrás del overlay.
+    if (e.key === 'Tab') { e.preventDefault(); closeBtn.focus(); }
+  };
+  closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
+  if (typeof window !== 'undefined') window.addEventListener('hashchange', close);
+  // Foco inicial al abrir: el botón de cierre es el primer objetivo de
+  // teclado dentro del diálogo (Esc.4).
+  focusTimer = setTimeout(() => closeBtn.focus({ preventScroll: true }), 60);
 }
 
 

@@ -6,17 +6,20 @@
  * asesor) y a dos trámites sueltos (turno y recibo). Un estudiante activo que
  * escribía preguntando por sus notas, su horario o una tarea no tenía a dónde ir.
  *
- * Este flujo NO consulta notas ni horarios — el bot no tiene integración con el
- * sistema académico (ver la nota larga en `src/services/academicoLinks.ts`). Lo
- * que hace es llevarlo al lugar exacto, diciéndole con qué credenciales entra y
- * qué va a encontrar, en vez de dejarlo buscando en la página de la universidad.
+ * Las notas usan el flujo protegido de Banner. El recibo usa la consulta real
+ * solo cuando está habilitada; horario y tareas conducen al portal oficial.
  */
 
 import { setSession } from '../services/session';
 import { MetricEvent, track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado } from './shared';
+import { parseGlobalCommand } from './commands';
 import { AreaRecurso, getRecursos } from '../services/academicoLinks';
 import { iniciarConsultaDeNotas } from './notas';
+import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
+import { sendAcademicAccount } from './academicAccount';
+import { iniciarConsultaSavio } from './savio';
+import type { FlowArea } from './commands';
 
 /** Métrica por recurso: explícita (y no un template literal) para que el
  * compilador avise si alguien agrega un recurso sin su evento. */
@@ -32,8 +35,10 @@ const EVENTO_POR_RECURSO: Record<string, MetricEvent> = {
 };
 
 /** El área desde la que entró, para saber a qué menú devolverlo con "0". */
-function areaDeSesion(data: Record<string, string> | undefined): AreaRecurso {
-  return data?.area === 'posgrado' ? 'posgrado' : 'pregrado';
+function areaDeSesion(data: Record<string, string> | undefined): FlowArea | null {
+  if (data?.area === 'posgrado') return 'posgrado';
+  if (data?.area === 'pregrado') return 'pregrado';
+  return null;
 }
 
 async function volverAlMenuDeArea(from: string, area: AreaRecurso): Promise<void> {
@@ -69,6 +74,7 @@ export async function sendMenuAcademico(to: string, area: AreaRecurso): Promise<
             title: `${r.emoji} ${r.titulo}`,
             description: r.resumen,
           })),
+          { id: String(recursos.length + 1), title: '🔐 Mi cuenta vinculada', description: 'Vincular o desvincular este WhatsApp de tu cuenta UTB' },
           { id: '0', title: '🔙 Volver', description: 'Regresar al menú anterior' },
         ],
       },
@@ -82,27 +88,64 @@ export async function sendMenuAcademico(to: string, area: AreaRecurso): Promise<
 export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const input = text.trim();
-  const area = areaDeSesion(session?.data);
+  const command = parseGlobalCommand(text);
 
-  if (input.toLowerCase() === 'menu') {
+  if (command === 'menu' || command === 'salir') {
     await setSession(from, { step: 'menu', data: {} });
     await sendMenu(from);
     return;
   }
 
-  if (input === '0') {
+  const area = areaDeSesion(session?.data);
+
+  if (!area) {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return;
+  }
+
+  if (input === '0' || command === 'volver') {
     await volverAlMenuDeArea(from, area);
     return;
   }
 
   const recursos = getRecursos(area);
-  const elegido = recursos[Number(input) - 1];
+  if (input === String(recursos.length + 1)) {
+    await sendAcademicAccount(from, area);
+    return;
+  }
+  const elegido = /^\d+$/.test(input) ? recursos[Number(input) - 1] : undefined;
 
   // Las notas ya no se resuelven con un enlace: el bot las consulta de verdad
   // en Banner (verificando primero la identidad por OTP al correo). Mandar el
   // enlace aquí sería darle al estudiante el camino largo teniendo el corto.
   if (elegido?.id === 'notas') {
-    await iniciarConsultaDeNotas(from);
+    await track('academico_notas');
+    await iniciarConsultaDeNotas(from, area);
+    return;
+  }
+
+  if (elegido?.id === 'recibo') {
+    await track('academico_recibo');
+    if (!academicLookupEnabled()) {
+      await sendAcademicPortal(from, 'recibo', { originArea: area });
+      return;
+    }
+    await setSession(from, { step: 'recibo_codigo', data: { originArea: area } });
+    await messaging.sendText({
+      to: from,
+      text:
+        '🧾 *Descargar recibo de matrícula*\n\n' +
+        'Escribe tu *código estudiantil* (ejemplo: T12345678). Después te pediré tu cédula para entrar al portal.\n\n' +
+        `_Para consultar otros movimientos financieros, usa el portal oficial: ${elegido.url}_\n\n` +
+        'Escribe *0* para volver a tu menú o *menu* para ir al inicio.',
+    });
+    return;
+  }
+
+  if (elegido?.id === 'savio') {
+    await track('academico_savio');
+    await iniciarConsultaSavio(from, area);
     return;
   }
 

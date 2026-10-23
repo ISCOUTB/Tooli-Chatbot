@@ -31,6 +31,8 @@ export type MetricEvent =
   | 'programas_especializaciones'
   | 'programas_maestrias'
   | 'programas_doctorados'
+  | 'programas_ayuda_areas'
+  | 'programas_ayuda_area'
   | 'registro_iniciado'
   | 'registro_completado'
   // Pregrado
@@ -39,6 +41,11 @@ export type MetricEvent =
   | 'prospecto_pregrado_completado'
   | 'registro_pregrado_iniciado'
   | 'registro_pregrado_completado'
+  | 'admisiones_guia_pregrado'
+  | 'admisiones_guia_posgrado'
+  | 'pregrado_explorar_iniciado'
+  | 'pregrado_explorar_area'
+  | 'pregrado_explorar_carrera'
   // Mi vida académica (hub de plataformas para estudiantes matriculados).
   // Un evento por recurso, no uno genérico con prop: así el panel puede
   // rankear qué está buscando realmente la gente (ver renderMetricas).
@@ -51,6 +58,9 @@ export type MetricEvent =
   | 'academico_correo'
   | 'academico_becas'
   | 'academico_derechos'
+  | 'savio_cursos_consultados'
+  | 'savio_cuenta_no_encontrada'
+  | 'savio_error'
   // Verificación de identidad (OTP correo)
   | 'verificacion_iniciada'
   | 'verificacion_completada'

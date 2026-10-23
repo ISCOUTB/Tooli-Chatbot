@@ -6,7 +6,7 @@
  *         https://www.utb.edu.co/la-utb/derechos-pecuniarios/
  *         https://www.utb.edu.co/la-utb/directivas/secretaria-general/registro-academico/calendario-academico/
  *
- * Última actualización: 2026
+ * Valores de matrícula: vigencia 2026. Revisar la página oficial al cambiar de año.
  */
 
 export const KB_ADMISIONES = `
@@ -21,12 +21,13 @@ export const KB_ADMISIONES = `
 - La universidad responde la admisión en 2 días hábiles vía email
 
 ## PROCESO DE INSCRIPCIÓN
-- La inscripción es GRATUITA (no tiene costo)
+- El costo de inscripción y posibles exenciones deben confirmarse en la página oficial de derechos pecuniarios o con Admisiones; las páginas institucionales publican información distinta según el trámite y la campaña.
 - Se hace en línea desde la página de la UTB
 - Después de admitido, debes pagar la matrícula y cargar documentos
 - Email para envío de documentos: admisiones@utb.edu.co
 
 ## CALENDARIO ACADÉMICO 2026
+Estas fechas son de 2026. Si ya pasaron o el usuario pregunta por otra vigencia, consulta el calendario oficial enlazado abajo; no las presentes como próximas.
 
 ### Primer Período 2026 (febrero – mayo)
 - Inscripciones nuevos estudiantes: 29 ago 2025 – 15 ene 2026
@@ -56,6 +57,7 @@ export const KB_ADMISIONES = `
 - Fin de clases: 17 jul 2026
 
 ## COSTOS POR PROGRAMA — PREGRADO 2026 (semestre, COP)
+Estos valores corresponden a 2026. Para otra vigencia, no los presentes como actuales: remite a https://www.utb.edu.co/la-utb/derechos-pecuniarios/.
 
 ### Escuela de Ingeniería, Arquitectura y Diseño
 - Ingeniería Eléctrica: $7.880.000 (nuevos) / $7.266.000 (antiguos)
@@ -95,6 +97,7 @@ export const KB_ADMISIONES = `
 - Tecnología en Gestión Contable y Financiera: $1.926.000
 
 ## COSTOS POSGRADO 2026
+Estos valores corresponden a 2026. Para otra vigencia, no los presentes como actuales: remite a https://www.utb.edu.co/la-utb/derechos-pecuniarios/.
 
 ### Especializaciones (rango general $8M – $13M/semestre)
 - Telecomunicaciones y Redes: $10.200.000
@@ -123,11 +126,7 @@ export const KB_ADMISIONES = `
 - Doctorado en Sostenibilidad: $12.281.000/sem
 
 ## OTROS COSTOS
-- Inscripción nuevos pregrado virtual: $200.000
-- Inscripción nuevos posgrado: $200.000
-- Inscripción especialización: $247.000
-- Inscripción maestría: $284.000
-- Inscripción doctorado sostenibilidad: $265.400
+Los derechos de inscripción y otros trámites dependen de la vigencia y de condiciones particulares. Confirma el valor aplicable en https://www.utb.edu.co/la-utb/derechos-pecuniarios/ o con Admisiones. Los importes siguientes son referencias publicadas para 2026, no promesas de cobro:
 - Homologación interna: $68.000
 - Homologación externa pregrado: $385.000
 - Homologación externa posgrado: $422.000
@@ -210,9 +209,7 @@ export const KB_POSGRADOS = `
 - Doctorado en Sostenibilidad: $12.281.000/sem
 
 ## COSTOS DE INSCRIPCIÓN
-- Especialización: $247.000
-- Maestría: $284.000
-- Doctorado Sostenibilidad: $265.400
+Confirma el valor aplicable, promociones y exenciones con Posgrados UTB o en https://www.utb.edu.co/la-utb/derechos-pecuniarios/. No asegures que la inscripción sea gratuita ni cites un importe fijo sin confirmar la vigencia.
 
 ## REQUISITOS GENERALES
 - Título profesional universitario

@@ -207,7 +207,7 @@ function stopScanner() {
 
 async function onQrDetected(decodedText) {
   // Extraer código de la URL o usarlo directamente
-  const match = decodedText.match(/NUTR-[A-Z0-9]{4}/);
+  const match = decodedText.match(/NUTR-(?:[A-Z0-9]{10}|[A-Z0-9]{4})(?![A-Z0-9])/);
   if (!match) return;
   const code = match[0];
   if (code === currentCode) return; // evitar re-escaneo del mismo código

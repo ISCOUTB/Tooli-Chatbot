@@ -7,6 +7,7 @@ import { icon } from '../core/icons.js';
    siempre con la información real ya disponible, nunca inventada. */
 function openProfileSheet({ avatarBg, avatarText, title, subtitle, badges = [], stats = [], rows = [], actions = [], extraHtml = '', onMount }) {
   haptic(15);
+  const focoPrevio = document.activeElement;
   const overlay = document.createElement('div');
   overlay.className = 'profile-sheet-overlay';
   overlay.setAttribute('role', 'dialog');
@@ -30,20 +31,37 @@ function openProfileSheet({ avatarBg, avatarText, title, subtitle, badges = [], 
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add('open'));
 
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     overlay.classList.remove('open');
     setTimeout(() => overlay.remove(), 260);
     document.removeEventListener('keydown', onKey);
+    window.removeEventListener('hashchange', close);
+    if (focoPrevio?.isConnected) focoPrevio.focus({ preventScroll: true });
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { close(); return; }
+    if (e.key !== 'Tab') return;
+    const controles = Array.from(overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+      .filter(el => !el.disabled && el.getClientRects().length);
+    if (!controles.length) return;
+    const primero = controles[0];
+    const ultimo = controles[controles.length - 1];
+    if (e.shiftKey && (document.activeElement === primero || !overlay.contains(document.activeElement))) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && (document.activeElement === ultimo || !overlay.contains(document.activeElement))) { e.preventDefault(); primero.focus(); }
+  };
   overlay.querySelector('.profile-sheet-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
+  window.addEventListener('hashchange', close);
   actions.forEach((a, i) => overlay.querySelector(`[data-pa="${i}"]`)?.addEventListener('click', () => {
     a.onClick?.();
     if (a.closeAfter !== false) close();
   }));
   onMount?.(overlay.querySelector('.profile-sheet'), { close });
+  overlay.querySelector('.profile-sheet-close')?.focus({ preventScroll: true });
   return { close };
 }
 

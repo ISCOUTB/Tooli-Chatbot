@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '../config';
+import { describeError, describeId } from './logSafe';
 
 /**
  * Crea un usuario en Chatwoot vía Platform API y lo agrega a la cuenta como agente.
@@ -38,8 +39,8 @@ export async function createChatwootUser(params: {
       `${config.chatwoot.url}/api/v1/accounts/${config.chatwoot.accountId}/agents`,
       { email: params.email, name: params.name, role: params.role ?? 'agent' },
       { headers: { api_access_token: config.chatwoot.apiToken }, timeout: 10_000 }
-    ).catch((err) => {
-      console.warn('[chatwoot-sso] no se pudo asociar usuario a cuenta:', err?.response?.data ?? err?.message);
+    ).catch((err: unknown) => {
+      console.warn('[chatwoot-sso] no se pudo asociar usuario a cuenta:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
     });
 
     if (config.chatwoot.inboxId) {
@@ -47,8 +48,8 @@ export async function createChatwootUser(params: {
         `${config.chatwoot.url}/api/v1/accounts/${config.chatwoot.accountId}/inbox_members`,
         { inbox_id: config.chatwoot.inboxId, user_ids: [userId] },
         { headers: { api_access_token: config.chatwoot.apiToken }, timeout: 10_000 }
-      ).catch((err) => {
-        console.warn('[chatwoot-sso] no se pudo agregar al inbox:', err?.response?.data ?? err?.message);
+      ).catch((err: unknown) => {
+        console.warn('[chatwoot-sso] no se pudo agregar al inbox:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
       });
     }
 
@@ -57,8 +58,8 @@ export async function createChatwootUser(params: {
         `${config.chatwoot.url}/api/v1/accounts/${config.chatwoot.accountId}/teams/${teamId}/team_members`,
         { user_ids: [userId] },
         { headers: { api_access_token: config.chatwoot.apiToken }, timeout: 10_000 }
-      ).catch((err) => {
-        console.warn(`[chatwoot-sso] no se pudo agregar al equipo ${teamId}:`, err?.response?.data ?? err?.message);
+      ).catch((err: unknown) => {
+        console.warn(`[chatwoot-sso] no se pudo agregar al equipo ${describeId(teamId)}:`, describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
       });
     }
   }
@@ -101,7 +102,7 @@ export async function deleteChatwootUser(chatwootUserId: number): Promise<void> 
   await axios.delete(
     `${config.chatwoot.url}/platform/api/v1/users/${chatwootUserId}`,
     { headers: { api_access_token: config.chatwoot.platformToken }, timeout: 10_000 }
-  ).catch((err) => {
-    console.warn('[chatwoot-sso] no se pudo eliminar usuario:', err?.response?.data ?? err?.message);
+  ).catch((err: unknown) => {
+    console.warn('[chatwoot-sso] no se pudo eliminar usuario:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
   });
 }

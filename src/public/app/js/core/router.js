@@ -52,7 +52,10 @@ function updateTabBar(route) {
   if (!bar) return;
   const isMore = moreRoutes().some(r => r.route === route);
   $$('.tab-item', bar).forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === route || (btn.dataset.tab === '__more' && isMore));
+    const active = btn.dataset.tab === route || (btn.dataset.tab === '__more' && isMore);
+    btn.classList.toggle('active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
   });
 }
 
@@ -82,8 +85,8 @@ const NAV_ROUTES = [
 
 function renderSidebarNav() {
   const nav = $('#nav');
-  nav.innerHTML = NAV_ROUTES.map(r => `<a data-route="${r.route}">${icon(r.icon)}${r.label}</a>`).join('')
-    + (sesion.user?.role === 'admin' ? `<a data-route="actividad">${icon('pulse')}Actividad de asesores</a><a data-route="usuarios" id="navUsuarios">${icon('users')}Asesores</a>` : '');
+  nav.innerHTML = NAV_ROUTES.map(r => `<a href="#${r.route}" data-route="${r.route}">${icon(r.icon)}${r.label}</a>`).join('')
+    + (sesion.user?.role === 'admin' ? `<a href="#actividad" data-route="actividad">${icon('pulse')}Actividad de asesores</a><a href="#usuarios" data-route="usuarios" id="navUsuarios">${icon('users')}Asesores</a>` : '');
   $$('#nav a').forEach(a => a.addEventListener('click', e => {
     e.preventDefault();
     navigate(a.dataset.route);
@@ -91,9 +94,18 @@ function renderSidebarNav() {
 }
 
 async function init() {
-  const r = await api('/api/auth/me');
-  if (!r) return;
-  const data = await r.json();
+  let data;
+  try {
+    const r = await api('/api/auth/me');
+    if (!r) return;
+    if (!r.ok) throw new Error('Sesión no disponible');
+    data = await r.json();
+    if (!data?.user?.fullName || !data.user.role) throw new Error('Respuesta de sesión inválida');
+  } catch {
+    $('#main').innerHTML = '<div class="card" role="alert"><h1>No se pudo abrir el panel</h1><p>Revisa tu conexión e intenta de nuevo.</p><button type="button" class="btn btn-primary" id="retrySession">Reintentar</button></div>';
+    $('#retrySession').addEventListener('click', init);
+    return;
+  }
   sesion.user = data.user;
   if (data.urls) sesion.urls = data.urls;
   if (data.capabilities) sesion.caps = data.capabilities;
@@ -127,7 +139,12 @@ function navigate(route) {
   ActionSheet.close();
   setPullToRefresh(null);   // cada pantalla vuelve a registrarse si puede recargarse
   clearScreenTimers();
-  $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.route === route));
+  $$('#nav a').forEach(a => {
+    const active = a.dataset.route === route;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
   updateTabBar(route);
   location.hash = route;
   const main = $('#main');

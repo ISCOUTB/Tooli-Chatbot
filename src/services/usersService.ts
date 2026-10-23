@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { config } from '../config';
 import { createChatwootUser, deleteChatwootUser, isChatwootSsoEnabled } from './chatwootSsoService';
+import { isAcceptableNewPassword, MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from './passwordPolicy';
 
 const redis = new Redis(config.redis.url);
 
@@ -16,6 +18,7 @@ export interface User {
   area?: 'ti' | 'admisiones' | 'all';
   createdAt: number;
   chatwootUserId?: number;
+  sessionVersion?: string;
 }
 
 export interface PublicUser {
@@ -32,7 +35,7 @@ const KEY = (username: string) => `user:${username.toLowerCase()}`;
 const INDEX_KEY = 'users:index';
 
 export function toPublic(u: User): PublicUser {
-  const { passwordHash: _, ...rest } = u;
+  const { passwordHash: _, sessionVersion: __, ...rest } = u;
   return rest;
 }
 
@@ -59,8 +62,19 @@ export async function createUser(input: {
   role?: UserRole;
   area?: 'ti' | 'admisiones' | 'all';
 }): Promise<PublicUser> {
+  if (typeof input.username !== 'string' || typeof input.fullName !== 'string') {
+    throw new Error('Usuario y nombre son obligatorios');
+  }
   const username = input.username.toLowerCase().trim();
-  if (!username || !input.password) throw new Error('Usuario y contraseña son obligatorios');
+  if (!username || username.length > 128 || !input.fullName.trim() || input.fullName.length > 200 ||
+      (input.email !== undefined && (typeof input.email !== 'string' || input.email.length > 254)) ||
+      (input.role !== undefined && input.role !== 'admin' && input.role !== 'asesor') ||
+      (input.area !== undefined && input.area !== 'ti' && input.area !== 'admisiones' && input.area !== 'all')) {
+    throw new Error('Datos de usuario inválidos');
+  }
+  if (!isAcceptableNewPassword(input.password)) {
+    throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres y máximo ${MAX_PASSWORD_BYTES} bytes`);
+  }
 
   const existing = await getUser(username);
   if (existing) throw new Error('El usuario ya existe');
@@ -73,6 +87,7 @@ export async function createUser(input: {
     role: input.role ?? 'asesor',
     area: input.area ?? 'all',
     createdAt: Date.now(),
+    sessionVersion: randomUUID(),
   };
 
   // Si Chatwoot SSO está configurado y el usuario tiene email, crear cuenta en Chatwoot también
@@ -129,9 +144,13 @@ export async function verifyPassword(username: string, password: string): Promis
 }
 
 export async function updatePassword(username: string, newPassword: string): Promise<void> {
+  if (!isAcceptableNewPassword(newPassword)) {
+    throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres y máximo ${MAX_PASSWORD_BYTES} bytes`);
+  }
   const user = await getUser(username);
   if (!user) throw new Error('Usuario no encontrado');
   user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.sessionVersion = randomUUID();
   await redis.set(KEY(username), JSON.stringify(user));
 }
 
@@ -149,7 +168,7 @@ export async function seedDefaultAdmin(): Promise<void> {
   // admin/admin con acceso a datos personales de estudiantes. Mejor no arrancar
   // que arrancar con credenciales por defecto: el despliegue existente no se ve
   // afectado porque si ya hay usuarios ni se llega hasta acá.
-  const usandoDefaults = config.auth.adminPassword === 'admin' || config.auth.adminPassword.length < 8;
+  const usandoDefaults = config.auth.adminPassword === 'admin' || config.auth.adminPassword.length < MIN_PASSWORD_LENGTH;
   if (usandoDefaults && process.env.NODE_ENV === 'production') {
     console.error(
       '[FATAL] No hay usuarios y ADMIN_PASSWORD no está definida (o es muy corta). ' +

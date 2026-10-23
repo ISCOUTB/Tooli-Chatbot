@@ -28,7 +28,8 @@ export type AuditAction =
   | 'mensaje_enviado'
   | 'crm_nota_agregada'
   | 'crm_estado_actualizado'
-  | 'crm_asignado';
+  | 'crm_asignado'
+  | 'inbound_review_resolved';
 
 export interface AuditEntry {
   ts: number;

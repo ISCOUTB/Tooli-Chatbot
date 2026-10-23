@@ -2,7 +2,8 @@
 // app (HTML/CSS) cargue rápido y siga disponible con mala conexión o sin
 // internet — nunca cachear /api/* ni el login, porque esos datos deben ser
 // siempre frescos y la sesión depende de cookies validadas por el servidor.
-const CACHE_NAME = 'tooli-asesores-shell-v2';
+const CACHE_NAME = 'tooli-asesores-shell-v3';
+const CACHE_PREFIX = 'tooli-asesores-shell-';
 const SHELL_URLS = ['/app/index.html', '/app/styles.css', '/app/js/app.js'];
 // El panel dejó de ser un único archivo: ahora son módulos ES bajo /app/js/.
 // Se cachean igual que el shell (mismo stale-while-revalidate), porque sin
@@ -18,7 +19,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -48,10 +49,13 @@ self.addEventListener('fetch', (event) => {
           // recargarla por sorpresa (se perdería un mensaje a medio escribir),
           // se le avisa para que ofrezca recargar cuando la persona quiera.
           if (cached && haCambiado(cached, res)) avisarClientes();
-          cache.put(request, res.clone());
+          await cache.put(request, res.clone());
           return res;
         })
         .catch(() => null);
+      // Cuando hay copia local, respondemos enseguida. Mantener vivo el worker
+      // hasta que termine la actualización evita que el navegador la descarte.
+      if (cached) event.waitUntil(network);
       return cached || (await network) || new Response('Sin conexión', { status: 503, statusText: 'Offline' });
     })
   );

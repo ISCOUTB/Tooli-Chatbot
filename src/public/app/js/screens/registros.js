@@ -11,21 +11,71 @@ import { previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
 import { contextSheet } from '../ui/sheet.js';
 
-function exportarCrmCsv() {
-  const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
-  const filas = crmRows.filter((row) => {
-    if (crmFilter !== 'todos' && crmCategoria(row) !== crmFilter) return false;
-    if (crmEtapa !== 'todas' && (crmFichas[row[3]]?.estado ?? 'nuevo') !== crmEtapa) return false;
-    if (crmSoloMios && crmFichas[row[3]]?.asignadoA !== sesion.user?.username) return false;
-    if (!q) return true;
-    return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(q));
-  });
+/* ============= LÓGICA PURA DEL CRM (probada en registros.test.js) =============
+   Filas del endpoint real `/api/tools/registros-posgrado` (ver
+   src/services/registroService.ts): [fecha, nombre, email, whatsapp,
+   programa, área]. La columna de área se agregó después: las filas viejas la
+   traen vacía y `areaOf` las trata como Posgrado. */
+const CRM_CSV_CABECERA = ['Fecha de registro', 'Nombre', 'Correo', 'WhatsApp', 'Programa de interés', 'Área', 'Etapa', 'Asesor', 'Etiquetas', 'Notas'];
 
-  if (!filas.length) { toast('No hay nada que exportar con estos filtros'); haptic([20, 30, 20]); return; }
+/** ¿La fila pasa los filtros activos? No muta nada: solo decide. */
+function crmPasaFiltros(row, filtros) {
+  const { segmento = 'todos', etapa = 'todas', soloMios = false, usuario = null, q = '', fichas = {} } = filtros ?? {};
+  if (segmento !== 'todos' && crmCategoria(row) !== segmento) return false;
+  if (etapa !== 'todas' && (fichas[row[3]]?.estado ?? 'nuevo') !== etapa) return false;
+  if (soloMios && fichas[row[3]]?.asignadoA !== usuario) return false;
+  const query = (q ?? '').trim().toLowerCase();
+  if (!query) return true;
+  return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(query));
+}
 
-  const cabecera = ['Fecha de registro', 'Nombre', 'Correo', 'WhatsApp', 'Programa de interés', 'Área', 'Etapa', 'Asesor', 'Etiquetas', 'Notas'];
-  const datos = filas.map((row) => {
-    const f = crmFichas[row[3]];
+/** Filtra sin mutar: devuelve [{ row, idx }] para conservar el índice real
+   (la selección múltiple y el contextSheet trabajan sobre `crmRows[idx]`). */
+function filtrarCrmRows(rows, filtros) {
+  return (rows ?? []).map((row, idx) => ({ row, idx })).filter(({ row }) => crmPasaFiltros(row, filtros));
+}
+
+function telefonoBroadcastCrm(row) {
+  const texto = String(row?.[3] ?? '').trim();
+  const numero = texto.replace(/\D/g, '');
+  return /^\+?[\d\s().-]+$/.test(texto) && /^[1-9]\d{9,14}$/.test(numero) ? numero : '';
+}
+
+function resumirSeleccionBroadcastCrm(rows, indices) {
+  const numeros = new Set();
+  let sinWhatsapp = 0;
+  let repetidos = 0;
+  for (const idx of indices) {
+    const numero = telefonoBroadcastCrm(rows[idx]);
+    if (!numero) sinWhatsapp++;
+    else if (numeros.has(numero)) repetidos++;
+    else numeros.add(numero);
+  }
+  return { numeros: [...numeros], sinWhatsapp, repetidos };
+}
+
+/** Conteos por segmento sobre las filas ya cargadas — nada inventado. */
+function resumirSegmentos(rows) {
+  const resumen = { total: 0, pregrado: 0, posgrado: 0 };
+  for (const row of rows ?? []) {
+    resumen.total += 1;
+    if (areaOf(row) === 'Pregrado') resumen.pregrado += 1;
+    else resumen.posgrado += 1;
+  }
+  return resumen;
+}
+
+/** Texto del resumen visible: totales por segmento + cuántos se están viendo. */
+function textoResumenSegmentos(resumen, visibles) {
+  const base = `${resumen.total} prospecto${resumen.total === 1 ? '' : 's'} · ${resumen.pregrado} Pregrado · ${resumen.posgrado} Posgrado`;
+  if (visibles !== resumen.total) return `${base} · viendo ${visibles}`;
+  return base;
+}
+
+/** Filas de datos para el CSV a partir de filas ya filtradas. */
+function filasCrmParaCsv(pares, fichas) {
+  return (pares ?? []).map(({ row }) => {
+    const f = fichas?.[row[3]];
     return [
       fechaParaCsv(row[0]), row[1], row[2], row[3], row[4], areaOf(row),
       crmEstadoMeta(f?.estado ?? 'nuevo').label,
@@ -34,8 +84,49 @@ function exportarCrmCsv() {
       f?.notas?.length ?? 0,
     ];
   });
+}
 
-  descargarCsv(`prospectos-${new Date().toISOString().slice(0, 10)}.csv`, cabecera, datos);
+/* Hace accesible el segmentado de buildSegmented (core, no modificable):
+   radiogroup con etiqueta + radios con aria-checked sincronizado. */
+function hacerSegmentadoAccesible(wrap, etiqueta) {
+  if (!wrap) return;
+  wrap.setAttribute('role', 'radiogroup');
+  wrap.setAttribute('aria-label', etiqueta);
+  const botones = Array.from(wrap.querySelectorAll('button[data-value]'));
+  const sincronizar = () => botones.forEach(b => {
+    b.setAttribute('role', 'radio');
+    const activo = b.classList.contains('active');
+    b.setAttribute('aria-checked', activo ? 'true' : 'false');
+    b.tabIndex = activo ? 0 : -1;
+  });
+  sincronizar();
+  requestAnimationFrame(sincronizar);
+  botones.forEach(b => b.addEventListener('click', () => requestAnimationFrame(sincronizar)));
+  wrap.addEventListener('keydown', (event) => {
+    if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) return;
+    const actual = botones.indexOf(document.activeElement);
+    if (actual < 0) return;
+    event.preventDefault();
+    const avance = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+    const siguiente = botones[(actual + avance + botones.length) % botones.length];
+    siguiente.click();
+    siguiente.focus();
+  });
+}
+
+function exportarCrmCsv() {
+  const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
+  const pares = filtrarCrmRows(crmRows, {
+    segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+    usuario: sesion.user?.username, q, fichas: crmFichas,
+  });
+  const filas = pares.map(({ row }) => row);
+
+  if (!filas.length) { toast('No hay nada que exportar con estos filtros'); haptic([20, 30, 20]); return; }
+
+  const datos = filasCrmParaCsv(pares, crmFichas);
+
+  descargarCsv(`prospectos-${new Date().toISOString().slice(0, 10)}.csv`, CRM_CSV_CABECERA, datos);
   toast(`${filas.length} prospecto${filas.length === 1 ? '' : 's'} exportado${filas.length === 1 ? '' : 's'}`);
 }
 
@@ -51,18 +142,19 @@ let crmSoloMios = false;
 async function renderRegistros(main) {
   let selectMode = false;
   let selected = new Set();
+  const canBroadcast = sesion.user?.role === 'admin';
 
   main.innerHTML = `
     <div class="page-header">
       <div><h1>📝 CRM — Prospectos</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>
+        ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
         <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} Exportar<span class="hide-sm"> CSV</span></button>
         <button class="btn btn-secondary" id="refreshReg"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
     </div>
     <div class="crm-toolbar">
-      <input type="text" id="crmSearch" placeholder="Buscar por nombre, email o programa…">
+      <input type="text" id="crmSearch" placeholder="Buscar por nombre, email o programa…" aria-label="Buscar por nombre, email o programa">
       <div id="crmFilterWrap"></div>
     </div>
     <div class="crm-etapa-fila" id="crmEtapaFila">
@@ -70,6 +162,7 @@ async function renderRegistros(main) {
       <div id="crmEtapaWrap"></div>
       <button type="button" class="crm-mios" id="crmMios" aria-pressed="false">${icon('user', 13)} Solo los míos</button>
     </div>
+    <p id="crmSegResumen" class="seg-resumen" aria-live="polite"></p>
     <div id="broadcastBar" class="broadcast-bar hidden">
       <div class="broadcast-bar-left">
         <span class="broadcast-count" id="broadcastCount">0 seleccionados</span>
@@ -95,7 +188,7 @@ async function renderRegistros(main) {
   `;
 
   $('#crmSearch').addEventListener('input', renderCrmGrid);
-  $('#toggleSelectMode').addEventListener('click', () => {
+  $('#toggleSelectMode')?.addEventListener('click', () => {
     haptic(10);
     selectMode = !selectMode;
     if (!selectMode) selected.clear();
@@ -146,25 +239,21 @@ async function renderRegistros(main) {
   }
 
   function selectedTelefonos() {
-    return Array.from(selected).map(idx => {
-      const row = crmRows[idx];
-      return row ? String(row[3] || '').replace(/\D/g, '') : '';
-    }).filter(v => v.length >= 8);
+    return resumirSeleccionBroadcastCrm(crmRows, selected).numeros;
   }
 
   function updateBroadcastBar() {
-    const nums = selectedTelefonos();
+    const { numeros: nums, sinWhatsapp, repetidos } = resumirSeleccionBroadcastCrm(crmRows, selected);
     const countEl = $('#broadcastCount');
     const btn = $('#broadcastSendBtn');
-    const sinWhatsapp = selected.size - nums.length;
     if (countEl) countEl.textContent = `${selected.size} seleccionado${selected.size === 1 ? '' : 's'}`;
     const hintEl = $('#broadcastHint');
     if (hintEl) {
-      // El aviso solo aparece si de verdad hay alguien que no va a recibir nada.
-      hintEl.textContent = sinWhatsapp > 0
-        ? `${sinWhatsapp} sin WhatsApp — no recibirá${sinWhatsapp === 1 ? '' : 'n'} el mensaje`
-        : '';
-      hintEl.style.display = sinWhatsapp > 0 ? '' : 'none';
+      const avisos = [];
+      if (sinWhatsapp) avisos.push(`${sinWhatsapp} sin WhatsApp válido`);
+      if (repetidos) avisos.push(`${repetidos} número${repetidos === 1 ? '' : 's'} repetido${repetidos === 1 ? '' : 's'}`);
+      hintEl.textContent = avisos.join(' · ');
+      hintEl.style.display = avisos.length ? '' : 'none';
     }
     if (btn) {
       btn.disabled = nums.length === 0;
@@ -192,11 +281,12 @@ async function renderRegistros(main) {
     overlay.style.alignItems = 'center';
     overlay.style.zIndex = '500';
     overlay.innerHTML = `
-      <div class="action-sheet" style="max-width:480px;">
+      <div class="action-sheet" role="dialog" aria-modal="true" aria-label="Enviar plantilla por WhatsApp" style="max-width:480px;">
         <div class="sheet-group" style="padding:16px;text-align:left;">
           <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Enviar plantilla por WhatsApp</div>
           <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${telefonos.length} destinatario${telefonos.length !== 1 ? 's' : ''} · Solo templates aprobados por Meta (sin variables {{1}} por ahora)</div>
-          <div class="field-help" style="margin-bottom:12px;">Limitación: solo templates sin placeholders. Si el template requiere parámetros, Meta devolverá error y se reportará en el resumen.</div>
+          <div class="field-help" style="margin-bottom:12px;">Solo se permiten templates sin placeholders. El servidor comprueba el template antes de crear el envío.</div>
+          <div class="field-help" style="margin-bottom:12px;">El mismo template al mismo conjunto de destinatarios se acepta una sola vez por 24 horas. Un reintento muestra el trabajo original.</div>
           <div id="bcTemplates"><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div></div>
           <div id="bcSelectedInfo" style="font-size:12px;color:var(--text-muted);margin:8px 0 10px;"></div>
           <div style="display:flex;gap:8px;">
@@ -209,8 +299,28 @@ async function renderRegistros(main) {
       </div>
     `;
     document.body.appendChild(overlay);
-    requestAnimationFrame(() => overlay.classList.add('open'));
-    const close = () => { overlay.classList.remove('open'); setTimeout(() => overlay.remove(), 260); };
+    const opener = main.querySelector('#broadcastSendBtn');
+    requestAnimationFrame(() => { overlay.classList.add('open'); overlay.querySelector('#bcCancel')?.focus({ preventScroll: true }); });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('hashchange', close);
+      document.removeEventListener('keydown', onKey);
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 260);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key !== 'Tab') return;
+      const controls = Array.from(overlay.querySelectorAll('button')).filter(el => !el.disabled && el.getClientRects().length);
+      if (!controls.length) return;
+      if (e.shiftKey && (document.activeElement === controls[0] || !overlay.contains(document.activeElement))) { e.preventDefault(); controls.at(-1).focus(); }
+      else if (!e.shiftKey && (document.activeElement === controls.at(-1) || !overlay.contains(document.activeElement))) { e.preventDefault(); controls[0].focus(); }
+    };
+    window.addEventListener('hashchange', close);
+    document.addEventListener('keydown', onKey);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.querySelector('#bcCancel').addEventListener('click', close);
 
@@ -221,8 +331,61 @@ async function renderRegistros(main) {
     const confirmBtn = overlay.querySelector('#bcConfirm');
     const alertEl = overlay.querySelector('#bcAlert');
     const resultEl = overlay.querySelector('#bcResult');
+    const lastJobKey = 'tooli.broadcast.lastJob';
+    let trackedJobId = null;
+    let buttonCloses = false;
+
+    function renderJob(job) {
+      const enviados = Array.isArray(job.enviados) ? job.enviados : [];
+      const fallidos = Array.isArray(job.fallidos) ? job.fallidos : [];
+      const total = job.solicitados ?? telefonos.length;
+      const terminado = job.estado === 'completado';
+      const procesados = enviados.length + fallidos.length + (job.duplicadosOmitidos ?? 0);
+      resultEl.innerHTML = `
+        <div class="alert ${terminado ? (fallidos.length === 0 ? 'alert-success' : enviados.length === 0 ? 'alert-error' : 'alert-info') : 'alert-info'}" style="margin:0 0 10px;">
+          <div style="font-weight:700;margin-bottom:4px;">${terminado ? `${enviados.length}/${total} enviados correctamente` : `En proceso: ${procesados}/${total} revisados`}</div>
+          <div style="font-size:12.5px;">Plantilla: <strong>${escapeHtml(job.templateName)}</strong> (${escapeHtml(job.language)})</div>
+          ${terminado ? '' : '<div style="font-size:12px;margin-top:5px;">Puedes cerrar esta ventana; el envío continuará y podrás consultar el resultado al volver.</div>'}
+        </div>
+        ${fallidos.length ? `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:#fff;"><div style="font-size:12px;font-weight:600;margin-bottom:6px;">Fallidos o sin confirmar (${fallidos.length}):</div>${fallidos.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><span style="font-weight:600;">+${escapeHtml(f.numero)}</span><span style="color:var(--danger);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.error)}</span></div>`).join('')}</div>` : ''}
+        ${enviados.length ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Enviados: ${enviados.map(n => '+' + escapeHtml(n.slice(-4))).join(', ')}</div>` : ''}
+      `;
+      if (terminado) {
+        confirmBtn.textContent = 'Cerrar';
+        confirmBtn.disabled = false;
+        buttonCloses = true;
+      } else {
+        confirmBtn.textContent = 'En proceso…';
+        confirmBtn.disabled = true;
+      }
+      return terminado;
+    }
+
+    async function pollJob(id) {
+      if (!overlay.isConnected || trackedJobId !== id) return;
+      try {
+        const res = await api(`/api/tools/broadcast/jobs/${encodeURIComponent(id)}`);
+        if (!overlay.isConnected || trackedJobId !== id || !res) return;
+        if (res.status === 404) {
+          try { localStorage.removeItem(lastJobKey); } catch { /* almacenamiento local opcional */ }
+          trackedJobId = null;
+          resultEl.innerHTML = '';
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { job } = await res.json();
+        if (!overlay.isConnected || trackedJobId !== id) return;
+        alertEl.innerHTML = '';
+        if (renderJob(job)) return;
+      } catch {
+        if (!overlay.isConnected || trackedJobId !== id) return;
+        alertEl.innerHTML = '<div class="alert alert-error" style="margin:0;">No se pudo actualizar el progreso. El envío sigue en la cola; se intentará consultar de nuevo.</div>';
+      }
+      setTimeout(() => pollJob(id), 2500);
+    }
 
     function renderTemplates() {
+      if (!overlay.isConnected) return;
       if (!templates.length) {
         listEl.innerHTML = `<div class="widget-empty" style="padding:14px 0;">No hay templates aprobados disponibles — crealos en el Business Manager de Meta y aparecerán aquí. Sin credenciales WABA en este entorno la lista viene vacía.</div>`;
         confirmBtn.disabled = true;
@@ -242,6 +405,10 @@ async function renderRegistros(main) {
       listEl.querySelectorAll('.bc-template-row').forEach(btn => btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.idx);
         chosen = templates[idx];
+        trackedJobId = null;
+        buttonCloses = false;
+        resultEl.innerHTML = '';
+        alertEl.innerHTML = '';
         haptic(10);
         renderTemplates();
       }));
@@ -249,26 +416,34 @@ async function renderRegistros(main) {
 
     try {
       const r = await api('/api/tools/broadcast/templates');
+      if (!overlay.isConnected || !r) return;
       if (!r.ok) throw new Error('No se pudieron cargar los templates');
       const data = await r.json();
+      if (!overlay.isConnected) return;
       templates = data.templates ?? [];
+      renderTemplates();
     } catch (err) {
-      listEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudieron cargar los templates: ${escapeHtml(err.message || String(err))}</div>`;
-      return;
+      if (overlay.isConnected) listEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudieron cargar los templates: ${escapeHtml(err.message || String(err))}</div>`;
     }
-    renderTemplates();
+    try {
+      const lastJob = localStorage.getItem(lastJobKey);
+      if (lastJob) { trackedJobId = lastJob; void pollJob(lastJob); }
+    } catch { /* almacenamiento local opcional */ }
 
     confirmBtn.addEventListener('click', async () => {
+      if (buttonCloses) { close(); return; }
       if (!chosen) return;
-      confirmBtn.disabled = true; confirmBtn.textContent = 'Enviando…';
+      confirmBtn.disabled = true; confirmBtn.textContent = 'Programando…';
       alertEl.innerHTML = '';
-      resultEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;"><span class="spinner"></span> Enviando ${telefonos.length} mensajes con delay entre envíos…</div>`;
+      resultEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;"><span class="spinner"></span> Creando trabajo de envío…</div>`;
       try {
         const res = await api('/api/tools/broadcast/send', {
           method: 'POST',
           body: JSON.stringify({ templateName: chosen.name, language: chosen.language, telefonos }),
         });
+        if (!overlay.isConnected || !res) return;
         const body = await res.json().catch(() => ({}));
+        if (!overlay.isConnected) return;
         if (!res.ok) {
           const msg = body.message || body.error || `HTTP ${res.status}`;
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}${res.status === 403 ? ' — Solo administradores pueden enviar broadcasts.' : ''}</div>`;
@@ -277,26 +452,16 @@ async function renderRegistros(main) {
           haptic([20,30,20]);
           return;
         }
-        const enviados = body.enviados ?? [];
-        const fallidos = body.fallidos ?? [];
-        const total = body.total ?? telefonos.length;
-        if (fallidos.length === 0) haptic([15,40,15]); else if (enviados.length === 0) haptic([20,30,20]); else haptic([10,20,10]);
-        resultEl.innerHTML = `
-          <div class="alert ${fallidos.length === 0 ? 'alert-success' : enviados.length === 0 ? 'alert-error' : 'alert-info'}" style="margin:0 0 10px;">
-            <div style="font-weight:700;margin-bottom:4px;">${enviados.length}/${total} enviados correctamente</div>
-            <div style="font-size:12.5px;">Plantilla: <strong>${escapeHtml(chosen.name)}</strong> (${escapeHtml(chosen.language)})</div>
-          </div>
-          ${fallidos.length ? `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;padding:8px;background:#fff;"><div style="font-size:12px;font-weight:600;margin-bottom:6px;">Fallidos (${fallidos.length}):</div>${fallidos.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;"><span style="font-weight:600;">+${escapeHtml(f.numero)}</span><span style="color:var(--danger);flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.error)}</span></div>`).join('')}</div>` : ''}
-          ${enviados.length ? `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Enviados: ${enviados.map(n => '+' + escapeHtml(n.slice(-4))).join(', ')}</div>` : ''}
-        `;
-        toast(fallidos.length === 0 ? `¡${enviados.length} mensajes enviados!` : `${enviados.length} enviados, ${fallidos.length} fallidos`);
-        confirmBtn.textContent = 'Cerrar';
-        confirmBtn.disabled = false;
-        confirmBtn.onclick = close;
-        // Al enviar con éxito, limpiar selección en el CRM
-        if (enviados.length) { selected.clear(); updateBroadcastBar(); renderCrmGrid(); }
+        const job = body.job;
+        if (!job?.id) throw new Error('El servidor no devolvió el trabajo de envío');
+        trackedJobId = job.id;
+        try { localStorage.setItem(lastJobKey, job.id); } catch { /* almacenamiento local opcional */ }
+        haptic([10,20,10]);
+        toast(job.estado === 'completado' ? 'Revisa el resultado del envío' : 'Envío programado; puedes cerrar esta ventana');
+        if (!renderJob(job)) void pollJob(job.id);
       } catch (err) {
-        alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">Error de conexión: ${escapeHtml(err.message || String(err))}</div>`;
+        if (!overlay.isConnected) return;
+        alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudo confirmar el trabajo: ${escapeHtml(err.message || String(err))}. Si reintentas la misma selección, el servidor devolverá el trabajo existente durante 24 horas.</div>`;
         resultEl.innerHTML = '';
         confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${telefonos.length}`;
         haptic([20,30,20]);
@@ -305,8 +470,12 @@ async function renderRegistros(main) {
   }
 
   setPullToRefresh(() => loadReg());
+  const regContent = main.querySelector('#regContent');
+  let loadSeq = 0;
   async function loadReg() {
-    $('#refreshReg').querySelector('.refresh-icon')?.classList.add('spin-once');
+    if (!regContent?.isConnected) return;
+    const seq = ++loadSeq;
+    main.querySelector('#refreshReg')?.querySelector('.refresh-icon')?.classList.add('spin-once');
     try {
       // Las fichas se traen en una sola llamada junto con los registros: una
       // por tarjeta sería un N+1 contra el backend al pintar la grilla.
@@ -314,13 +483,29 @@ async function renderRegistros(main) {
         api('/api/tools/registros-posgrado'),
         api('/api/tools/crm/fichas').then(x => x.json()).catch(() => ({ fichas: {} })),
       ]);
+      if (!regContent.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { rows } = await r.json();
+      if (!regContent.isConnected || seq !== loadSeq) return;
+      // La selección usa índices de la respuesta actual. Una actualización
+      // puede reordenar el Sheet; conservar esos índices enviaría la plantilla
+      // a prospectos distintos de los que eligió el asesor.
+      if (selected.size) {
+        selected.clear();
+        updateBroadcastBar();
+        toast('La lista cambió; vuelve a seleccionar los destinatarios');
+      }
       crmFichas = fichasRes.fichas ?? {};
       crmRows = rows ?? [];
+      const resumenCarga = resumirSegmentos(crmRows);
+      const pintarResumen = (visibles) => {
+        const el = $('#crmSegResumen');
+        if (el) el.textContent = textoResumenSegmentos(resumenCarga, visibles);
+      };
       if (!crmRows.length) {
-        $('#regContent').innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
+        regContent.innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros de Pregrado ni Posgrado aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
         $('#crmFilterWrap').innerHTML = '';
+        pintarResumen(0);
         return;
       }
       const counts = crmRows.reduce((acc, row) => { const c = crmCategoria(row); acc[c] = (acc[c] ?? 0) + 1; return acc; }, {});
@@ -332,6 +517,8 @@ async function renderRegistros(main) {
         ],
         crmFilter, (v) => { crmFilter = v; renderCrmGrid(); },
       ));
+      hacerSegmentadoAccesible($('#crmFilterWrap .segmented'), 'Filtrar prospectos por segmento Pregrado o Posgrado');
+      pintarResumen(crmRows.length);
 
       // Segundo filtro: etapa del embudo. Solo aparece si alguien ya movió
       // fichas — si no, sería un control que no filtra nada.
@@ -353,27 +540,25 @@ async function renderRegistros(main) {
           etapaCounts[crmEtapa] ? crmEtapa : 'todas',
           (v) => { crmEtapa = v; renderCrmGrid(); },
         ));
+        hacerSegmentadoAccesible($('#crmEtapaWrap .segmented'), 'Filtrar prospectos por etapa del embudo');
       }
       renderCrmGrid();
     } catch (err) {
       console.error(err);
-      $('#regContent').innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros. Verifica que el Sheet esté configurado.</div>';
+      if (regContent.isConnected && seq === loadSeq) regContent.innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros. Verifica que el Sheet esté configurado.</div>';
     }
   }
 
   function renderCrmGrid() {
     const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
-    const filtered = crmRows.filter((row, i) => {
-      row.__i = i;
-      if (crmFilter !== 'todos' && crmCategoria(row) !== crmFilter) return false;
-      if (crmEtapa !== 'todas') {
-        const est = crmFichas[row[3]]?.estado ?? 'nuevo';
-        if (est !== crmEtapa) return false;
-      }
-      if (crmSoloMios && crmFichas[row[3]]?.asignadoA !== sesion.user?.username) return false;
-      if (!q) return true;
-      return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(q));
+    const pares = filtrarCrmRows(crmRows, {
+      segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+      usuario: sesion.user?.username, q, fichas: crmFichas,
     });
+    const resumen = resumirSegmentos(crmRows);
+    const resumenEl = $('#crmSegResumen');
+    if (resumenEl) resumenEl.textContent = textoResumenSegmentos(resumen, pares.length);
+    const filtered = pares;
     if (!filtered.length) {
       // Un "sin resultados" mudo obliga a adivinar cuál de los tres filtros
       // activos lo dejó vacío: se dice cuál y se ofrece quitarlo.
@@ -403,14 +588,14 @@ async function renderRegistros(main) {
     }
     $('#regContent').innerHTML = `
       <div class="crm-grid stagger-in">
-        ${filtered.map(row => {
+        ${filtered.map(({ row, idx }) => {
           const cat = crmCategoria(row);
           const nombre = row[1] || 'Sin nombre';
-          const hasPhone = String(row[3] || '').replace(/\D/g, '').length >= 8;
-          const isSelected = selected.has(row.__i);
+          const hasPhone = Boolean(telefonoBroadcastCrm(row));
+          const isSelected = selected.has(idx);
           return `
-          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${row.__i}" style="position:relative;">
-            ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${row.__i}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
+          <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" ${selectMode ? '' : `tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}"`} style="position:relative;">
+            ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${idx}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
             ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:#dc2626;font-size:10px;">Sin WhatsApp</span>` : ''}
             <div class="advisor-card-top" style="${selectMode ? 'margin-top:6px;' : ''}">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[3] || nombre, nombre)}</div>
@@ -450,6 +635,7 @@ async function renderRegistros(main) {
         return;
       }
       card.addEventListener('click', () => openStudentProfile(row));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openStudentProfile(row); } });
       contextSheet(card, {
         title: row[1] || 'Prospecto',
         subtitle: row[2] || undefined,
@@ -480,11 +666,13 @@ async function renderRegistros(main) {
         flowInfo = { step: flowCategory(info.session?.step), last: info.recentMessages?.[0] ?? null, banned: info.banned };
       } catch { /* sin datos de conversación disponibles */ }
     }
+    if (!regContent.isConnected) return;
     let ficha = null;
     if (phone) {
       try { ficha = (await (await api(`/api/tools/crm/${phone}`)).json()).ficha; }
       catch { /* la ficha es opcional: si falla, el perfil se abre igual */ }
     }
+    if (!regContent.isConnected) return;
     openProfileSheet({
       avatarBg: avatarTone(nombre || phone), avatarText: initialsFor(phone || nombre, nombre),
       title: nombre || 'Prospecto', subtitle: email || (phone ? `+${phone}` : undefined),
@@ -515,4 +703,4 @@ async function renderRegistros(main) {
   loadReg();
 }
 
-export { renderRegistros };
+export { renderRegistros, CRM_CSV_CABECERA, crmPasaFiltros, filtrarCrmRows, telefonoBroadcastCrm, resumirSeleccionBroadcastCrm, resumirSegmentos, textoResumenSegmentos, filasCrmParaCsv };

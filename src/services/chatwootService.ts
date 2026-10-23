@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
+import { describeError } from './logSafe';
 
 let client: AxiosInstance | null = null;
 
@@ -47,8 +48,8 @@ export async function getOrCreateContact(phoneNumber: string, name: string): Pro
       });
       return { contactId: existing.id, sourceId: newCi.data?.source_id ?? phoneNumber };
     }
-  } catch (err: any) {
-    console.error('[chatwoot] error buscando contacto:', err?.response?.data ?? err?.message);
+  } catch (err: unknown) {
+    console.error('[chatwoot] error buscando contacto:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
   }
 
   // 2. Crear contacto nuevo
@@ -209,8 +210,8 @@ export async function getConversationStats(): Promise<ChatwootStats> {
       resolvedToday,
       agents,
     };
-  } catch (err: any) {
-    console.error('[chatwoot] error obteniendo estadísticas:', err?.response?.data ?? err?.message);
+  } catch (err: unknown) {
+    console.error('[chatwoot] error obteniendo estadísticas:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
     return zero;
   }
 }

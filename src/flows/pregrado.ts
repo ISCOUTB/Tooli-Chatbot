@@ -3,25 +3,129 @@ import { guardarRegistroProspecto } from '../services/registroService';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
 import { config } from '../config';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu } from './shared';
+import { FlowContext, messaging, sendMenu, sendMenuPregrado } from './shared';
+import { parseGlobalCommand } from './commands';
+import {
+  buildUndecidedLabel,
+  formatAreasMessage,
+  formatCareersMessage,
+  getAreaById,
+  getGuidanceState,
+  parseAreaSelection,
+  parseCareerSelection,
+  isGuidanceRequest,
+  selectedInterest,
+  withGuidance,
+  withoutGuidance,
+  type PregradoAreaId,
+} from './pregradoGuidance';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+async function salirDelPregrado(from: string, text: string): Promise<boolean> {
+  const command = parseGlobalCommand(text);
+  if (command === 'menu' || command === 'salir') {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return true;
+  }
+  if (command === 'volver') {
+    await setSession(from, { step: 'menu_pregrado', data: {} });
+    await sendMenuPregrado(from);
+    return true;
+  }
+  return false;
+}
+
+type PregradoCarreraStep = 'pregrado_registro_carrera' | 'pregrado_prospecto_carrera';
+
+/* ===== Subnavegación de orientación (P02) =====
+   Vive en los datos de sesión (`pregrado_guidance_stage` /
+   `pregrado_guidance_area`) dentro del mismo paso de carrera, así que no
+   se agregan handlers al índice. Los comandos globales se atienden antes
+   (ver `salirDelPregrado`), por eso `0` sigue siendo "volver". */
+
+async function goToAreaSelection(
+  from: string,
+  step: PregradoCarreraStep,
+  data: Record<string, string>,
+  mode: 'initial' | 'invalid',
+): Promise<void> {
+  await setSession(from, { step, data: withGuidance(data, { stage: 'area' }) });
+  await messaging.sendText({ to: from, text: formatAreasMessage(mode) });
+}
+
+async function goToCareerSelection(
+  from: string,
+  step: PregradoCarreraStep,
+  data: Record<string, string>,
+  areaId: PregradoAreaId,
+  mode: 'initial' | 'invalid',
+): Promise<void> {
+  await setSession(from, { step, data: withGuidance(data, { stage: 'career', areaId }) });
+  await messaging.sendText({ to: from, text: formatCareersMessage(areaId, mode) });
+}
+
+/**
+ * Resuelve un mensaje recibido dentro del paso de carrera contra la guía.
+ * Devuelve la carrera final (concreta del catálogo o "Aún no sé" etiquetado
+ * con el área) o null cuando ya respondió al usuario y el handler debe parar.
+ */
+async function resolveGuidedCarrera(
+  from: string,
+  step: PregradoCarreraStep,
+  text: string,
+  data: Record<string, string>,
+): Promise<string | null> {
+  const guidance = getGuidanceState(data);
+
+  if (data.pregrado_guidance_stage && !guidance) {
+    await goToAreaSelection(from, step, withoutGuidance(data), 'invalid');
+    return null;
+  }
+
+  if (guidance?.stage === 'area') {
+    const areaId = parseAreaSelection(text);
+    if (!areaId) {
+      await goToAreaSelection(from, step, data, 'invalid');
+      return null;
+    }
+    await goToCareerSelection(from, step, data, areaId, 'initial');
+    return null;
+  }
+
+  if (guidance?.stage === 'career' && guidance.areaId) {
+    const selection = parseCareerSelection(text, guidance.areaId);
+    if (selection.kind === 'invalid') {
+      await goToCareerSelection(from, step, data, guidance.areaId, 'invalid');
+      return null;
+    }
+    if (selection.kind === 'undecided') {
+      const label = getAreaById(guidance.areaId)?.label ?? '';
+      return buildUndecidedLabel(label);
+    }
+    return selection.career;
+  }
+
+  if (isGuidanceRequest(text)) {
+    await goToAreaSelection(from, step, data, 'initial');
+    return null;
+  }
+
+  return text.trim();
+}
+
 /* ===== Registro de interés (guarda en el mismo sheet que posgrado,
    distinguido por la columna "área" — ver registroService.ts) =====
-   No existe un listado fijo de carreras de pregrado en el sistema (a
-   diferencia de posgrado, que sí tiene categorías fijas), así que se
-   pregunta la carrera como texto libre en vez de inventar una lista. */
+   La carrera se puede escribir como texto libre; quien escribe una
+   variante de "no sé" entra a la guía por áreas de `pregradoGuidance.ts`
+   (catálogo de `knowledgeBase.ts`) sin que "no sé" quede como carrera. */
 
 export async function handlePregradoRegistroNombre(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
-  if (nombre.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (nombre.length < 3) {
     await messaging.sendText({
@@ -40,13 +144,10 @@ export async function handlePregradoRegistroNombre(ctx: FlowContext): Promise<vo
 
 export async function handlePregradoRegistroEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const email = text.trim().toLowerCase();
 
-  if (email === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
@@ -56,40 +157,56 @@ export async function handlePregradoRegistroEmail(ctx: FlowContext): Promise<voi
     return;
   }
 
-  await setSession(from, { step: 'pregrado_registro_carrera', data: { ...session?.data, email } });
+  const nextData: Record<string, string> = { ...session?.data, email };
+  await setSession(from, { step: 'pregrado_registro_carrera', data: nextData });
+  const carreraInteres = selectedInterest(nextData);
+  if (carreraInteres) {
+    await handlePregradoRegistroCarrera({
+      from,
+      text: carreraInteres,
+      session: { step: 'pregrado_registro_carrera', data: nextData },
+    });
+    return;
+  }
   await messaging.sendText({
     to: from,
-    text: '¿Qué *carrera* te interesa?\n\n_Puedes ser específico (ej: "Ingeniería de Sistemas") o general (ej: "algo de salud", "no sé aún")._\n\nEscribe *menu* para cancelar.',
+    text: '¿Qué *carrera* te interesa?\n\n_Puedes escribirla directamente (ej: "Ingeniería de Sistemas"). Si aún no lo sabes, escribe *"no sé"* y te muestro las áreas para explorar._\n\nEscribe *menu* para cancelar.',
   });
 }
 
 export async function handlePregradoRegistroCarrera(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const carrera = text.trim();
 
-  if (carrera.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const data = { ...(session?.data ?? {}) };
+  const carrera = await resolveGuidedCarrera(from, 'pregrado_registro_carrera', text, data);
+  if (carrera === null) return;
 
   if (carrera.length < 2) {
     await messaging.sendText({
       to: from,
-      text: 'Por favor dime qué carrera te interesa (mínimo 2 caracteres).\n_Ejemplo: "Ingeniería de Sistemas" o "no sé aún"._\n\nEscribe *menu* para cancelar.',
+      text: 'Por favor dime qué carrera te interesa (mínimo 2 caracteres).\n_Ejemplo: "Ingeniería de Sistemas". Si aún no lo sabes, escribe *"no sé"* y te ayudo a explorar._\n\nEscribe *menu* para cancelar.',
     });
     return;
   }
 
-  const nombre = session?.data.nombre ?? 'Desconocido';
-  const email = session?.data.email ?? '';
+  const cleanData = withoutGuidance(data);
+  const nombre = cleanData.nombre ?? 'Desconocido';
+  const email = cleanData.email ?? '';
 
   try {
     await guardarRegistroProspecto({ nombre, email, whatsapp: from, programa: carrera, area: 'Pregrado' });
-    await track('registro_pregrado_completado');
-  } catch (err) {
-    console.error('[pregrado] error guardando en Sheets:', err);
+  } catch {
+    console.error('[pregrado] no se pudo confirmar el guardado en Sheets');
+    await messaging.sendText({
+      to: from,
+      text: 'No pude confirmar que tu registro se haya guardado. Por favor vuelve a enviar tu última respuesta sobre la carrera para intentarlo de nuevo, o escribe *menu* para salir.',
+    });
+    return;
   }
+
+  await track('registro_pregrado_completado');
 
   await setSession(from, { step: 'menu', data: {} });
   await messaging.sendText({
@@ -114,11 +231,7 @@ export async function handlePregradoProspectoNombre(ctx: FlowContext): Promise<v
   const { from, text, session } = ctx;
   const nombre = text.trim();
 
-  if (nombre.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
 
   if (nombre.length < 3) {
     await messaging.sendText({
@@ -137,13 +250,10 @@ export async function handlePregradoProspectoNombre(ctx: FlowContext): Promise<v
 
 export async function handlePregradoProspectoEmail(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const email = text.trim().toLowerCase();
 
-  if (email === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const email = text.trim().toLowerCase();
 
   if (!EMAIL_REGEX.test(email)) {
     await messaging.sendText({
@@ -153,32 +263,41 @@ export async function handlePregradoProspectoEmail(ctx: FlowContext): Promise<vo
     return;
   }
 
-  await setSession(from, { step: 'pregrado_prospecto_carrera', data: { ...session?.data, email } });
+  const nextData: Record<string, string> = { ...session?.data, email };
+  await setSession(from, { step: 'pregrado_prospecto_carrera', data: nextData });
+  const carreraInteres = selectedInterest(nextData);
+  if (carreraInteres) {
+    await handlePregradoProspectoCarrera({
+      from,
+      text: carreraInteres,
+      session: { step: 'pregrado_prospecto_carrera', data: nextData },
+    });
+    return;
+  }
   await messaging.sendText({
     to: from,
-    text: '¿Qué *carrera* te interesa?\n\n_Puedes ser específico (ej: "Ingeniería de Sistemas") o general (ej: "algo de salud", "no sé aún")._\n\nEscribe *menu* para cancelar.',
+    text: '¿Qué *carrera* te interesa?\n\n_Puedes escribirla directamente (ej: "Ingeniería de Sistemas"). Si aún no lo sabes, escribe *"no sé"* y te muestro las áreas para explorar._\n\nEscribe *menu* para cancelar.',
   });
 }
 
 export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const carrera = text.trim();
 
-  if (carrera.toLowerCase() === 'menu') {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDelPregrado(from, text)) return;
+
+  const rawData = { ...(session?.data ?? {}) };
+  const carrera = await resolveGuidedCarrera(from, 'pregrado_prospecto_carrera', text, rawData);
+  if (carrera === null) return;
 
   if (carrera.length < 2) {
     await messaging.sendText({
       to: from,
-      text: 'Por favor dime qué carrera te interesa (mínimo 2 caracteres).\n_Ejemplo: "Ingeniería de Sistemas" o "no sé aún"._\n\nEscribe *menu* para cancelar.',
+      text: 'Por favor dime qué carrera te interesa (mínimo 2 caracteres).\n_Ejemplo: "Ingeniería de Sistemas". Si aún no lo sabes, escribe *"no sé"* y te ayudo a explorar._\n\nEscribe *menu* para cancelar.',
     });
     return;
   }
 
-  const data = session?.data ?? {};
+  const data = withoutGuidance(rawData);
 
   const nombre = data.nombre ?? 'Prospecto';
   const email = data.email ?? '';
@@ -240,8 +359,8 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
         'Cualquier mensaje que escribas le llegará directamente.\n' +
         'Para terminar la conversación, escribe *salir*.',
     });
-  } catch (err) {
-    console.error('[pregrado-prospecto] error creando conversación Chatwoot:', err);
+  } catch {
+    console.error('[pregrado-prospecto] no se pudo crear conversación Chatwoot');
     await setSession(from, { step: 'menu', data: {} });
     await messaging.sendText({
       to: from,

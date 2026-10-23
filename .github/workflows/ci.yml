@@ -25,12 +25,14 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
-      - name: Lint (no-fail)
-        run: npm run lint || true
-        continue-on-error: true
+      - name: Lint
+        run: npm run lint
 
   docker-build:
     name: Docker build
@@ -82,6 +84,9 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    concurrency:
+      group: tooli-production
+      cancel-in-progress: false
     needs: [typecheck-build, docker-build, validate-configs]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
@@ -94,7 +99,7 @@ jobs:
           script: |
             set -e
             cd ~/tooli-chatbot
-            git pull origin main
-            # Solo el backend: evolution-api ya no se usa (MESSAGING_ADAPTER=meta) y su
-            # imagen base ya no se puede descargar, así que reconstruirlo tumbaba el deploy.
-            docker compose up -d --build backend
+            git pull --ff-only origin main
+            python3 tools/deploy-preflight.py
+            # No recrear Redis ni Chatwoot sin la migración de datos previa.
+            docker compose up -d --build --no-deps backend

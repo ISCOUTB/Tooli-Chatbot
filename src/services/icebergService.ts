@@ -79,8 +79,8 @@ async function solveCaptchaWithOpenAI(imageBuffer: Buffer): Promise<string | nul
     if (text) {
       return text.replace(/[^a-zA-Z0-9]/g, '').trim();
     }
-  } catch (err: any) {
-    console.error('[openai-ocr] error:', err?.message ?? err);
+  } catch {
+    console.error('[openai-ocr] no se pudo resolver el captcha');
   }
   return null;
 }
@@ -179,7 +179,7 @@ async function extractMatriculaFechas(page: Page): Promise<MatriculaFecha[]> {
     // Esto es robusto ante cualquier versión de ZK Framework.
     const bodyText = await page.locator('body').innerText().catch(() => '');
 
-    console.log(`[iceberg] texto página (primeros 500): ${bodyText.slice(0, 500)}`);
+    console.log(`[iceberg] página recibida (${bodyText.length} caracteres)`);
 
     const matriculas: MatriculaFecha[] = [];
     const DATE_RE = /(\d{2}\/\d{2}\/\d{4})/g;
@@ -216,10 +216,10 @@ async function extractMatriculaFechas(page: Page): Promise<MatriculaFecha[]> {
       }
     }
 
-    console.log(`[iceberg] fechas extraídas: ${JSON.stringify(matriculas)}`);
+    console.log(`[iceberg] tipos de matrícula encontrados: ${matriculas.length}`);
     return matriculas;
-  } catch (err: any) {
-    console.error('[iceberg] error extrayendo fechas de matrícula:', err?.message);
+  } catch {
+    console.error('[iceberg] no se pudieron extraer fechas de matrícula');
     return [];
   }
 }
@@ -303,14 +303,14 @@ async function tryDownloadFromMenu(
   const generarBtn = page.locator('text="Generar Recibo"').first();
   const btnVisible = await generarBtn.isVisible().catch(() => false);
   console.log(`[iceberg] botón "Generar Recibo" visible: ${btnVisible}`);
-  await generarBtn.click({ timeout: 5_000 }).catch((e: any) => console.error('[iceberg] click Generar Recibo falló:', e?.message));
+  await generarBtn.click({ timeout: 5_000 }).catch(() => console.error('[iceberg] click Generar Recibo falló'));
 
   // Esperar lo que llegue primero: nueva pestaña o descarga directa
   let pdfBuffer: Buffer | undefined;
   try {
     const result = await Promise.race([
       newPagePromise.then(async (pdfPage) => {
-        console.log('[iceberg] nueva pestaña abierta:', pdfPage.url());
+        console.log('[iceberg] nueva pestaña de recibo abierta');
         await pdfPage.waitForLoadState('domcontentloaded', { timeout: 15_000 });
 
         if (debug) {
@@ -329,7 +329,7 @@ async function tryDownloadFromMenu(
         return Buffer.from(pdfBytes);
       }),
       downloadPromise.then(async (download) => {
-        console.log('[iceberg] descarga directa detectada:', download.suggestedFilename());
+        console.log('[iceberg] descarga directa detectada');
         const buffer = await download.createReadStream().then((stream: any) =>
           new Promise<Buffer>((resolve, reject) => {
             const chunks: Buffer[] = [];
@@ -342,9 +342,9 @@ async function tryDownloadFromMenu(
       }),
     ]);
     pdfBuffer = result;
-  } catch (err: any) {
-    console.error(`[iceberg] error esperando PDF en menú ${menuName}:`, err?.message);
-    return { found: true, error: `No se pudo obtener el PDF: ${err?.message ?? err}` };
+  } catch {
+    console.error(`[iceberg] error esperando PDF en menú ${menuName}`);
+    return { found: true, error: 'No se pudo obtener el PDF del portal' };
   }
 
   if (!pdfBuffer || pdfBuffer.length === 0) {
@@ -448,7 +448,7 @@ async function loginAndDownloadReceiptInternal(
       }
 
       captchaAttempts.push({ solver, text: captchaText });
-      console.log(`[iceberg] intento ${attempt}: solver=${solver} text="${captchaText}"`);
+      console.log(`[iceberg] intento ${attempt}: solver=${solver}, longitud=${captchaText?.length ?? 0}`);
 
       if (!captchaText || captchaText.length < 3) {
         lastError = `OCR devolvió texto muy corto`;
@@ -562,10 +562,10 @@ async function loginAndDownloadReceiptInternal(
 
     // No había registros en ningún menú
     return { ok: true, nombre, cedula: cedulaExtraida, noRecibos: true, captchaAttempts, debugFiles };
-  } catch (err: any) {
+  } catch {
     return {
       ok: false,
-      error: err?.message ?? 'unknown error',
+      error: 'No se pudo completar la consulta del portal',
       captchaAttempts,
       debugFiles,
     };

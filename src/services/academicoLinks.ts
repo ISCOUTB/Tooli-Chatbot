@@ -8,11 +8,9 @@
  *   plataformas) y de los enlaces institucionales que ya usaban otros flujos.
  *
  * QUÉ *NO* HACE ESTO:
- *   No consulta notas, ni horario, ni tareas. El bot no tiene integración con el
- *   sistema académico de la universidad (Banner/Savio no exponen una API a este
- *   proyecto). Lo que hace es llevar al estudiante, desde WhatsApp, al lugar
- *   exacto donde SÍ está su información, explicándole con qué credenciales entra
- *   y qué va a encontrar — que es lo que hoy la gente pierde tiempo buscando.
+ *   Las notas ya se consultan en el flujo protegido `notas.ts`. Horarios y tareas
+ *   todavía requieren entrar al portal institucional; este catálogo indica al
+ *   estudiante dónde hacerlo y con qué credenciales.
  *
  *   El día que exista una integración real, la costura está definida abajo en
  *   `AcademicoProvider`: se implementa ese contrato y los flujos pasan a mostrar

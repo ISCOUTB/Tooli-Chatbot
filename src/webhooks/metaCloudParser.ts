@@ -48,7 +48,9 @@ const MetaWebhookSchema = z.object({
               display_phone_number: z.string(),
               phone_number_id: z.string(),
             }),
-            messages: z.array(MetaMessageSchema).optional(),
+            // Un webhook puede mezclar texto con tipos no soportados. Validar
+            // cada mensaje aparte evita perder los demás por un audio/sticker.
+            messages: z.array(z.unknown()).optional(),
             statuses: z.array(z.unknown()).optional(),
           }),
           field: z.string(),
@@ -64,18 +66,23 @@ export type MetaWebhookPayload = z.infer<typeof MetaWebhookSchema>;
 
 /**
  * Parsea el body de un webhook de Meta WhatsApp Cloud API.
- * Devuelve el primer mensaje de texto/interactivo encontrado, o null si no aplica.
+ * Devuelve todos los mensajes manejables del payload en orden de entrega.
  */
-export function parseMetaCloudWebhook(body: unknown): InboundMessage | null {
+export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
   const result = MetaWebhookSchema.safeParse(body);
-  if (!result.success) return null;
+  if (!result.success) return [];
+
+  const inbound: InboundMessage[] = [];
 
   for (const entry of result.data.entry) {
     for (const change of entry.changes) {
       if (change.field !== 'messages') continue;
       const messages = change.value.messages ?? [];
 
-      for (const msg of messages) {
+      for (const rawMsg of messages) {
+        const parsed = MetaMessageSchema.safeParse(rawMsg);
+        if (!parsed.success) continue;
+        const msg = parsed.data;
         let text: string | undefined;
 
         let mediaId: string | undefined;
@@ -97,7 +104,7 @@ export function parseMetaCloudWebhook(body: unknown): InboundMessage | null {
 
         if (!text) continue; // audio, sticker — ignorar
 
-        return {
+        inbound.push({
           from: msg.from,
           messageId: msg.id,
           text,
@@ -105,10 +112,15 @@ export function parseMetaCloudWebhook(body: unknown): InboundMessage | null {
           phoneNumberId: change.value.metadata.phone_number_id,
           mediaId,
           mediaType,
-        };
+        });
       }
     }
   }
 
-  return null;
+  return inbound;
+}
+
+/** Compatibilidad con consumidores que solo necesitan el primer mensaje. */
+export function parseMetaCloudWebhook(body: unknown): InboundMessage | null {
+  return parseMetaCloudWebhooks(body)[0] ?? null;
 }

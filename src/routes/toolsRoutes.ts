@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 
-import { nutriaRouter } from './tools/nutria';
+import { nutriaRouter, nutriaRouterProtegido } from './tools/nutria';
 import { turnoRouter } from './tools/turno';
 import { reciboRouter } from './tools/recibo';
 import { metricsRouter } from './tools/metrics';
@@ -25,6 +25,7 @@ import { recordatoriosRouter } from './tools/recordatorios';
 import { broadcastRouter } from './tools/broadcast';
 import { crmRouter } from './tools/crm';
 import { quickRepliesRouter } from './tools/quickReplies';
+import { inboundRouter } from './tools/inbound';
 
 export const toolsRouter = Router();
 
@@ -34,6 +35,7 @@ toolsRouter.use(nutriaRouter);
 // ── Rutas PROTEGIDAS: todo lo que se monta debajo exige sesión de asesor ──────
 toolsRouter.use(requireAuth);
 
+toolsRouter.use(nutriaRouterProtegido);
 toolsRouter.use(turnoRouter);
 toolsRouter.use(reciboRouter);
 toolsRouter.use(metricsRouter);
@@ -46,3 +48,4 @@ toolsRouter.use(recordatoriosRouter);
 toolsRouter.use(broadcastRouter);
 toolsRouter.use(crmRouter);
 toolsRouter.use(quickRepliesRouter);
+toolsRouter.use(inboundRouter);
