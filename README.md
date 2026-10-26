@@ -25,6 +25,38 @@ con número verificado por la plataforma.
 
 ---
 
+## Tabla de contenido
+
+- [Ramas del repositorio](#ramas-del-repositorio)
+- [Por qué existe](#por-qué-existe)
+- [Los dos flujos](#los-dos-flujos)
+- [Arquitectura](#arquitectura)
+- [Stack técnico](#stack-técnico)
+- [Requisitos previos](#requisitos-previos)
+- [Instalación local](#instalación-local)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Dashboard de asesores](#dashboard-de-asesores)
+- [Pruebas](#pruebas)
+- [Variables de entorno](#variables-de-entorno)
+- [Despliegue](#despliegue)
+- [API REST](#api-rest)
+- [Privacidad y tratamiento de datos (Ley 1581 de 2012)](#privacidad-y-tratamiento-de-datos-ley-1581-de-2012)
+- [Otros módulos](#otros-módulos)
+
+---
+
+## Ramas del repositorio
+
+| Rama | Qué contiene | Despliega |
+|---|---|---|
+| `main` | El proyecto de grado: el bot con sus menús de pregrado y posgrado, el asistente de IA, el handoff a asesor y el panel. Es la rama que se lee para evaluar el trabajo. | No |
+| `tooli-pregrados` | Todo lo de `main` más los módulos que comparten backend pero son campañas aparte: la encuesta NutriA (con su propio número de WhatsApp), el registro de voluntarios y el flujo temporal de feria. | Sí, al VPS |
+
+Producción corre la rama completa, así que el trabajo del día a día va allí y
+`main` recibe solo lo que pertenece al proyecto de grado.
+
+---
+
 ## Por qué existe
 
 | | Antes | Con Tooli |
@@ -144,6 +176,37 @@ tableros en Grafana y reglas de alerta.
 
 ---
 
+## Requisitos previos
+
+| Requisito | Para qué |
+|---|---|
+| Node.js 20 LTS y npm | Ejecutar el backend y las pruebas. |
+| Docker y Docker Compose | Levantar Redis en local, y el despliegue completo. |
+| Cuenta de servicio de Google | Leer y escribir las hojas de turnos y registros. |
+| Credenciales de Meta WhatsApp Cloud API | Recibir y enviar mensajes. Sin ellas el bot arranca, pero no conversa. |
+| Clave de OpenAI | Asistente de IA. Opcional: el resto de los flujos funciona sin ella. |
+
+## Instalación local
+
+```bash
+git clone https://github.com/ISCOUTB/tooli-chatbot.git
+cd tooli-chatbot
+npm install
+
+cp .env.example .env     # completar los valores antes de arrancar
+docker compose up -d redis
+npm run dev              # http://localhost:3000
+```
+
+`src/config` valida el entorno al importarse: si falta una variable obligatoria
+el proceso no arranca y dice cuál es. El panel de asesores queda en
+`http://localhost:3000/app`.
+
+Para recibir mensajes reales hace falta exponer el webhook con una URL pública
+(por ejemplo con un túnel) y registrarla en la app de Meta.
+
+---
+
 ## Estructura del proyecto
 
 ```
@@ -221,7 +284,6 @@ REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-inbound-redis.mjs
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-broadcast-redis.mjs
 REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-chatwoot-webhook-redis.mjs
-REDIS_URL=redis://127.0.0.1:6389/15 node --env-file=.env.test --import tsx tools/test-nutria-redis.mjs
 docker stop tooli-redis-qa
 ```
 
@@ -295,6 +357,9 @@ docker compose logs -f backend
 
 nginx actúa como proxy inverso con certificado TLS sobre el backend en el puerto `3000`.
 
+El despliegue automático lo dispara el CI al hacer push a `tooli-pregrados`, que es la rama
+que corre en producción. `main` ejecuta typecheck, build y pruebas, pero no despliega.
+
 ---
 
 ## API REST
@@ -327,6 +392,11 @@ nginx actúa como proxy inverso con certificado TLS sobre el backend en el puert
 
 ## Otros módulos
 
-El mismo backend aloja **NutriA**, un bot independiente para un proyecto de investigación de la
-universidad: una encuesta guiada sobre hábitos de consumo y marketing digital, con registro en
-Google Sheets y un tablero público de resultados en vivo.
+El mismo backend aloja otros dos módulos que no forman parte del proyecto de grado y viven en la
+rama `tooli-pregrados`: **NutriA**, una encuesta guiada sobre hábitos de consumo y marketing
+digital para un proyecto de investigación de la universidad, con su propio número de WhatsApp y su
+tablero público de resultados; y el registro de **voluntarios digitales**, que reutiliza ese mismo
+número cuando se activa.
+
+`matricula-local/` es una herramienta aparte, de escritorio: automatiza la matrícula en el portal
+Banner desde el computador del estudiante. Tiene su propio README.
