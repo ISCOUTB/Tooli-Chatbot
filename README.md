@@ -1,5 +1,9 @@
 # Tooli — Chatbot de WhatsApp para la UTB
 
+> **Esta es la rama que corre en producción.** Contiene el bot completo: el proyecto
+> de grado más los módulos de campaña que comparten backend. El corte académico,
+> sin esos módulos, vive en `main`.
+
 > **Estado de producción:** antes de usar datos reales, configura los secretos y
 > completa la migración descrita en [docs/produccion-seguridad.md](docs/produccion-seguridad.md).
 > Las consultas directas de notas están apagadas por defecto
@@ -22,6 +26,38 @@ dos necesidades distintas de la universidad con una misma base técnica:
 WhatsApp es el canal principal de comunicación en Colombia: llegar por ahí elimina la fricción de
 instalar una app o navegar un portal. El bot opera sobre la **API oficial de WhatsApp Cloud (Meta)**,
 con número verificado por la plataforma.
+
+---
+
+## Tabla de contenido
+
+- [Ramas del repositorio](#ramas-del-repositorio)
+- [Por qué existe](#por-qué-existe)
+- [Los dos flujos](#los-dos-flujos)
+- [Arquitectura](#arquitectura)
+- [Stack técnico](#stack-técnico)
+- [Requisitos previos](#requisitos-previos)
+- [Instalación local](#instalación-local)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Dashboard de asesores](#dashboard-de-asesores)
+- [Pruebas](#pruebas)
+- [Variables de entorno](#variables-de-entorno)
+- [Despliegue](#despliegue)
+- [API REST](#api-rest)
+- [Privacidad y tratamiento de datos (Ley 1581 de 2012)](#privacidad-y-tratamiento-de-datos-ley-1581-de-2012)
+- [Otros módulos](#otros-módulos)
+
+---
+
+## Ramas del repositorio
+
+| Rama | Qué contiene | Despliega |
+|---|---|---|
+| `tooli-pregrados` | Esta rama. El bot completo: pregrado, posgrado, la encuesta NutriA con su propio número de WhatsApp, el registro de voluntarios y el flujo temporal de feria. | Sí, al VPS |
+| `main` | Solo el proyecto de grado, sin los módulos de campaña. Es la rama que se lee para evaluar el trabajo. | No |
+
+El trabajo del día a día va en esta rama, que es la que el CI publica. A `main`
+se lleva únicamente lo que pertenece al proyecto de grado.
 
 ---
 
@@ -141,6 +177,37 @@ tableros en Grafana y reglas de alerta.
 | Métricas | Prometheus + Grafana + Alertmanager |
 | Infraestructura | Docker Compose sobre VPS en Oracle Cloud |
 | Proxy y TLS | nginx + Let's Encrypt |
+
+---
+
+## Requisitos previos
+
+| Requisito | Para qué |
+|---|---|
+| Node.js 20 LTS y npm | Ejecutar el backend y las pruebas. |
+| Docker y Docker Compose | Levantar Redis en local, y el despliegue completo. |
+| Cuenta de servicio de Google | Leer y escribir las hojas de turnos, registros y encuestas. |
+| Credenciales de Meta WhatsApp Cloud API | Recibir y enviar mensajes. Sin ellas el bot arranca, pero no conversa. |
+| Clave de OpenAI | Asistente de IA. Opcional: el resto de los flujos funciona sin ella. |
+
+## Instalación local
+
+```bash
+git clone --branch tooli-pregrados https://github.com/ISCOUTB/tooli-chatbot.git
+cd tooli-chatbot
+npm install
+
+cp .env.example .env     # completar los valores antes de arrancar
+docker compose up -d redis
+npm run dev              # http://localhost:3000
+```
+
+`src/config` valida el entorno al importarse: si falta una variable obligatoria
+el proceso no arranca y dice cuál es. El panel de asesores queda en
+`http://localhost:3000/app`.
+
+Para recibir mensajes reales hace falta exponer el webhook con una URL pública
+(por ejemplo con un túnel) y registrarla en la app de Meta.
 
 ---
 
@@ -295,6 +362,9 @@ docker compose logs -f backend
 
 nginx actúa como proxy inverso con certificado TLS sobre el backend en el puerto `3000`.
 
+El despliegue automático lo dispara el CI al hacer push a esta rama. El VPS hace
+`git pull` de `tooli-pregrados` y reconstruye únicamente el servicio `backend`.
+
 ---
 
 ## API REST
@@ -329,4 +399,9 @@ nginx actúa como proxy inverso con certificado TLS sobre el backend en el puert
 
 El mismo backend aloja **NutriA**, un bot independiente para un proyecto de investigación de la
 universidad: una encuesta guiada sobre hábitos de consumo y marketing digital, con registro en
-Google Sheets y un tablero público de resultados en vivo.
+Google Sheets y un tablero público de resultados en vivo. Detrás de `VOLUNTARIOS_ACTIVO`, ese mismo
+número atiende en cambio el registro de **voluntarios digitales**. Ninguno de los dos forma parte
+del proyecto de grado, y por eso no están en `main`.
+
+`matricula-local/` es una herramienta aparte, de escritorio: automatiza la matrícula en el portal
+Banner desde el computador del estudiante. Tiene su propio README.
