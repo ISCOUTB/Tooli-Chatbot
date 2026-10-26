@@ -147,7 +147,7 @@ export class EvolutionAPIAdapter implements IMessagingAdapter {
   }
 
   async sendImage(_msg: OutboundImage): Promise<void> {
-    // Evolution API no se usa para NutriA — stub requerido por la interfaz
+    // Evolution API no envia plantillas — stub requerido por la interfaz
     console.warn('[EvolutionAPIAdapter] sendImage no implementado para Evolution API');
   }
 }

@@ -16,7 +16,6 @@ import { startInboundWorker } from './services/inboundInbox';
 import { securityHeaders, bodySizeLimit, errorHandler, notFoundHandler } from './middleware/security';
 import { checkRateLimit } from './services/rateLimit';
 import { validateJwtSecret } from './middleware/auth';
-import { requireAuth } from './middleware/auth';
 
 const app = express();
 
@@ -68,17 +67,8 @@ app.use('/app', express.static(path.resolve(__dirname, 'public/app')));
 app.get('/', (_req, res) => res.redirect('/app/'));
 app.get('/app', (_req, res) => res.redirect('/app/'));
 
-// Dashboard público NutriA
-app.use('/nutria', express.static(path.resolve(__dirname, 'public/nutria')));
-
 // Dashboard público Posgrados (presentación + QR del chat)
 app.use('/posgrados', express.static(path.resolve(__dirname, 'public/posgrados')));
-
-// Capturas de pantalla NutriA: contienen datos privados del participante.
-app.use('/uploads', requireAuth, (_req, res, next) => {
-  res.setHeader('Cache-Control', 'private, no-store');
-  next();
-}, express.static(path.resolve(__dirname, '../uploads')));
 
 app.use('/public', express.static(path.resolve(__dirname, 'public')));
 

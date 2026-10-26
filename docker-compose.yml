@@ -6,8 +6,6 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
     env_file: .env
-    volumes:
-      - ./uploads:/app/uploads
     depends_on:
       redis:
         condition: service_healthy

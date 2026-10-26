@@ -1,9 +1,6 @@
 import type { InboundMessage } from '../adapters/messaging/IMessagingAdapter';
 import { config } from '../config';
 import { handleMessage } from '../flows';
-import { handleEventoMessage } from '../flows/evento';
-import { handleNutriaMessage } from '../flows/nutria';
-import { handleVoluntarioMessage } from '../flows/voluntarios';
 import { handlePosgradoMessage } from '../flows/posgrados-evento';
 import { messaging } from '../flows/shared';
 import { checkUserRateLimit } from './rateLimit';
@@ -42,16 +39,7 @@ export async function processInboundMessage(
     return 'ignored';
   }
 
-  if (source === 'meta' && config.nutria.phoneNumberId &&
-      inbound.phoneNumberId === config.nutria.phoneNumberId) {
-    if (config.voluntarios.activo) {
-      await handleVoluntarioMessage(from, inbound.text, inbound);
-    } else {
-      await handleNutriaMessage(from, inbound.text, inbound);
-    }
-  } else if (config.evento.activo) {
-    await handleEventoMessage(from, inbound.text, inbound);
-  } else if (config.posgradosEvento.activo) {
+  if (config.posgradosEvento.activo) {
     await handlePosgradoMessage(from, inbound.text, inbound);
   } else {
     await handleMessage(from, inbound.text);

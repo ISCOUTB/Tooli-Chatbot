@@ -19,23 +19,9 @@ const schema = z.object({
   WHATSAPP_WABA_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
-  // ── NutriA — bot de encuesta ─────────────────────────────────────────────────
-  NUTRIA_WHATSAPP_TOKEN: z.string().optional(),
-  NUTRIA_PHONE_NUMBER_ID: z.string().optional(),
-  NUTRIA_WABA_ID: z.string().optional(),
-  NUTRIA_SHEET_ID: z.string().optional(),
-  // ── Voluntarios digitales (El Mundo Te Busca) — sale por el número de NutriA ──
-  // 'true' hace que el número de NutriA atienda el registro de voluntarios en vez
-  // de la encuesta. Apagar para devolver el número a NutriA.
-  VOLUNTARIOS_ACTIVO: z.string().optional().default('false'),
-  VOLUNTARIOS_SHEET_ID: z.string().optional(),
   // ── Google Sheets — registro de prospectos de posgrado ───────────────────────
   // ID del spreadsheet donde se guardan los registros (compartir con service account)
   POSGRADO_REGISTRO_SHEET_ID: z.string().optional(),
-  // ── Evento Talento Tech — flujo temporal en el número de Posgrados ────────────
-  // 'true' activa el flujo del evento (reemplaza el menú clásico). Apagar tras el evento.
-  EVENTO_FLOW_ACTIVO: z.string().optional().default('false'),
-  EVENTO_SHEET_ID: z.string().optional(),
   // ── Evento Posgrados (sábado) — capta interesados en posgrado con financiación ─
   POSGRADOS_EVENTO_ACTIVO: z.string().optional().default('false'),
   POSGRADOS_EVENTO_SHEET_ID: z.string().optional(),
@@ -101,23 +87,9 @@ export const config = {
     url: env.REDIS_URL,
     sessionTtl: parseInt(env.SESSION_TTL_SECONDS),
   },
-  nutria: {
-    token: env.NUTRIA_WHATSAPP_TOKEN ?? '',
-    phoneNumberId: env.NUTRIA_PHONE_NUMBER_ID ?? '',
-    wabaId: env.NUTRIA_WABA_ID ?? '',
-    sheetId: env.NUTRIA_SHEET_ID ?? '',
-  },
-  voluntarios: {
-    activo: env.VOLUNTARIOS_ACTIVO === 'true',
-    sheetId: env.VOLUNTARIOS_SHEET_ID ?? '',
-  },
   google: {
     serviceAccount: JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),
     registroPosgradoSheetId: env.POSGRADO_REGISTRO_SHEET_ID ?? '',
-  },
-  evento: {
-    activo: env.EVENTO_FLOW_ACTIVO === 'true',
-    sheetId: env.EVENTO_SHEET_ID ?? '',
   },
   posgradosEvento: {
     activo: env.POSGRADOS_EVENTO_ACTIVO === 'true',
