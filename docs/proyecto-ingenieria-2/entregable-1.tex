@@ -1,0 +1,1527 @@
+\documentclass[12pt,a4paper]{report}
+
+% ---------------------------------------------------------
+% PAQUETES
+% ---------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noquoting,es-tabla]{babel}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{graphicx}
+\graphicspath{{./}{imagenes/}{img/}}
+\usepackage[table]{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds}
+
+\geometry{margin=2.5cm}
+\setstretch{1.5}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\renewcommand{\thesection}{\arabic{section}}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+
+% ---------------------------------------------------------
+% COLORES
+% ---------------------------------------------------------
+\definecolor{utbazul}{HTML}{1D4ED8}
+\definecolor{utbnaranja}{HTML}{EA7C1A}
+\definecolor{utbverde}{HTML}{16A34A}
+\definecolor{cajafondo}{HTML}{F5F6F8}
+\definecolor{cajaborde}{HTML}{D9DCE3}
+\definecolor{filacabecera}{HTML}{E8EDFB}
+\definecolor{burbujabot}{HTML}{FFFFFF}
+\definecolor{burbujauser}{HTML}{DCF8C6}
+\definecolor{fondochat}{HTML}{ECE5DD}
+\definecolor{grismedio}{HTML}{6B7280}
+
+% Insignia de color con texto blanco
+\newcommand{\insignia}[2]{%
+  \colorbox{#1}{\textcolor{white}{\textbf{\,#2\,}}}%
+}
+
+% Caja de nota / observación
+\newcommand{\nota}[1]{%
+\begin{center}
+\fcolorbox{cajaborde}{cajafondo}{%
+\begin{minipage}{0.92\linewidth}
+\vspace{0.15cm}
+#1
+\vspace{0.15cm}
+\end{minipage}}
+\end{center}}
+
+% Estilo compacto para tablas largas
+\newcommand{\tablacompacta}{\setstretch{1.1}\small}
+
+% Captura de pantalla del prototipo. Busca el archivo en la raiz del proyecto,
+% en imagenes/ y en img/; si no esta, deja un recuadro en lugar de romper la compilacion.
+\newcommand{\capturaruta}{}
+\newcommand{\captura}[2][width=\linewidth]{%
+  \def\capturaruta{}%
+  \IfFileExists{#2}{\def\capturaruta{#2}}{%
+    \IfFileExists{imagenes/#2}{\def\capturaruta{imagenes/#2}}{%
+      \IfFileExists{img/#2}{\def\capturaruta{img/#2}}{}}}%
+  \ifx\capturaruta\empty
+    \fcolorbox{cajaborde}{cajafondo}{\parbox[c][3.2cm][c]{0.85\linewidth}%
+      {\centering\small\itshape Falta subir la imagen: \mbox{#2}}}%
+  \else
+    \fcolorbox{cajaborde}{white}{\includegraphics[#1]{\capturaruta}}%
+  \fi
+}
+
+% Encabezado de tabla
+\newcommand{\cabecera}[1]{\rowcolor{filacabecera}#1}
+
+% ---------------------------------------------------------
+% ESTILOS TikZ
+% ---------------------------------------------------------
+\tikzset{
+  proc/.style={rectangle, rounded corners=3pt, draw=utbazul, fill=utbazul!8,
+               text width=2.6cm, align=center, minimum height=1.0cm, font=\scriptsize},
+  procm/.style={rectangle, rounded corners=3pt, draw=utbnaranja, fill=utbnaranja!10,
+               text width=2.6cm, align=center, minimum height=1.0cm, font=\scriptsize},
+  procs/.style={rectangle, rounded corners=3pt, draw=utbverde, fill=utbverde!10,
+               text width=2.6cm, align=center, minimum height=1.0cm, font=\scriptsize},
+  dec/.style={diamond, aspect=1.8, draw=grismedio, fill=gray!8,
+              align=center, font=\tiny, inner sep=1pt},
+  uc/.style={ellipse, draw=utbazul, fill=utbazul!7, align=center,
+             font=\tiny, minimum width=2.9cm, minimum height=0.95cm, inner sep=1pt},
+  flecha/.style={-{Latex[length=2mm]}, draw=grismedio},
+  flechad/.style={-{Latex[length=2mm]}, dashed, draw=grismedio},
+  bot/.style={rectangle, rounded corners=2pt, draw=cajaborde, fill=burbujabot,
+              text width=3.6cm, align=left, font=\tiny, inner sep=3pt},
+  usr/.style={rectangle, rounded corners=2pt, draw=cajaborde, fill=burbujauser,
+              text width=2.6cm, align=left, font=\tiny, inner sep=3pt},
+}
+
+% Actor (monigote) para el diagrama de casos de uso
+\newcommand{\actor}[3]{%
+  \begin{scope}[shift={(#1,#2)}, scale=0.30]
+    \draw[thick] (0,0.55) circle (0.32);
+    \draw[thick] (0,0.23) -- (0,-0.7);
+    \draw[thick] (-0.55,-0.15) -- (0.55,-0.15);
+    \draw[thick] (0,-0.7) -- (-0.42,-1.5);
+    \draw[thick] (0,-0.7) -- (0.42,-1.5);
+  \end{scope}
+  \node[font=\tiny, align=center] at (#1,{#2-0.72}) {#3};
+}
+
+\begin{document}
+
+% ---------------------------------------------------------
+% PORTADA
+% ---------------------------------------------------------
+\begin{titlepage}
+    \centering
+
+    \begin{minipage}{0.45\textwidth}
+        \centering
+        \IfFileExists{logo_utb.png}{\includegraphics[width=0.6\textwidth]{logo_utb.png}}{\vspace{2.2cm}}
+    \end{minipage}
+    \hfill
+    \begin{minipage}{0.45\textwidth}
+        \centering
+        \IfFileExists{logo_escuela.png}{\includegraphics[width=0.8\textwidth]{logo_escuela.png}}{\vspace{2.2cm}}
+    \end{minipage}
+
+    \vspace{1.5cm}
+
+    {\Large Universidad Tecnológica de Bolívar\\[0.5cm]
+    Facultad de Ingeniería}\\[2cm]
+
+    {\bfseries\LARGE Tooli: Asistente Conversacional de WhatsApp para la Captación de Aspirantes a Posgrado\\[0.5cm]}
+    {\large Entregable I: Diccionario de datos, mapa de procesos, especificación de requisitos (IEEE 830), historias de usuario, casos de uso y mockup}\\[2cm]
+
+    {\large Estudiantes:\\
+    \textbf{Manuel Esteban Severiche Puello}\\
+    \textbf{Jerson David Díaz Álvarez}\\
+    \textbf{Ángel Jhoan Acero Martínez}}\\[0.8cm]
+
+    {\large Curso:\\
+    \textbf{Proyecto de Ingeniería 2}}\\[0.8cm]
+
+    {\large Docente:\\
+    \textbf{Malorys Mercedes Elles Fang}}\\[0.8cm]
+
+    \vfill
+
+    {\large Cartagena de Indias, \today}
+\end{titlepage}
+
+% ---------------------------------------------------------
+% ÍNDICE
+% ---------------------------------------------------------
+\tableofcontents
+\clearpage
+
+% =========================================================
+% 1. INTRODUCCIÓN
+% =========================================================
+\section{Introducción}
+
+\subsection{Contexto}
+
+La Universidad Tecnológica de Bolívar (UTB) ofrece un portafolio amplio de programas de posgrado
+(especializaciones, maestrías y doctorados) cuya captación de aspirantes depende hoy de canales
+con alta fricción: formularios web, correo electrónico y llamadas telefónicas. El aspirante que
+descubre un programa en una feria, en una publicación en redes o en un evento institucional debe
+salir de su contexto, abrir un portal, diligenciar un formulario y esperar a que alguien lo
+contacte. Ese salto de canal es donde se pierde la mayoría de los interesados.
+
+En Colombia, WhatsApp es el canal de comunicación cotidiano por excelencia. Atender por allí elimina
+la fricción de instalar una aplicación o navegar un portal: el aspirante escribe donde ya está.
+
+\subsection{Problema}
+
+La Coordinación de Admisiones de Posgrados enfrenta tres problemas concretos:
+
+\begin{enumerate}[itemsep=2pt]
+    \item \textbf{Pérdida de interesados por fricción de canal.} Entre el momento en que una persona
+    se interesa y el momento en que un asesor la contacta pueden pasar horas o días; buena parte de
+    esos contactos nunca se concreta.
+    \item \textbf{Repetición de preguntas de bajo valor.} Costos, duración, modalidad, requisitos y
+    fechas se responden manualmente una y otra vez, consumiendo el tiempo de los asesores.
+    \item \textbf{Falta de trazabilidad del prospecto.} No queda registro estructurado de quién
+    mostró interés, en qué programa y en qué momento, lo que impide medir la conversión y hacer
+    seguimiento.
+\end{enumerate}
+
+\subsection{Solución propuesta}
+
+\textbf{Tooli} es un asistente conversacional sobre WhatsApp que atiende al aspirante en el mismo
+canal donde surge su interés: le muestra el catálogo de posgrados con costos y duración reales,
+resuelve dudas abiertas mediante un asistente de inteligencia artificial apoyado en una base de
+conocimiento institucional y, cuando el interés se concreta, recoge nombre, correo y programa
+de interés y entrega el prospecto ya calificado a un asesor humano en la plataforma de atención,
+sincronizándolo además con el CRM de la universidad.
+
+\subsection{Objetivos}
+
+\paragraph{Objetivo general.} Desarrollar un asistente conversacional de WhatsApp que automatice la
+información sobre programas de posgrado de la UTB y la captación y entrega trazable de prospectos a
+la Coordinación de Admisiones.
+
+\paragraph{Objetivos específicos.}
+\begin{enumerate}[itemsep=2pt]
+    \item Modelar los elementos de información del dominio de captación de posgrados en un
+    diccionario de datos.
+    \item Levantar el mapa de procesos del negocio de captación y ubicar en él el alcance del
+    sistema.
+    \item Especificar los requisitos funcionales y no funcionales bajo el estándar IEEE 830.
+    \item Expresar las necesidades de los usuarios como historias de usuario con criterios de
+    aceptación verificables.
+    \item Modelar el comportamiento del sistema mediante casos de uso.
+    \item Prototipar la interfaz conversacional y el tablero de asesores mediante mockups.
+\end{enumerate}
+
+\subsection{Alcance de este entregable}
+
+Este documento corresponde al \textbf{Entregable I} del curso y cubre exclusivamente la fase de
+análisis y especificación del \textbf{flujo de posgrados} de Tooli. Quedan expresamente fuera de
+este documento los demás módulos que comparten la misma base técnica: los servicios al estudiante
+(notas, turno de matrícula y recibo de pago) y otros bots alojados en el mismo servidor, que serán
+objeto de documentación independiente.
+
+\clearpage
+
+% =========================================================
+% 2. DICCIONARIO DE DATOS
+% =========================================================
+\section{Diccionario de Datos (Elementos de Información)}
+
+El diccionario de datos describe los elementos de información que el sistema captura, transforma,
+almacena y transmite en el flujo de posgrados. Se organiza por entidad, indicando para cada atributo
+su tipo, formato, obligatoriedad y regla de negocio asociada.
+
+\subsection{Convenciones}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Marca} & \textbf{Significado} \\
+        \midrule
+        \textbf{PK} & Identificador único de la entidad. \\
+        \textbf{FK} & Referencia a otra entidad. \\
+        Sí / No & Atributo obligatorio o no obligatorio. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Entidad: Prospecto}
+
+Persona interesada en un programa de posgrado que completa la captura de datos. Es el elemento de
+información central del sistema.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Prospecto.}\label{tab:dd-prospecto}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+whatsapp \textbf{(PK)} & Cadena (12--15) & Sí & Número en formato E.164 sin el signo ``+'' (ej.: 573001234567). Lo entrega la plataforma de mensajería; identifica de forma única al prospecto. \\
+nombre & Cadena (3--80) & Sí & Nombre completo declarado por el usuario. Mínimo 3 caracteres; se rechaza y se vuelve a solicitar si no cumple. \\
+correo & Cadena (5--120) & Sí & Correo electrónico de contacto. Validado con expresión regular de formato; se normaliza a minúsculas. \\
+programa\_interes & Cadena (1--120) & Sí & Programa o área declarada de interés. Admite texto libre, específico (``MBA'') o general (``algo de ingeniería'', ``no sé aún''). \\
+categoria\_vista & Enumerado & No & Última categoría consultada antes de solicitar asesor: \textit{Especializaciones}, \textit{Maestrías}, \textit{Doctorados}. Se deriva de la navegación, no se pregunta. \\
+interes\_financiacion & Enumerado & No & Respuesta a la pregunta de interés en financiación: \textit{Sí}, \textit{No}, \textit{Tal vez}. Aplica al flujo de captación por evento. \\
+consentimiento & Booleano & Sí & Autorización explícita de tratamiento de datos (Ley 1581 de 2012). Si es falso, no se persiste ningún otro dato del prospecto. \\
+fecha\_registro & Fecha y hora & Sí & Marca temporal de la captura, en zona horaria \textit{America/Bogota}. Generada por el sistema. \\
+origen & Enumerado & Sí & Canal de entrada: \textit{menú del bot}, \textit{código QR del evento}, \textit{landing pública}. \\
+estado & Enumerado & Sí & Ciclo de vida: \textit{capturado}, \textit{entregado a asesor}, \textit{en atención}, \textit{cerrado}. \\
+\end{longtable}}
+
+\subsection{Entidad: Programa de posgrado}
+
+Elemento del catálogo que el bot presenta al aspirante. Es información de solo lectura para el
+usuario final.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Programa de posgrado.}\label{tab:dd-programa}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+codigo \textbf{(PK)} & Cadena (8) & Sí & Identificador interno del programa. \\
+nombre & Cadena (5--100) & Sí & Denominación oficial del programa. \\
+categoria & Enumerado & Sí & \textit{Especialización}, \textit{Maestría} o \textit{Doctorado}. Determina la sección del catálogo en la que aparece. \\
+modalidad & Enumerado & Sí & \textit{Presencial} o \textit{Virtual}. \\
+duracion\_semestres & Entero (1--10) & Sí & Duración del plan de estudios. \\
+valor\_semestre & Moneda (COP) & Sí & Valor por semestre vigente. Los doctorados pueden expresarse en SMMLV. \\
+valor\_inscripcion & Moneda (COP) & Sí & Valor del derecho de inscripción, común por categoría. \\
+requisitos & Texto & No & Requisitos de admisión (ej.: título de maestría o pregrado con alto promedio para doctorado). \\
+vigencia & Fecha & Sí & Período académico al que corresponden los valores publicados. \\
+\end{longtable}}
+
+\subsection{Entidad: Sesión conversacional}
+
+Estado de la conversación de un usuario. Permite diálogos de varios turnos sin perder el hilo. Es
+información volátil: vive en memoria con tiempo de vida limitado.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Sesión conversacional.}\label{tab:dd-sesion}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+clave \textbf{(PK)} & Cadena & Sí & Clave compuesta \texttt{session:\{whatsapp\}}. \\
+step & Cadena (5--30) & Sí & Paso actual de la máquina de estados (ej.: \texttt{menu}, \texttt{programas\_categoria}, \texttt{prospecto\_nombre}, \texttt{chatting\_with\_ai}, \texttt{with\_agent}). Determina qué manejador atiende el siguiente mensaje. \\
+data & Diccionario & No & Datos parciales acumulados durante el diálogo (nombre, correo, categoría vista, identificador de conversación). \\
+ttl & Entero (segundos) & Sí & Tiempo de vida restante. Al expirar, la sesión se elimina y el usuario vuelve al menú principal. \\
+\end{longtable}}
+
+\subsection{Entidad: Mensaje}
+
+Unidad de intercambio entre el usuario y el sistema. No se persiste el contenido: se procesa y se
+descarta.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Mensaje.}\label{tab:dd-mensaje}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+message\_id \textbf{(PK)} & Cadena & Sí & Identificador asignado por la plataforma de mensajería. Se marca como procesado durante 5 minutos para garantizar idempotencia ante reenvíos del webhook. \\
+from \textbf{(FK)} & Cadena & Sí & Número del remitente; referencia al Prospecto o al usuario anónimo. \\
+direccion & Enumerado & Sí & \textit{Entrante} o \textit{Saliente}. \\
+tipo & Enumerado & Sí & \textit{texto}, \textit{lista interactiva}, \textit{botones}, \textit{respuesta interactiva}. \\
+contenido & Texto & Sí & Cuerpo del mensaje o identificador de la opción seleccionada. No se almacena en texto plano. \\
+timestamp & Fecha y hora & Sí & Marca temporal de recepción o envío. \\
+\end{longtable}}
+
+\subsection{Entidad: Conversación de asesoría}
+
+Registro de la atención humana abierta en la plataforma de atención (Chatwoot) cuando el prospecto
+solicita hablar con un asesor.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Conversación de asesoría.}\label{tab:dd-conversacion}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+conversation\_id \textbf{(PK)} & Entero & Sí & Identificador de la conversación en la plataforma de atención. \\
+contact\_id \textbf{(FK)} & Entero & Sí & Contacto asociado; se crea si no existe y se reutiliza si ya existía. \\
+whatsapp \textbf{(FK)} & Cadena & Sí & Número del prospecto atendido. \\
+equipo & Enumerado & Sí & Equipo destinatario. En el flujo de posgrados siempre \textit{Admisiones}. \\
+etiquetas & Lista & Sí & Marcas de clasificación; el flujo asigna \texttt{posgrado-prospecto}. \\
+prioridad & Enumerado & Sí & \textit{baja}, \textit{media}, \textit{alta}. El flujo asigna \textit{media} por defecto. \\
+mensaje\_contexto & Texto & Sí & Ficha inicial que ve el asesor: nombre, WhatsApp, correo, programa de interés, categoría vista y fecha de recepción. \\
+atributos & Diccionario & No & Área, programa de interés y correo, como atributos personalizados consultables. \\
+estado & Enumerado & Sí & \textit{abierta}, \textit{pendiente}, \textit{resuelta}. \\
+\end{longtable}}
+
+\subsection{Entidad: Contacto en el CRM}
+
+Proyección del prospecto en el CRM institucional, para seguimiento comercial posterior.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Contacto en el CRM.}\label{tab:dd-crm}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+email \textbf{(PK)} & Cadena & Sí & Clave de deduplicación: la sincronización es una operación de inserción o actualización por correo. \\
+firstname & Cadena & Sí & Primera palabra del nombre declarado. \\
+lastname & Cadena & No & Resto del nombre declarado. \\
+phone & Cadena & Sí & Número en formato E.164 con el signo ``+''. \\
+posgrado\_interes & Cadena & No & Programa declarado; propiedad personalizada. \\
+fuente & Cadena & No & Origen del contacto (ej.: \textit{WhatsApp Tooli}); propiedad personalizada. \\
+consentimiento & Booleano & Sí & Registro de la autorización de tratamiento de datos. \\
+interes\_financiacion & Cadena & No & Interés declarado en opciones de financiación. \\
+\end{longtable}}
+
+\nota{\textbf{Regla de degradación:} si alguna propiedad personalizada no existe en el CRM, la
+sincronización se reintenta únicamente con las propiedades estándar, de modo que el contacto nunca
+se pierda por un problema de configuración.}
+
+\subsection{Entidad: Registro en hoja de captación}
+
+Fila del registro tabular usado en los eventos de captación, accesible para la Coordinación sin
+necesidad de entrar al sistema.
+
+{\tablacompacta
+\begin{longtable}{p{2.0cm}p{3.6cm}p{2.0cm}p{5.0cm}}
+\caption{Diccionario de datos: Registro en hoja de captación.}\label{tab:dd-hoja}\\
+\toprule
+\cabecera{\textbf{Col.}} & \textbf{Campo} & \textbf{Tipo} & \textbf{Descripción} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Col.} & \textbf{Campo} & \textbf{Tipo} & \textbf{Descripción} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+A & Fecha y hora & Fecha y hora & Momento del registro (\textit{America/Bogota}). \\
+B & WhatsApp & Cadena & Número del prospecto. \\
+C & Nombre & Cadena & Nombre completo declarado. \\
+D & Correo & Cadena & Correo de contacto. \\
+E & Interés en financiación & Enumerado & Sí / No / Tal vez. \\
+F & Posgrado de interés & Cadena & Se completa en un paso posterior del diálogo. \\
+G & Autoriza contacto & Booleano & Se completa al final del diálogo. \\
+\end{longtable}}
+
+\subsection{Entidad: Asesor / Usuario del tablero}
+
+Persona de la Coordinación de Admisiones con acceso al tablero interno.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Asesor / Usuario del tablero.}\label{tab:dd-asesor}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+usuario \textbf{(PK)} & Cadena (4--30) & Sí & Nombre de acceso, único. \\
+hash\_clave & Cadena & Sí & Resumen criptográfico de la contraseña. Nunca se almacena la contraseña en claro. \\
+nombre & Cadena & Sí & Nombre para mostrar. \\
+rol & Enumerado & Sí & \textit{asesor} o \textit{administrador}. El rol determina las secciones visibles del tablero. \\
+activo & Booleano & Sí & Permite revocar el acceso sin borrar el registro. \\
+ultimo\_acceso & Fecha y hora & No & Fecha del último inicio de sesión exitoso. \\
+\end{longtable}}
+
+\subsection{Entidad: Evento de métrica}
+
+Unidad de medición del uso del sistema. No contiene datos personales.
+
+{\tablacompacta
+\begin{longtable}{p{3.1cm}p{2.2cm}p{1.3cm}p{6.0cm}}
+\caption{Diccionario de datos: Evento de métrica.}\label{tab:dd-metrica}\\
+\toprule
+\cabecera{\textbf{Atributo}} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Atributo} & \textbf{Tipo} & \textbf{Oblig.} & \textbf{Descripción y regla de negocio} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+nombre \textbf{(PK)} & Cadena & Sí & Identificador del evento (ej.: \texttt{programas\_consultado}, \texttt{prospecto\_completado}, \texttt{handoff\_asesor}). \\
+fecha & Fecha & Sí & Día al que se agrega el contador. \\
+valor & Entero & Sí & Número de ocurrencias acumuladas. \\
+\end{longtable}}
+
+\subsection{Relaciones entre entidades}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{llX}
+        \toprule
+        \cabecera{\textbf{Origen}} & \textbf{Destino} & \textbf{Relación} \\
+        \midrule
+        Prospecto & Sesión conversacional & 1 : 1, mientras la sesión esté vigente. \\
+        Prospecto & Conversación de asesoría & 1 : N, puede solicitar asesor más de una vez. \\
+        Prospecto & Contacto en el CRM & 1 : 1, deduplicado por correo. \\
+        Prospecto & Registro en hoja & 1 : 1, solo en el flujo de captación por evento. \\
+        Programa & Prospecto & 1 : N, un programa concentra varios interesados. \\
+        Asesor & Conversación de asesoría & 1 : N, un asesor atiende varias conversaciones. \\
+        Sesión & Mensaje & 1 : N, los mensajes se procesan en el contexto de la sesión. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Relaciones entre los elementos de información.}
+\end{table}
+
+\clearpage
+% =========================================================
+% 3. MAPA DE PROCESOS
+% =========================================================
+\section{Mapa de Procesos}
+
+El mapa de procesos ubica el sistema dentro del negocio de captación de aspirantes a posgrado de la
+UTB. Se emplea la clasificación clásica en procesos estratégicos, misionales (o de cadena de valor)
+y de apoyo. El sistema \textbf{Tooli} no reemplaza el proceso misional: lo automatiza en sus tres
+primeras etapas y garantiza la trazabilidad de la cuarta.
+
+\subsection{Mapa general}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.45cm and 0.45cm]
+
+% --- Procesos estratégicos ---
+\node[proc] (e1) {Planeación de la oferta de posgrados};
+\node[proc, right=of e1] (e2) {Estrategia de captación y mercadeo};
+\node[proc, right=of e2] (e3) {Gobierno de datos y cumplimiento legal};
+\node[proc, right=of e3] (e4) {Seguimiento de indicadores de conversión};
+
+\node[font=\scriptsize\bfseries, left=0.3cm of e1, text width=1.7cm, align=right,
+      text=utbazul] (le) {PROCESOS ESTRATÉGICOS};
+
+% --- Procesos misionales ---
+\node[procm, below=1.5cm of e1] (m1) {1. Atracción y primer contacto};
+\node[procm, right=of m1] (m2) {2. Información y resolución de dudas};
+\node[procm, right=of m2] (m3) {3. Calificación y captura del prospecto};
+\node[procm, right=of m3] (m4) {4. Asesoría humana y seguimiento};
+
+\node[font=\scriptsize\bfseries, left=0.3cm of m1, text width=1.7cm, align=right,
+      text=utbnaranja] (lm) {PROCESOS MISIONALES};
+
+% --- Procesos de apoyo ---
+\node[procs, below=1.5cm of m1] (a1) {Infraestructura y despliegue};
+\node[procs, right=of a1] (a2) {Gestión de la base de conocimiento};
+\node[procs, right=of a2] (a3) {Administración de asesores y accesos};
+\node[procs, right=of a3] (a4) {Observabilidad y soporte};
+
+\node[font=\scriptsize\bfseries, left=0.3cm of a1, text width=1.7cm, align=right,
+      text=utbverde] (la) {PROCESOS DE APOYO};
+
+% --- Flechas de la cadena de valor ---
+\draw[flecha] (m1) -- (m2);
+\draw[flecha] (m2) -- (m3);
+\draw[flecha] (m3) -- (m4);
+
+% --- Entrada y salida ---
+\node[font=\scriptsize\itshape, left=0.9cm of lm, align=center, text width=1.6cm]
+  (entrada) {Interés del aspirante};
+\node[font=\scriptsize\itshape, right=0.5cm of m4, align=center, text width=1.6cm]
+  (salida) {Aspirante inscrito};
+\draw[flecha] (entrada) -- (lm);
+\draw[flecha] (m4) -- (salida);
+
+% --- Influencia vertical ---
+\draw[flechad] (e1.south) -- ($(m1.north)+(0,0)$);
+\draw[flechad] (e2.south) -- (m2.north);
+\draw[flechad] (e3.south) -- (m3.north);
+\draw[flechad] (e4.south) -- (m4.north);
+\draw[flechad] (a1.north) -- (m1.south);
+\draw[flechad] (a2.north) -- (m2.south);
+\draw[flechad] (a3.north) -- (m3.south);
+\draw[flechad] (a4.north) -- (m4.south);
+
+\end{tikzpicture}
+\caption{Mapa de procesos de la captación de aspirantes a posgrado.}
+\label{fig:mapa-procesos}
+\end{figure}
+
+\subsection{Descripción de los procesos misionales}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{2.6cm}XX}
+        \toprule
+        \cabecera{\textbf{Proceso}} & \textbf{Entradas y actividades} & \textbf{Salidas} \\
+        \midrule
+        1. Atracción y primer contacto &
+        Campaña, feria, código QR o publicación en redes. El aspirante escribe al número de WhatsApp
+        de la universidad y recibe el menú principal. &
+        Conversación iniciada; sesión creada. \\[0.2cm]
+        2. Información y resolución de dudas &
+        Consulta del catálogo por categoría, detalle del programa con costos y duración, y preguntas
+        abiertas atendidas por el asistente de IA sobre la base de conocimiento institucional. &
+        Aspirante informado; categoría de interés identificada. \\[0.2cm]
+        3. Calificación y captura del prospecto &
+        Solicitud de asesor, consentimiento de tratamiento de datos, captura de nombre, correo y
+        programa de interés, con validación de formato. &
+        Prospecto calificado y registrado. \\[0.2cm]
+        4. Asesoría humana y seguimiento &
+        Apertura de conversación en la plataforma de atención con la ficha del prospecto,
+        conversación puente entre asesor y aspirante, y sincronización con el CRM. &
+        Prospecto atendido y trazable; insumo para inscripción. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Caracterización de los procesos misionales.}
+\end{table}
+
+\subsection{Flujo detallado del proceso misional automatizado}
+
+El siguiente diagrama detalla el recorrido del aspirante dentro del sistema, desde el mensaje
+inicial hasta la entrega del prospecto al asesor.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.55cm and 0.7cm]
+
+\node[proc, fill=gray!8, draw=grismedio] (ini) {El aspirante escribe por WhatsApp};
+\node[proc, below=of ini] (menu) {Se muestra el menú principal};
+\node[dec, below=of menu, text width=1.6cm] (opc) {¿Qué opción elige?};
+
+\node[procm, left=1.5cm of opc] (cat) {Selecciona categoría de programa};
+\node[procm, below=1.6cm of opc] (ia) {Pregunta al asistente de IA};
+\node[procm, right=1.5cm of opc] (ases) {Solicita hablar con un asesor};
+
+\node[procm, below=of cat] (det) {Ve el detalle: costos, duración y modalidad};
+
+\node[dec, below=of ia, text width=1.6cm] (segue) {¿Quiere continuar?};
+
+\node[procm, below=1.2cm of ases] (cons) {Se solicita consentimiento de datos};
+\node[dec, below=of cons, text width=1.6cm] (auth) {¿Autoriza?};
+\node[procm, below=of auth] (cap) {Captura de nombre, correo y programa};
+\node[proc, fill=gray!8, draw=grismedio, below=of cap] (fin2) {Fin: sin registro};
+
+\node[procm, below=2.4cm of segue] (hand) {Se abre conversación con el equipo de Admisiones};
+\node[procs, below=of hand] (crm) {Se sincroniza el prospecto con el CRM};
+\node[proc, fill=gray!8, draw=grismedio, below=of crm] (fin) {El asesor atiende al aspirante};
+
+\draw[flecha] (ini) -- (menu);
+\draw[flecha] (menu) -- (opc);
+\draw[flecha] (opc) -- node[font=\tiny, above] {Programas} (cat);
+\draw[flecha] (opc) -- node[font=\tiny, left] {IA} (ia);
+\draw[flecha] (opc) -- node[font=\tiny, above] {Asesor} (ases);
+\draw[flecha] (cat) -- (det);
+\draw[flecha] (det) -- (segue);
+\draw[flecha] (ia) -- (segue);
+\draw[flecha] (segue) -- node[font=\tiny, left] {Sí, asesor} (hand);
+\draw[flecha] (ases) -- (cons);
+\draw[flecha] (cons) -- (auth);
+\draw[flecha] (auth) -- node[font=\tiny, left] {Sí} (cap);
+\draw[flecha] (auth.east) -- ++(1.1,0) |- node[font=\tiny, above, pos=0.75] {No} (fin2.east);
+\draw[flecha] (cap.west) -- ++(-0.6,0) |- (hand.east);
+\draw[flecha] (hand) -- (crm);
+\draw[flecha] (crm) -- (fin);
+
+\end{tikzpicture}
+\caption{Flujo detallado del proceso de captación automatizado.}
+\label{fig:flujo-detallado}
+\end{figure}
+
+\nota{\textbf{Alcance del sistema en el mapa:} Tooli automatiza por completo los procesos misionales
+1, 2 y 3, y habilita el 4 entregando el prospecto con contexto al asesor humano. Los procesos
+estratégicos permanecen bajo responsabilidad de la Coordinación de Admisiones; los procesos de apoyo
+son responsabilidad del equipo técnico del proyecto.}
+
+\clearpage
+
+% =========================================================
+% 4. ESPECIFICACIÓN DE REQUISITOS (IEEE 830)
+% =========================================================
+\section{Especificación de Requisitos (IEEE 830)}
+
+\subsection{Propósito}
+
+Este apartado especifica los requisitos funcionales y no funcionales del flujo de posgrados de
+Tooli, siguiendo la estructura del estándar IEEE 830 para especificaciones de requisitos de
+software. Está dirigido al equipo de desarrollo, a la docente del curso y a la Coordinación de
+Admisiones de Posgrados como parte interesada principal.
+
+\subsection{Alcance del producto}
+
+\paragraph{Nombre del producto.} Tooli, asistente conversacional de posgrados UTB.
+
+\paragraph{Qué hace el producto.}
+\begin{itemize}[itemsep=2pt]
+    \item Atiende por WhatsApp a personas interesadas en los programas de posgrado de la UTB, las
+    24 horas.
+    \item Presenta el catálogo de especializaciones, maestrías y doctorados con costos, duración y
+    modalidad vigentes.
+    \item Resuelve dudas abiertas mediante un asistente de IA apoyado en una base de conocimiento
+    institucional.
+    \item Captura los datos del aspirante interesado previo consentimiento informado.
+    \item Entrega el prospecto calificado a un asesor humano y mantiene una conversación puente
+    entre ambos.
+    \item Sincroniza el prospecto con el CRM institucional y expone métricas de uso.
+\end{itemize}
+
+\paragraph{Qué no hace el producto.}
+\begin{itemize}[itemsep=2pt]
+    \item No formaliza inscripciones ni matrículas; no procesa pagos.
+    \item No emite decisiones de admisión ni valida documentos académicos.
+    \item No sustituye al asesor humano: lo antecede y lo alimenta.
+    \item No cubre los servicios al estudiante activo (notas, turno, recibo), que son objeto de otro
+    documento.
+\end{itemize}
+
+\paragraph{Beneficios esperados.} Reducción del tiempo entre el interés y el primer contacto humano;
+liberación del tiempo de los asesores de preguntas repetitivas; trazabilidad completa del embudo de
+captación.
+
+\subsection{Perspectiva del producto}
+
+Tooli es un producto \textbf{nuevo}, no un reemplazo de un sistema existente, pero \textbf{no es
+autónomo}: opera como pieza de un ecosistema y depende de servicios externos. La figura
+\ref{fig:contexto} muestra su contexto.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.9cm and 1.3cm]
+
+\node[proc, minimum height=1.6cm, text width=3.1cm, fill=utbazul!15, very thick] (sis)
+  {\textbf{Tooli}\\ Backend conversacional\\ (máquina de estados)};
+
+\node[proc, above=1.3cm of sis, draw=grismedio, fill=gray!8] (wa) {WhatsApp Cloud API (Meta)};
+\node[proc, left=of sis, draw=grismedio, fill=gray!8] (redis) {Redis\\ (sesiones y métricas)};
+\node[proc, right=of sis, draw=grismedio, fill=gray!8] (ia) {Servicio de IA\\ (modelo de lenguaje)};
+\node[proc, below left=1.3cm and 0.1cm of sis, draw=grismedio, fill=gray!8] (cw) {Chatwoot\\ (atención humana)};
+\node[proc, below right=1.3cm and 0.1cm of sis, draw=grismedio, fill=gray!8] (crm) {CRM HubSpot};
+\node[proc, below=2.9cm of sis, draw=grismedio, fill=gray!8] (sheets) {Google Sheets\\ (registro de captación)};
+
+\node[font=\scriptsize, above=0.25cm of wa] (asp) {Aspirante};
+\node[proc, left=1.3cm of cw, draw=grismedio, fill=gray!8] (dash) {Tablero de asesores\\ (web, JWT)};
+
+\draw[flecha] (asp) -- (wa);
+\draw[{Latex[length=2mm]}-{Latex[length=2mm]}, draw=grismedio] (wa) -- (sis);
+\draw[{Latex[length=2mm]}-{Latex[length=2mm]}, draw=grismedio] (sis) -- (redis);
+\draw[flecha] (sis) -- (ia);
+\draw[{Latex[length=2mm]}-{Latex[length=2mm]}, draw=grismedio] (sis) -- (cw);
+\draw[flecha] (sis) -- (crm);
+\draw[flecha] (sis) -- (sheets);
+\draw[{Latex[length=2mm]}-{Latex[length=2mm]}, draw=grismedio] (dash) -- (sis);
+
+\end{tikzpicture}
+\caption{Diagrama de contexto del sistema.}
+\label{fig:contexto}
+\end{figure}
+
+\paragraph{Interfaces de sistema.}
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{WhatsApp Cloud API (Meta):} recepción de mensajes por webhook y envío de mensajes
+    de texto, listas y botones interactivos.
+    \item \textbf{Redis:} almacenamiento del estado conversacional con tiempo de vida limitado, y de
+    los contadores de métricas.
+    \item \textbf{Servicio de modelo de lenguaje:} generación de respuestas del asistente de IA.
+    \item \textbf{Chatwoot:} creación de contactos y conversaciones, y puente bidireccional de
+    mensajes con el asesor.
+    \item \textbf{HubSpot:} inserción o actualización del contacto por correo.
+    \item \textbf{Google Sheets:} registro tabular de la captación en eventos.
+\end{itemize}
+
+\paragraph{Interfaces de usuario.}
+\begin{itemize}[itemsep=2pt]
+    \item \textbf{Interfaz conversacional} en WhatsApp: texto, listas interactivas (hasta 10 filas) y
+    botones (hasta 3 por mensaje).
+    \item \textbf{Tablero web de asesores:} aplicación de una sola página con autenticación por
+    token, para métricas y administración.
+    \item \textbf{Landing pública} con código QR para la captación en eventos presenciales.
+\end{itemize}
+
+\paragraph{Interfaces de hardware y comunicación.} El producto no requiere hardware específico. Se
+despliega en contenedores sobre un servidor virtual con proxy inverso y certificado TLS. Toda
+comunicación externa ocurre sobre HTTPS.
+
+\subsection{Funciones del producto}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{1.4cm}p{4.0cm}X}
+        \toprule
+        \cabecera{\textbf{Código}} & \textbf{Función} & \textbf{Resumen} \\
+        \midrule
+        F-01 & Atención conversacional & Recibir mensajes, mantener el estado del diálogo y responder según el paso actual. \\
+        F-02 & Publicación del catálogo & Presentar categorías y programas con costos, duración y modalidad. \\
+        F-03 & Asistencia con IA & Responder preguntas abiertas sobre posgrados con base en conocimiento institucional. \\
+        F-04 & Captura del prospecto & Solicitar consentimiento y recoger nombre, correo y programa de interés. \\
+        F-05 & Entrega al asesor & Abrir la conversación de atención con la ficha del prospecto y mantener el puente. \\
+        F-06 & Integración con el CRM & Registrar o actualizar el contacto del prospecto. \\
+        F-07 & Registro de captación & Consignar el prospecto en la hoja de cálculo del evento. \\
+        F-08 & Administración y métricas & Autenticar asesores, mostrar indicadores y administrar sesiones. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Funciones del producto.}
+\end{table}
+
+\subsection{Características de los usuarios}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{2.7cm}p{2.4cm}p{2.2cm}X}
+        \toprule
+        \cabecera{\textbf{Usuario}} & \textbf{Formación} & \textbf{Experiencia técnica} & \textbf{Uso del sistema} \\
+        \midrule
+        Aspirante a posgrado & Profesional titulado, 24--45 años & Usuario cotidiano de WhatsApp; no requiere formación & Consulta programas, pregunta y deja sus datos. Uso esporádico, desde el móvil, a cualquier hora. \\[0.2cm]
+        Asesor de Admisiones & Profesional en mercadeo o áreas afines & Usuario de herramientas de oficina y plataformas de atención & Atiende las conversaciones entregadas por el bot y consulta el tablero. Uso diario en horario laboral. \\[0.2cm]
+        Coordinador de Admisiones & Profesional con rol directivo & Usuario intermedio & Consulta indicadores de captación y conversión. Uso semanal. \\[0.2cm]
+        Administrador del sistema & Ingeniero de sistemas & Avanzado & Configura, despliega, monitorea y administra cuentas de asesores. Uso según necesidad. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Características de los usuarios.}
+\end{table}
+
+\subsection{Restricciones}
+
+\begin{enumerate}[label=\textbf{R-\arabic*.}, leftmargin=1.5cm, itemsep=3pt]
+    \item \textbf{Políticas de la plataforma de mensajería.} El sistema solo puede iniciar
+    conversaciones dentro de la ventana de 24 horas posterior al último mensaje del usuario; fuera de
+    ella se requieren plantillas aprobadas por Meta.
+    \item \textbf{Límites de la interfaz de WhatsApp.} Máximo 10 filas por lista interactiva y 3
+    botones por mensaje; el diseño del menú debe respetar esos límites.
+    \item \textbf{Marco legal.} El tratamiento de datos personales debe cumplir la Ley 1581 de 2012
+    y el Decreto 1377 de 2013: consentimiento previo, expreso e informado, y minimización de datos.
+    \item \textbf{Tecnológicas.} Node.js con TypeScript, Express, Redis y despliegue en contenedores
+    Docker sobre el servidor virtual provisto.
+    \item \textbf{Dependencia de terceros.} La disponibilidad del sistema está acotada por la de
+    Meta, el proveedor de IA, Chatwoot y el CRM.
+    \item \textbf{Presupuesto y consumo.} El uso del modelo de lenguaje y de la API de mensajería
+    tiene costo por uso, lo que obliga a limitar la longitud de las respuestas y a controlar la
+    frecuencia de mensajes por usuario.
+    \item \textbf{Vigencia de la información.} Los costos de los programas cambian por período
+    académico y deben poder actualizarse sin desplegar una nueva versión.
+    \item \textbf{Idioma y localización.} Español de Colombia; fechas y horas en la zona horaria
+    \textit{America/Bogota}; valores en pesos colombianos.
+\end{enumerate}
+
+\subsection{Suposiciones y dependencias}
+
+\begin{itemize}[itemsep=2pt]
+    \item Se supone que el aspirante dispone de WhatsApp y conexión a datos.
+    \item Se supone que la universidad mantiene el número verificado y la cuenta de WhatsApp
+    Business activa.
+    \item Se supone que la Coordinación de Admisiones entrega y mantiene actualizada la información
+    de costos, duración y requisitos de los programas.
+    \item Se supone que existe al menos un asesor disponible en horario laboral para atender los
+    prospectos entregados.
+    \item El sistema depende de que las credenciales de los servicios externos permanezcan vigentes.
+\end{itemize}
+
+\clearpage
+\subsection{Requisitos funcionales}
+
+Cada requisito se identifica con el código \textbf{RF-nn} y una prioridad expresada como
+\textit{Alta}, \textit{Media} o \textit{Baja}.
+
+{\tablacompacta
+\begin{longtable}{p{1.4cm}p{3.3cm}p{7.4cm}p{1.4cm}}
+\caption{Requisitos funcionales del flujo de posgrados.}\label{tab:rf}\\
+\toprule
+\cabecera{\textbf{ID}} & \textbf{Nombre} & \textbf{Descripción} & \textbf{Prior.} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Nombre} & \textbf{Descripción} & \textbf{Prior.} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+RF-01 & Recepción de mensajes & El sistema debe recibir por webhook los mensajes entrantes de la plataforma de mensajería, verificar el token de validación y responder con acuse inmediato. & Alta \\
+RF-02 & Idempotencia de mensajes & El sistema debe procesar cada mensaje una sola vez, descartando reenvíos del mismo identificador durante al menos 5 minutos. & Alta \\
+RF-03 & Enrutamiento por estado & El sistema debe entregar cada mensaje al manejador correspondiente al paso actual de la sesión del usuario, y mostrar el menú principal si el paso es desconocido o no existe sesión. & Alta \\
+RF-04 & Menú principal & El sistema debe presentar un menú interactivo con las opciones disponibles, incluida la entrada al catálogo de posgrados. & Alta \\
+RF-05 & Comando de reinicio & El sistema debe interpretar la palabra \texttt{menu}, en cualquier punto del diálogo, como orden de volver al menú principal. & Media \\
+RF-06 & Selección de categoría & El sistema debe permitir elegir entre especializaciones, maestrías y doctorados mediante una lista interactiva. & Alta \\
+RF-07 & Detalle del catálogo & El sistema debe mostrar, por categoría, el listado de programas con su valor por semestre, duración, modalidad y valor de inscripción. & Alta \\
+RF-08 & Acciones tras el detalle & Tras mostrar un detalle, el sistema debe ofrecer tres acciones: preguntar al asistente de IA, hablar con un asesor o volver a otros programas. & Media \\
+RF-09 & Asistente de IA & El sistema debe responder preguntas abiertas sobre posgrados usando un modelo de lenguaje restringido a la base de conocimiento institucional (requisitos, calendario, costos y financiación). & Alta \\
+RF-10 & Límite del asistente & Cuando la pregunta exceda la base de conocimiento, el asistente debe declararlo y ofrecer el contacto con un asesor, en lugar de inventar una respuesta. & Alta \\
+RF-11 & Consentimiento informado & Antes de capturar cualquier dato personal en el flujo de captación, el sistema debe solicitar autorización explícita de tratamiento de datos e informar su finalidad. & Alta \\
+RF-12 & Terminación sin registro & Si el usuario no autoriza el tratamiento de datos, el sistema debe cerrar el diálogo sin persistir ningún dato personal. & Alta \\
+RF-13 & Captura del nombre & El sistema debe solicitar el nombre completo y rechazar entradas de menos de 3 caracteres, volviendo a solicitarlo. & Alta \\
+RF-14 & Captura del correo & El sistema debe solicitar el correo electrónico, validar su formato y normalizarlo a minúsculas; si no es válido, debe volver a solicitarlo con un ejemplo. & Alta \\
+RF-15 & Captura del programa & El sistema debe solicitar el programa o área de interés, admitiendo respuestas específicas o generales. & Alta \\
+RF-16 & Persistencia parcial & El sistema debe conservar los datos ya capturados mientras dure la sesión, de modo que el usuario pueda continuar el diálogo sin repetirlos. & Alta \\
+RF-17 & Ficha del prospecto & Al entregar el prospecto, el sistema debe componer una ficha con nombre, número de WhatsApp, correo, programa de interés, categoría consultada y fecha de recepción. & Alta \\
+RF-18 & Apertura de la atención & El sistema debe crear o recuperar el contacto y abrir una conversación en la plataforma de atención, asignada al equipo de Admisiones, con la etiqueta \texttt{posgrado-prospecto} y prioridad media. & Alta \\
+RF-19 & Atributos de la conversación & El sistema debe adjuntar a la conversación los atributos de área, programa de interés y correo, para permitir su búsqueda y segmentación. & Media \\
+RF-20 & Conversación puente & Mientras dure la atención humana, el sistema debe reenviar al asesor los mensajes del aspirante y al aspirante las respuestas del asesor, de forma transparente. & Alta \\
+RF-21 & Cierre de la atención & Al resolverse la conversación en la plataforma de atención, el sistema debe devolver al usuario al menú principal. & Media \\
+RF-22 & Sincronización con el CRM & El sistema debe registrar o actualizar el contacto del prospecto en el CRM, deduplicando por correo, cuando la integración esté activa. & Media \\
+RF-23 & Degradación del CRM & Si una propiedad personalizada no existe en el CRM, el sistema debe reintentar el registro solo con las propiedades estándar. & Baja \\
+RF-24 & Registro de captación & En el flujo de eventos, el sistema debe agregar una fila a la hoja de cálculo con fecha, WhatsApp, nombre, correo, interés en financiación, programa y autorización. & Media \\
+RF-25 & Actualización diferida & El sistema debe poder completar posteriormente las columnas de programa de interés y autorización de la fila ya registrada. & Baja \\
+RF-26 & Estado conversacional & El sistema debe almacenar el paso y los datos parciales de cada conversación con un tiempo de vida configurable, tras el cual la sesión expira. & Alta \\
+RF-27 & Registro de métricas & El sistema debe contabilizar los eventos relevantes del flujo (consulta de programas, uso del asistente, prospectos completados, entregas a asesor). & Media \\
+RF-28 & Exposición de métricas & El sistema debe exponer sus métricas en un punto de acceso compatible con la herramienta de monitoreo, además de un punto de verificación de estado. & Media \\
+RF-29 & Autenticación del tablero & El tablero de asesores debe exigir usuario y contraseña, y emitir un token de sesión con vigencia limitada. & Alta \\
+RF-30 & Autorización por rol & El tablero debe mostrar la sección de administración de asesores únicamente a los usuarios con rol de administrador. & Media \\
+RF-31 & Consulta de indicadores & El tablero debe mostrar los indicadores de uso del bot y el número de prospectos captados por período. & Media \\
+RF-32 & Reinicio de sesión & Un administrador debe poder reiniciar la sesión conversacional de un usuario para desbloquear un diálogo. & Baja \\
+RF-33 & Landing con código QR & El sistema debe exponer una página pública que, mediante un código QR, inicie la conversación de WhatsApp con el bot. & Baja \\
+RF-34 & Activación por configuración & El flujo de captación por evento y la integración con el CRM deben poder activarse o desactivarse por configuración, sin cambios en el código. & Media \\
+RF-35 & Manejo de fallos externos & Si un servicio externo falla, el sistema debe informar al usuario en lenguaje comprensible y ofrecer una alternativa de contacto, sin exponer detalles técnicos. & Alta \\
+\end{longtable}}
+
+\subsection{Requisitos no funcionales}
+
+{\tablacompacta
+\begin{longtable}{p{1.6cm}p{3.1cm}p{7.4cm}p{1.4cm}}
+\caption{Requisitos no funcionales.}\label{tab:rnf}\\
+\toprule
+\cabecera{\textbf{ID}} & \textbf{Atributo} & \textbf{Descripción} & \textbf{Prior.} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Atributo} & \textbf{Descripción} & \textbf{Prior.} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+RNF-01 & Rendimiento & El acuse de recibo del webhook debe emitirse en menos de 2 segundos para evitar reintentos de la plataforma de mensajería. & Alta \\
+RNF-02 & Rendimiento & Las respuestas de catálogo y de navegación deben entregarse al usuario en menos de 3 segundos en el 95\% de los casos. & Alta \\
+RNF-03 & Rendimiento & Las respuestas del asistente de IA deben entregarse en menos de 10 segundos; si se supera el umbral, el sistema debe enviar un aviso de espera. & Media \\
+RNF-04 & Disponibilidad & El servicio debe estar disponible al menos el 99\% del tiempo mensual, con reinicio automático de los contenedores ante caída. & Alta \\
+RNF-05 & Escalabilidad & El sistema debe soportar al menos 200 conversaciones simultáneas sin degradación perceptible, manteniendo el estado fuera del proceso de aplicación. & Media \\
+RNF-06 & Seguridad & Toda comunicación externa debe realizarse sobre HTTPS con certificado válido. & Alta \\
+RNF-07 & Seguridad & Las credenciales y claves de servicios externos deben residir en variables de entorno y nunca en el código fuente ni en el repositorio. & Alta \\
+RNF-08 & Seguridad & El token de sesión del tablero debe transportarse en una cookie de solo servidor, con vigencia máxima de 8 horas. & Alta \\
+RNF-09 & Seguridad & El webhook debe rechazar peticiones que no presenten el token de verificación esperado. & Alta \\
+RNF-10 & Seguridad & Las contraseñas de los asesores deben almacenarse cifradas mediante función de resumen con sal. & Alta \\
+RNF-11 & Privacidad & El sistema debe recoger únicamente los datos necesarios para el contacto y registrar la autorización de tratamiento, conforme a la Ley 1581 de 2012. & Alta \\
+RNF-12 & Privacidad & El contenido de los mensajes de los usuarios no debe almacenarse en texto plano ni en registros de aplicación. & Alta \\
+RNF-13 & Privacidad & El estado conversacional debe ser efímero, con expiración automática configurable. & Alta \\
+RNF-14 & Usabilidad & El usuario debe alcanzar el detalle de un programa en un máximo de tres interacciones desde el mensaje inicial. & Alta \\
+RNF-15 & Usabilidad & Los mensajes deben usar lenguaje claro y no técnico, con un máximo aproximado de 1.000 caracteres por mensaje. & Media \\
+RNF-16 & Usabilidad & La navegación debe apoyarse en listas y botones interactivos antes que en la escritura libre, para reducir errores de entrada. & Alta \\
+RNF-17 & Mantenibilidad & La lógica conversacional debe estar aislada del proveedor de mensajería mediante una interfaz de adaptador, de modo que cambiar de proveedor no afecte los flujos. & Alta \\
+RNF-18 & Mantenibilidad & Cada flujo debe residir en un módulo independiente, con un único punto de enrutamiento por paso de sesión. & Media \\
+RNF-19 & Portabilidad & El despliegue completo debe reproducirse con contenedores, sin instalación manual de dependencias en el servidor. & Media \\
+RNF-20 & Observabilidad & El sistema debe exponer métricas operacionales y de negocio, con tableros y reglas de alerta. & Media \\
+RNF-21 & Confiabilidad & El fallo de un servicio externo no debe interrumpir la conversación: el sistema debe degradarse ofreciendo una vía alterna. & Alta \\
+RNF-22 & Localización & Fechas, horas y valores monetarios deben presentarse en formato colombiano y zona horaria \textit{America/Bogota}. & Media \\
+RNF-23 & Cumplimiento & El sistema debe respetar las políticas de la plataforma de mensajería, incluida la ventana de 24 horas para mensajes libres. & Alta \\
+RNF-24 & Costo & El consumo del modelo de lenguaje debe limitarse mediante control de frecuencia por usuario y respuestas acotadas en longitud. & Media \\
+\end{longtable}}
+
+\clearpage
+% =========================================================
+% 5. HISTORIAS DE USUARIO
+% =========================================================
+\section{Historias de Usuario}
+
+Las historias se redactan en el formato \textit{Como \textless rol\textgreater{} quiero
+\textless funcionalidad\textgreater{} para \textless beneficio\textgreater}, con criterios de
+aceptación verificables, prioridad MoSCoW (\textit{Debe}, \textit{Debería}, \textit{Podría}) y
+estimación en puntos de historia.
+
+\subsection{Épicas}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{1.5cm}p{4.2cm}X}
+        \toprule
+        \cabecera{\textbf{ID}} & \textbf{Épica} & \textbf{Descripción} \\
+        \midrule
+        E-01 & Información de posgrados & Todo lo que permite al aspirante conocer la oferta sin intervención humana. \\
+        E-02 & Captación del prospecto & Consentimiento, captura y calificación de los datos del interesado. \\
+        E-03 & Atención humana & Entrega del prospecto al asesor y conversación puente. \\
+        E-04 & Trazabilidad y gestión & Registro en CRM y hoja de captación, indicadores y administración. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Épicas del producto.}
+\end{table}
+
+\subsection{Catálogo de historias de usuario}
+
+{\tablacompacta
+\begin{longtable}{p{1.2cm}p{0.9cm}p{5.2cm}p{5.0cm}p{1.1cm}p{0.7cm}}
+\caption{Historias de usuario del flujo de posgrados.}\label{tab:hu}\\
+\toprule
+\cabecera{\textbf{ID}} & \textbf{Épica} & \textbf{Historia} & \textbf{Criterios de aceptación} & \textbf{Prior.} & \textbf{Pts} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Épica} & \textbf{Historia} & \textbf{Criterios de aceptación} & \textbf{Prior.} & \textbf{Pts} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+HU-01 & E-01 & Como aspirante quiero escribir al número de la universidad y recibir de inmediato un menú de opciones, para saber qué puedo hacer sin leer instrucciones. & Al enviar cualquier mensaje sin sesión activa se recibe el menú. El menú llega en menos de 3 segundos. Las opciones son seleccionables, no escritas. & Debe & 3 \\
+HU-02 & E-01 & Como aspirante quiero elegir entre especializaciones, maestrías y doctorados, para ver solo los programas del nivel que me interesa. & La lista muestra las tres categorías con duración y modalidad. Al elegir una se muestran únicamente sus programas. Una opción permite volver. & Debe & 3 \\
+HU-03 & E-01 & Como aspirante quiero ver el costo por semestre y la duración de cada programa, para saber si está a mi alcance antes de contactar a nadie. & Cada programa muestra nombre, valor por semestre y duración. Se indica el valor de inscripción de la categoría. Se distinguen los programas virtuales. & Debe & 5 \\
+HU-04 & E-01 & Como aspirante quiero preguntar en mis propias palabras sobre requisitos, fechas o financiación, para resolver dudas que el catálogo no responde. & La respuesta se basa en la base de conocimiento institucional. Si la pregunta excede su alcance, el asistente lo dice y ofrece un asesor. La respuesta llega en menos de 10 segundos. & Debe & 8 \\
+HU-05 & E-01 & Como aspirante quiero volver al menú escribiendo una palabra, para no quedar atrapado en un diálogo. & La palabra \texttt{menu} devuelve al menú principal desde cualquier paso. La sesión anterior se descarta. & Debería & 2 \\
+HU-06 & E-02 & Como aspirante quiero que me pidan autorización antes de tomar mis datos, para saber qué van a hacer con ellos. & Antes de la primera pregunta personal se solicita autorización e informa la finalidad. Si se niega, el diálogo termina y no se registra nada. & Debe & 3 \\
+HU-07 & E-02 & Como aspirante quiero que el bot me avise si escribo mal mi correo, para no perder el contacto por un error de digitación. & Un correo con formato inválido se rechaza con un ejemplo y se vuelve a solicitar. El correo se guarda en minúsculas. Un nombre de menos de 3 caracteres se rechaza. & Debe & 3 \\
+HU-08 & E-02 & Como aspirante quiero poder decir que aún no sé qué programa me interesa, para no quedarme fuera del proceso por indecisión. & El campo de programa admite texto libre, específico o general. No hay validación que bloquee respuestas como ``no sé aún''. & Debería & 1 \\
+HU-09 & E-02 & Como aspirante quiero retomar la conversación donde la dejé, para no repetir mis datos si me interrumpen. & Los datos capturados persisten durante la vigencia de la sesión. Al expirar la sesión se vuelve al menú. & Debería & 5 \\
+HU-10 & E-03 & Como aspirante quiero hablar con una persona cuando lo necesite, para resolver lo que el bot no puede. & La opción está disponible tras el detalle de un programa y en el menú. Se confirma la conexión con un mensaje. & Debe & 5 \\
+HU-11 & E-03 & Como aspirante quiero seguir escribiendo por WhatsApp mientras me atiende un asesor, para no cambiar de aplicación. & Los mensajes del aspirante llegan al asesor y las respuestas del asesor llegan a WhatsApp. Al cerrarse la atención se vuelve al menú. & Debe & 8 \\
+HU-12 & E-03 & Como asesor de Admisiones quiero recibir la ficha del prospecto al abrirse la conversación, para no preguntar de nuevo lo que ya respondió. & La conversación inicia con nombre, WhatsApp, correo, programa de interés, categoría vista y fecha. Se asigna al equipo de Admisiones. & Debe & 5 \\
+HU-13 & E-03 & Como asesor quiero que las conversaciones de posgrado lleguen etiquetadas y priorizadas, para distinguirlas del resto de la bandeja. & La conversación se crea con la etiqueta \texttt{posgrado-prospecto}, prioridad media y atributos de área, programa y correo. & Debería & 3 \\
+HU-14 & E-04 & Como coordinador de Admisiones quiero que cada prospecto quede en el CRM, para hacer seguimiento comercial sin transcribir datos. & El contacto se crea o actualiza deduplicando por correo. Si una propiedad personalizada falta, se reintenta con las estándar. La integración es activable por configuración. & Debería & 5 \\
+HU-15 & E-04 & Como coordinador quiero un registro tabular de los prospectos de un evento, para revisarlos sin entrar al sistema. & Cada registro agrega una fila con fecha, WhatsApp, nombre, correo, interés en financiación, programa y autorización. & Debería & 3 \\
+HU-16 & E-04 & Como coordinador quiero ver cuántas personas consultaron programas y cuántas dejaron sus datos, para medir el embudo de captación. & El tablero muestra los contadores del período. Los eventos de consulta, uso del asistente y prospectos completados se registran. & Debería & 5 \\
+HU-17 & E-04 & Como asesor quiero entrar al tablero con usuario y contraseña, para acceder solo a lo que me corresponde. & El acceso exige credenciales válidas. La sesión caduca a las 8 horas. La sección de asesores solo la ve el administrador. & Debe & 5 \\
+HU-18 & E-04 & Como administrador quiero reiniciar la sesión de un usuario, para desbloquear a alguien que quedó atrapado en un paso. & El administrador localiza al usuario por número y reinicia su sesión. El usuario recibe el menú en su siguiente mensaje. & Podría & 2 \\
+HU-19 & E-04 & Como coordinador quiero un código QR que abra la conversación con el bot, para usarlo en piezas impresas de los eventos. & Existe una página pública con el código. Al escanearlo se abre WhatsApp con el número y un mensaje inicial. & Podría & 2 \\
+HU-20 & E-04 & Como administrador quiero que el bot no se caiga cuando falle un servicio externo, para no perder aspirantes por un problema técnico. & Ante un fallo externo el usuario recibe un mensaje comprensible y una vía alterna de contacto. No se muestran detalles técnicos. El error queda registrado. & Debe & 5 \\
+\end{longtable}}
+
+\nota{\textbf{Total estimado:} 81 puntos de historia. Las historias marcadas como \textit{Debe}
+(46 puntos) constituyen el producto mínimo viable del flujo de posgrados.}
+
+\clearpage
+
+% =========================================================
+% 6. CASOS DE USO
+% =========================================================
+\section{Diagrama de Casos de Uso}
+
+\subsection{Actores}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.4cm}p{2.0cm}X}
+        \toprule
+        \cabecera{\textbf{Actor}} & \textbf{Tipo} & \textbf{Descripción} \\
+        \midrule
+        Aspirante & Primario & Persona interesada en un programa de posgrado que interactúa por WhatsApp. \\
+        Asesor de Admisiones & Primario & Atiende las conversaciones entregadas por el bot desde la plataforma de atención. \\
+        Coordinador de Admisiones & Primario & Consulta indicadores y el registro de prospectos captados. \\
+        Administrador del sistema & Primario & Configura, monitorea y administra cuentas y sesiones. \\
+        Plataforma de mensajería & Secundario & Entrega los mensajes entrantes y transporta los salientes. \\
+        Servicio de IA & Secundario & Genera las respuestas del asistente. \\
+        Plataforma de atención & Secundario & Aloja los contactos y las conversaciones con asesores. \\
+        CRM institucional & Secundario & Recibe el contacto del prospecto. \\
+        Servicio de hojas de cálculo & Secundario & Recibe el registro tabular de la captación. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Actores del sistema.}
+\end{table}
+
+\subsection{Diagrama}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.97\textwidth}{!}{%
+\begin{tikzpicture}
+
+% --- Límite del sistema ---
+\draw[draw=utbazul, thick, rounded corners=4pt] (-1.7,1.0) rectangle (8.7,-9.9);
+\node[font=\scriptsize\bfseries, text=utbazul] at (3.5,0.5) {Tooli: flujo de posgrados};
+
+% --- Casos de uso: columna izquierda (aspirante) ---
+\node[uc] (u1) at (0.4,-0.9) {UC-01\\ Consultar catálogo\\ de posgrados};
+\node[uc] (u2) at (0.4,-2.2) {UC-02\\ Ver detalle de\\ un programa};
+\node[uc] (u3) at (0.4,-3.5) {UC-03\\ Preguntar al\\ asistente de IA};
+\node[uc] (u4) at (0.4,-4.8) {UC-04\\ Solicitar\\ asesor humano};
+\node[uc] (u5) at (0.4,-6.1) {UC-05\\ Registrar\\ prospecto};
+\node[uc] (u6) at (0.4,-7.4) {UC-06\\ Otorgar\\ consentimiento};
+\node[uc] (u7) at (0.4,-8.7) {UC-07\\ Conversar\\ con el asesor};
+
+% --- Casos de uso: columna derecha (personal y sistemas) ---
+\node[uc] (u9)  at (6.6,-0.9) {UC-09\\ Autenticarse\\ en el tablero};
+\node[uc] (u10) at (6.6,-2.2) {UC-10\\ Consultar\\ indicadores};
+\node[uc] (u11) at (6.6,-3.5) {UC-11\\ Administrar\\ asesores};
+\node[uc] (u12) at (6.6,-4.8) {UC-12\\ Reiniciar sesión\\ de un usuario};
+\node[uc] (u13) at (6.6,-6.1) {UC-13\\ Sincronizar\\ con el CRM};
+\node[uc] (u14) at (6.6,-7.4) {UC-14\\ Registrar en hoja\\ de captación};
+\node[uc] (u8)  at (6.6,-8.7) {UC-08\\ Atender al\\ prospecto};
+
+% --- Actores ---
+\actor{-3.7}{-4.0}{Aspirante}
+\actor{10.7}{-1.6}{Coordinador de\\ Admisiones}
+\actor{10.7}{-4.4}{Administrador\\ del sistema}
+\actor{10.7}{-8.0}{Asesor de\\ Admisiones}
+
+% --- Asociaciones del aspirante ---
+\draw[draw=grismedio] (-3.35,-4.0) -- (u1.west);
+\draw[draw=grismedio] (-3.35,-4.0) -- (u2.west);
+\draw[draw=grismedio] (-3.35,-4.0) -- (u3.west);
+\draw[draw=grismedio] (-3.35,-4.0) -- (u4.west);
+\draw[draw=grismedio] (-3.35,-4.0) -- (u6.west);
+\draw[draw=grismedio] (-3.35,-4.0) -- (u7.west);
+
+% --- Asociaciones del personal ---
+\draw[draw=grismedio] (10.35,-1.6) -- (u9.east);
+\draw[draw=grismedio] (10.35,-1.6) -- (u10.east);
+\draw[draw=grismedio] (10.35,-4.4) -- (u9.east);
+\draw[draw=grismedio] (10.35,-4.4) -- (u11.east);
+\draw[draw=grismedio] (10.35,-4.4) -- (u12.east);
+\draw[draw=grismedio] (10.35,-8.0) -- (u8.east);
+\draw[draw=grismedio] (10.35,-8.0) -- (u9.east);
+
+% --- Relaciones include / extend ---
+\draw[flechad] (u4.south) -- node[font=\tiny, right=1pt] {$\ll$include$\gg$} (u5.north);
+\draw[flechad] (u5.south) -- node[font=\tiny, right=1pt] {$\ll$include$\gg$} (u6.north);
+\draw[flechad] (u3.north) -- node[font=\tiny, right=1pt] {$\ll$extend$\gg$} (u2.south);
+\draw[flechad] (u5.east) -- node[font=\tiny, above, pos=0.5] {$\ll$include$\gg$} (u13.west);
+\draw[flechad] (u5.east) -- node[font=\tiny, below, pos=0.35] {$\ll$extend$\gg$} (u14.west);
+\draw[flechad] (u7.east) -- node[font=\tiny, above, pos=0.5] {$\ll$include$\gg$} (u8.west);
+
+\end{tikzpicture}}
+\caption{Diagrama de casos de uso del flujo de posgrados.}
+\label{fig:casos-uso}
+\end{figure}
+
+\subsection{Especificación de los casos de uso principales}
+
+\subsubsection{UC-01. Consultar catálogo de posgrados}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.2cm}X}
+        \toprule
+        \cabecera{\textbf{Campo}} & \textbf{Contenido} \\
+        \midrule
+        \textbf{Actor principal} & Aspirante. \\
+        \textbf{Actores secundarios} & Plataforma de mensajería. \\
+        \textbf{Descripción} & El aspirante consulta la oferta de posgrados por categoría. \\
+        \textbf{Precondiciones} & El aspirante ha iniciado conversación con el bot. \\
+        \textbf{Postcondiciones} & Se registra el evento de consulta y la categoría queda guardada en la sesión. \\
+        \textbf{Flujo principal} &
+        1. El aspirante selecciona ``Ver programas'' en el menú. \newline
+        2. El sistema muestra la lista de categorías: especializaciones, maestrías y doctorados. \newline
+        3. El aspirante selecciona una categoría. \newline
+        4. El sistema muestra los programas de esa categoría con valor por semestre, duración y modalidad. \newline
+        5. El sistema ofrece las acciones de continuación. \\
+        \textbf{Flujos alternativos} &
+        3a. El aspirante escribe \texttt{menu}: el sistema regresa al menú principal y termina el caso. \newline
+        3b. El aspirante envía una opción no válida: el sistema repite la lista de categorías. \\
+        \textbf{Excepciones} & E1. Falla el envío del mensaje: el sistema reintenta una vez y registra el error. \\
+        \textbf{Requisitos} & RF-06, RF-07, RF-08, RF-27. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Especificación del caso de uso UC-01.}
+\end{table}
+
+\subsubsection{UC-03. Preguntar al asistente de IA}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.2cm}X}
+        \toprule
+        \cabecera{\textbf{Campo}} & \textbf{Contenido} \\
+        \midrule
+        \textbf{Actor principal} & Aspirante. \\
+        \textbf{Actores secundarios} & Servicio de IA. \\
+        \textbf{Descripción} & El aspirante formula preguntas abiertas y recibe respuestas basadas en la base de conocimiento institucional. \\
+        \textbf{Precondiciones} & El aspirante seleccionó la opción de asistente de IA. \\
+        \textbf{Postcondiciones} & La sesión queda en el paso de conversación con IA; se registra el evento de uso. \\
+        \textbf{Flujo principal} &
+        1. El sistema informa que el asistente está activo y cómo salir. \newline
+        2. El aspirante escribe su pregunta. \newline
+        3. El sistema consulta el modelo de lenguaje con el contexto de la base de conocimiento. \newline
+        4. El sistema entrega la respuesta y queda a la espera de nuevas preguntas. \\
+        \textbf{Flujos alternativos} &
+        2a. La pregunta excede la base de conocimiento: el sistema lo declara y ofrece contacto con un asesor. \newline
+        2b. El aspirante escribe \texttt{menu}: el sistema cierra el asistente y vuelve al menú. \\
+        \textbf{Excepciones} &
+        E1. El servicio de IA no responde o excede el tiempo límite: el sistema informa la demora y ofrece hablar con un asesor. \newline
+        E2. Se supera el límite de mensajes por usuario: el sistema pide esperar unos minutos. \\
+        \textbf{Requisitos} & RF-09, RF-10, RF-35, RNF-03, RNF-24. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Especificación del caso de uso UC-03.}
+\end{table}
+
+\subsubsection{UC-05. Registrar prospecto}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.2cm}X}
+        \toprule
+        \cabecera{\textbf{Campo}} & \textbf{Contenido} \\
+        \midrule
+        \textbf{Actor principal} & Aspirante. \\
+        \textbf{Actores secundarios} & Plataforma de atención, CRM institucional, servicio de hojas de cálculo. \\
+        \textbf{Descripción} & El sistema captura los datos de contacto del aspirante interesado y los deja disponibles para la asesoría y el seguimiento. \\
+        \textbf{Precondiciones} & El aspirante solicitó hablar con un asesor (UC-04) y otorgó su consentimiento (UC-06). \\
+        \textbf{Postcondiciones} & Existe un prospecto con nombre, correo y programa de interés; el contacto queda sincronizado con el CRM. \\
+        \textbf{Flujo principal} &
+        1. El sistema solicita el nombre completo. \newline
+        2. El aspirante responde; el sistema valida la longitud mínima y lo guarda en la sesión. \newline
+        3. El sistema solicita el correo electrónico. \newline
+        4. El aspirante responde; el sistema valida el formato, lo normaliza y lo guarda. \newline
+        5. El sistema solicita el programa o área de interés. \newline
+        6. El aspirante responde; el sistema arma la ficha del prospecto. \newline
+        7. El sistema sincroniza el contacto con el CRM (UC-13). \newline
+        8. El sistema entrega el prospecto al asesor (UC-08) y confirma al aspirante. \\
+        \textbf{Flujos alternativos} &
+        2a. Nombre de menos de 3 caracteres: el sistema lo rechaza y vuelve a solicitarlo. \newline
+        4a. Correo con formato inválido: el sistema lo rechaza mostrando un ejemplo y vuelve a solicitarlo. \newline
+        6a. El aspirante responde de forma general (``no sé aún''): el sistema acepta la respuesta. \newline
+        7a. La integración con el CRM está desactivada: el paso se omite sin afectar el flujo. \\
+        \textbf{Excepciones} &
+        E1. Falla la creación de la conversación de atención: el sistema informa al aspirante, entrega un canal alterno de contacto y registra el error. \newline
+        E2. La sesión expira durante la captura: los datos parciales se pierden y el aspirante vuelve al menú. \\
+        \textbf{Requisitos} & RF-11 a RF-19, RF-22, RF-24, RF-26, RF-35. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Especificación del caso de uso UC-05.}
+\end{table}
+
+\subsubsection{UC-07. Conversar con el asesor}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.2cm}X}
+        \toprule
+        \cabecera{\textbf{Campo}} & \textbf{Contenido} \\
+        \midrule
+        \textbf{Actor principal} & Aspirante. \\
+        \textbf{Actores secundarios} & Asesor de Admisiones, plataforma de atención. \\
+        \textbf{Descripción} & El aspirante y el asesor conversan a través del bot, que actúa como puente entre WhatsApp y la plataforma de atención. \\
+        \textbf{Precondiciones} & Existe una conversación abierta asociada a la sesión del aspirante. \\
+        \textbf{Postcondiciones} & La conversación queda resuelta y la sesión regresa al menú principal. \\
+        \textbf{Flujo principal} &
+        1. El aspirante escribe un mensaje. \newline
+        2. El sistema lo publica en la conversación de la plataforma de atención. \newline
+        3. El asesor responde desde la plataforma. \newline
+        4. El sistema recibe la respuesta por webhook y la envía al aspirante por WhatsApp. \newline
+        5. Los pasos 1 a 4 se repiten hasta que el asesor cierra la conversación. \newline
+        6. El sistema devuelve al aspirante al menú principal. \\
+        \textbf{Flujos alternativos} &
+        1a. El aspirante escribe \texttt{menu}: el sistema cierra el puente y regresa al menú. \newline
+        3a. La conversación ocurre fuera del horario de atención: el sistema informa el horario y deja el mensaje en cola. \\
+        \textbf{Excepciones} & E1. La plataforma de atención no está disponible: el sistema informa al aspirante y ofrece un canal alterno. \\
+        \textbf{Requisitos} & RF-20, RF-21, RF-35, RNF-21. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Especificación del caso de uso UC-07.}
+\end{table}
+
+\clearpage
+% =========================================================
+% 7. MOCKUP
+% =========================================================
+\section{Mockup de la Aplicación}
+
+La interfaz principal del producto es \textbf{conversacional}: no tiene pantallas propias, sino
+mensajes dentro de WhatsApp. Por eso el mockup se presenta como una secuencia de capturas del
+recorrido real del aspirante. A ellas se suman las pantallas del \textbf{tablero web de asesores} y
+de la \textbf{bandeja de atención humana}, que sí son interfaces gráficas convencionales.
+
+Las imágenes de esta sección provienen del prototipo funcional ya desplegado; por tanto, el mockup
+no es una aproximación de diseño, sino la interfaz construida y contrastada con los requisitos
+especificados en la sección 4.
+
+\subsection{Pantallas conversacionales (WhatsApp)}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.46\linewidth}
+  \centering
+  \captura[height=10.2cm]{whatsapp-registro-datos.png}\\[2mm]
+  {\small (a) Apertura del flujo y captura de datos.}
+\end{minipage}\hfill
+\begin{minipage}{0.46\linewidth}
+  \centering
+  \captura[height=10.2cm]{whatsapp-registro-confirmacion.png}\\[2mm]
+  {\small (b) Programa de interés y confirmación.}
+\end{minipage}
+\caption{Interfaz conversacional de Tooli en WhatsApp: registro del prospecto de posgrados.}
+\label{fig:mockup-whatsapp}
+\end{figure}
+
+\paragraph{(a) Apertura del flujo y captura de datos.} El bot recibe al aspirante con el menú de
+posgrados y, al seleccionar \textit{Registrarme}, abre el formulario conversacional: primero informa
+la finalidad del registro ---enviar información sobre programas, becas y novedades---, luego solicita
+el \textbf{nombre completo} y, tras confirmarlo, el \textbf{correo electrónico}. Cada mensaje recuerda
+que la palabra \texttt{menu} cancela el diálogo, de modo que el usuario nunca queda atrapado en un
+paso. La pantalla materializa los requisitos RF-04, RF-05, RF-11, RF-13 y RF-14, y las historias
+HU-01, HU-05, HU-06 y HU-07.
+
+\paragraph{(b) Programa de interés y confirmación.} La elección del tipo de posgrado se resuelve con
+una \textbf{lista interactiva} (\textit{Maestría $\cdot$ 3--4 semestres $\cdot$ presencial y
+virtual}) en lugar de escritura libre, lo que elimina los errores de entrada. Al cerrar el flujo, el
+bot devuelve la \textbf{ficha del prospecto} ---nombre, correo, número de WhatsApp y programa--- que
+es exactamente la información que recibirá el asesor, y anuncia el contacto posterior. Corresponde a
+los requisitos RF-06, RF-15, RF-16 y RF-17, a los no funcionales RNF-14 y RNF-16, y a las historias
+HU-02, HU-08 y HU-12.
+
+\subsection{Tablero web de asesores}
+
+\subsubsection{Inicio de sesión}
+
+\begin{figure}[H]
+\centering
+\captura[width=0.92\linewidth]{panel-login.png}
+\caption{Pantalla de acceso al tablero de asesores.}
+\label{fig:mockup-login}
+\end{figure}
+
+El tablero es de uso interno: no admite registro público y exige usuario y contraseña de una cuenta
+creada por el administrador. La sesión se emite como token con vigencia limitada y las contraseñas se
+almacenan cifradas, nunca en claro. Implementa el requisito RF-29 y los no funcionales RNF-08 y
+RNF-10, correspondientes a la historia HU-17.
+
+\subsubsection{Panel de inicio}
+
+\begin{figure}[H]
+\centering
+\captura[width=\linewidth]{panel-inicio.png}
+\caption{Panel de inicio: indicadores del día, alertas y accesos rápidos.}
+\label{fig:mockup-inicio}
+\end{figure}
+
+Es la vista de entrada del asesor. La fila superior resume los indicadores del día ---mensajes
+atendidos, preguntas resueltas por la IA, prospectos captados y casos escalados a un asesor---, que
+son los contadores del embudo descritos en la sección 4. El bloque \textit{Requiere atención} señala
+las conversaciones sin asignar en la plataforma de atención, y la columna de accesos rápidos enlaza
+los módulos operativos (conversaciones, consulta de turno, recibo, CRM, posgrados, recordatorios y
+métricas). Cubre los requisitos RF-27, RF-28 y RF-31, y la historia HU-16.
+
+\subsubsection{Gestión de usuarios}
+
+\begin{figure}[H]
+\centering
+\captura[width=\linewidth]{panel-usuarios.png}
+\caption{Gestión de usuarios: administración de las cuentas de asesor.}
+\label{fig:mockup-usuarios}
+\end{figure}
+
+Esta sección solo es visible para el rol de \textbf{administrador}. Desde ella se crean cuentas de
+asesor, se asigna su área de trabajo y se consulta su actividad (acciones realizadas y casos a
+cargo), lo que permite revocar accesos sin eliminar el registro histórico. Implementa los requisitos
+RF-30 y RF-32, y las historias HU-17 y HU-18.
+
+\subsection{Bandeja de atención humana}
+
+\begin{figure}[H]
+\centering
+\captura[width=\linewidth]{chatwoot-bandeja.png}
+\caption{Bandeja de la plataforma de atención: destino del prospecto entregado por el bot.}
+\label{fig:mockup-chatwoot}
+\end{figure}
+
+Es el punto donde aterriza la entrega del prospecto (\textit{handoff}). Las conversaciones llegan al
+buzón de WhatsApp del equipo y se distribuyen entre las bandejas \textit{Mine}, \textit{Unassigned} y
+\textit{All}, con equipos diferenciados (admisiones y soporte técnico) y etiquetas de clasificación.
+El asesor responde desde aquí y el bot reenvía su respuesta al aspirante por WhatsApp sin que este
+cambie de aplicación. Corresponde a los requisitos RF-18 a RF-21 y a las historias HU-11, HU-12 y
+HU-13.
+
+\subsection{Trazabilidad de las pantallas}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{4.6cm}Xp{2.6cm}}
+        \toprule
+        \cabecera{\textbf{Pantalla}} & \textbf{Requisitos} & \textbf{Historias} \\
+        \midrule
+        Registro en WhatsApp (figura \ref{fig:mockup-whatsapp}a) & RF-04, RF-05, RF-11, RF-13, RF-14 & HU-01, HU-05, HU-06, HU-07 \\
+        Confirmación del prospecto (figura \ref{fig:mockup-whatsapp}b) & RF-06, RF-15, RF-16, RF-17, RNF-14, RNF-16 & HU-02, HU-08, HU-12 \\
+        Inicio de sesión (figura \ref{fig:mockup-login}) & RF-29, RNF-08, RNF-10 & HU-17 \\
+        Panel de inicio (figura \ref{fig:mockup-inicio}) & RF-27, RF-28, RF-31 & HU-16 \\
+        Gestión de usuarios (figura \ref{fig:mockup-usuarios}) & RF-30, RF-32 & HU-17, HU-18 \\
+        Bandeja de atención (figura \ref{fig:mockup-chatwoot}) & RF-18, RF-19, RF-20, RF-21 & HU-11, HU-12, HU-13 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Correspondencia entre las pantallas del prototipo y la especificación.}
+\end{table}
+
+\nota{\textbf{Nota de diseño.} Las pantallas conversacionales respetan las restricciones reales de la
+plataforma de mensajería: máximo 10 filas por lista interactiva y 3 botones por mensaje. Por eso la
+selección de programa se entrega como lista desplegable (\textit{Ver opciones}) y la navegación se
+apoya en listas y botones, nunca en escritura libre, salvo en la captura de datos y en el asistente
+de IA.}
+
+\clearpage
+% =========================================================
+% 8. TRAZABILIDAD
+% =========================================================
+\section{Matriz de Trazabilidad}
+
+La matriz relaciona cada historia de usuario con los requisitos funcionales que la implementan y con
+los casos de uso que la modelan. Permite verificar que ningún requisito quede huérfano y que ninguna
+necesidad quede sin cubrir.
+
+{\tablacompacta
+\begin{longtable}{p{1.5cm}p{5.2cm}p{5.0cm}p{3.0cm}}
+\caption{Trazabilidad entre historias de usuario, requisitos y casos de uso.}\label{tab:trazabilidad}\\
+\toprule
+\cabecera{\textbf{HU}} & \textbf{Necesidad} & \textbf{Requisitos funcionales} & \textbf{Casos de uso} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{HU} & \textbf{Necesidad} & \textbf{Requisitos funcionales} & \textbf{Casos de uso} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+HU-01 & Menú inmediato al escribir & RF-01, RF-02, RF-03, RF-04 & UC-01 \\
+HU-02 & Selección de categoría & RF-06 & UC-01 \\
+HU-03 & Costos y duración visibles & RF-07, RF-08 & UC-01, UC-02 \\
+HU-04 & Preguntas abiertas resueltas & RF-09, RF-10 & UC-03 \\
+HU-05 & Reinicio del diálogo & RF-05 & UC-01, UC-03, UC-07 \\
+HU-06 & Consentimiento previo & RF-11, RF-12 & UC-06 \\
+HU-07 & Validación de datos & RF-13, RF-14 & UC-05 \\
+HU-08 & Respuesta general admitida & RF-15 & UC-05 \\
+HU-09 & Continuidad del diálogo & RF-16, RF-26 & UC-05 \\
+HU-10 & Acceso a un asesor & RF-08, RF-17 & UC-04 \\
+HU-11 & Conversación puente & RF-20, RF-21 & UC-07 \\
+HU-12 & Ficha del prospecto & RF-17, RF-18 & UC-05, UC-08 \\
+HU-13 & Etiqueta y prioridad & RF-18, RF-19 & UC-08 \\
+HU-14 & Prospecto en el CRM & RF-22, RF-23, RF-34 & UC-13 \\
+HU-15 & Registro tabular del evento & RF-24, RF-25, RF-34 & UC-14 \\
+HU-16 & Indicadores del embudo & RF-27, RF-28, RF-31 & UC-10 \\
+HU-17 & Acceso autenticado & RF-29, RF-30 & UC-09, UC-11 \\
+HU-18 & Reinicio de sesión ajena & RF-32 & UC-12 \\
+HU-19 & Código QR de captación & RF-33 & UC-01 \\
+HU-20 & Tolerancia a fallos externos & RF-35 & UC-03, UC-05, UC-07 \\
+\end{longtable}}
+
+% =========================================================
+% 9. GLOSARIO
+% =========================================================
+\section{Glosario}
+
+\begin{table}[H]
+    \centering
+    \tablacompacta
+    \begin{tabularx}{\textwidth}{p{3.6cm}X}
+        \toprule
+        \cabecera{\textbf{Término}} & \textbf{Definición} \\
+        \midrule
+        Prospecto & Persona interesada que ya entregó sus datos de contacto y quedó registrada para seguimiento. \\
+        Handoff & Transferencia de la conversación desde el bot hacia un asesor humano, conservando el contexto. \\
+        Máquina de estados & Modelo en el que la conversación avanza por pasos; cada paso determina qué manejador atiende el siguiente mensaje. \\
+        Sesión & Estado temporal de la conversación de un usuario, con tiempo de vida limitado. \\
+        Webhook & Punto de acceso HTTP que un servicio externo invoca para notificar un evento. \\
+        Base de conocimiento & Conjunto de textos institucionales que acota las respuestas del asistente de IA. \\
+        Ventana de 24 horas & Período tras el último mensaje del usuario durante el cual la plataforma permite enviar mensajes libres. \\
+        Puntos de historia & Unidad relativa de esfuerzo usada para estimar historias de usuario. \\
+        MoSCoW & Técnica de priorización: \textit{Must}, \textit{Should}, \textit{Could}, \textit{Won't}. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Glosario de términos.}
+\end{table}
+
+% =========================================================
+% 10. CONCLUSIONES
+% =========================================================
+\section{Conclusiones}
+
+\begin{itemize}[itemsep=4pt]
+    \item El análisis del flujo de posgrados de Tooli identificó \textbf{nueve elementos de
+    información} centrales, de los cuales solo tres persisten datos personales (prospecto, contacto
+    en el CRM y registro de captación). El resto es información volátil o de catálogo, lo que reduce
+    de forma deliberada la superficie de datos sensibles del sistema.
+    \item El mapa de procesos muestra que el sistema \textbf{no reemplaza el proceso de captación}:
+    automatiza por completo sus tres primeras etapas (atracción, información y calificación) y
+    habilita la cuarta entregando al asesor humano un prospecto con contexto. El valor del producto
+    está tanto en lo que automatiza como en lo que deja de hacer.
+    \item La especificación bajo IEEE 830 arrojó \textbf{35 requisitos funcionales y 24 no
+    funcionales}. Es significativo que los requisitos no funcionales de privacidad, seguridad y
+    tolerancia a fallos concentren la mayor prioridad: en un canal público como WhatsApp, el
+    cumplimiento legal y la degradación elegante ante fallos son tan críticos como la funcionalidad.
+    \item Las 20 historias de usuario suman \textbf{81 puntos de historia}, de los cuales 46
+    corresponden a historias obligatorias. Ese subconjunto define un producto mínimo viable
+    verificable: informar el catálogo, resolver dudas con IA y entregar el prospecto al asesor.
+    \item El diagrama de casos de uso evidencia que el sistema tiene \textbf{un actor primario
+    dominante} (el aspirante, asociado a seis de los catorce casos) y que las relaciones de
+    inclusión concentran el riesgo en UC-05, el caso de uso de registro del prospecto, que integra
+    tres servicios externos.
+    \item El mockup confirma que las restricciones de la plataforma de mensajería (10 filas por
+    lista, 3 botones por mensaje, ventana de 24 horas) son un condicionante de diseño y no un detalle
+    de implementación: definen la forma del menú, la extensión de los mensajes y el momento en que el
+    sistema puede iniciar una conversación.
+\end{itemize}
+
+% =========================================================
+% 11. REFERENCIAS
+% =========================================================
+\section{Referencias}
+
+\begin{enumerate}[itemsep=3pt]
+    \item IEEE. \textit{IEEE Recommended Practice for Software Requirements Specifications
+    (IEEE Std 830-1998)}. Institute of Electrical and Electronics Engineers, 1998.
+    \item Congreso de la República de Colombia. \textit{Ley 1581 de 2012, por la cual se dictan
+    disposiciones generales para la protección de datos personales}. Bogotá, 2012.
+    \item Presidencia de la República de Colombia. \textit{Decreto 1377 de 2013, por el cual se
+    reglamenta parcialmente la Ley 1581 de 2012}. Bogotá, 2013.
+    \item Object Management Group. \textit{Unified Modeling Language (UML) Specification},
+    versión 2.5.1, 2017.
+    \item Cohn, M. \textit{User Stories Applied: For Agile Software Development}.
+    Addison-Wesley, 2004.
+    \item Meta Platforms. \textit{WhatsApp Business Platform: Cloud API Documentation}.
+    \url{https://developers.facebook.com/docs/whatsapp/cloud-api}
+    \item Universidad Tecnológica de Bolívar. \textit{Portafolio de programas de posgrado}.
+    \url{https://www.utb.edu.co}
+\end{enumerate}
+
+\end{document}

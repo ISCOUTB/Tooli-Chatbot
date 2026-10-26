@@ -16,7 +16,7 @@
  *
  * QUÉ NO ES:
  *   No trae semestre ni carrera *actual* del estudiante — eso sigue necesitando
- *   el sistema académico de la universidad (PENDIENTES_PANEL_ASESORES.md §1).
+ *   el sistema académico de la universidad (docs/pendientes-panel-asesores.md §1).
  *   Lo que un asesor escriba a mano en una nota es una nota, no un dato del
  *   sistema, y la UI debe mostrarlo como tal.
  *

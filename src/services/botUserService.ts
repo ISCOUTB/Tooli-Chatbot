@@ -9,7 +9,7 @@ export interface BotUserInfo {
   // `session.data` solo trae lo que los flujos actuales capturan (nombre,
   // correo, programa de interés) — no hay semestre/carrera todavía porque
   // ningún flujo los pregunta ni hay sistema universitario conectado del que
-  // traerlos. Ver PENDIENTES_PANEL_ASESORES.md (sección 1) antes de agregar
+  // traerlos. Ver docs/pendientes-panel-asesores.md (sección 1) antes de agregar
   // esos campos aquí o en el CRM del panel.
   session: { step: string; data: Record<string, string> } | null;
   banned: boolean;

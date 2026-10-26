@@ -1,7 +1,7 @@
 # Tooli — Chatbot de WhatsApp para la UTB
 
 > **Estado de producción:** antes de usar datos reales, configura los secretos y
-> completa la migración descrita en [PRODUCCION_SEGURIDAD.md](PRODUCCION_SEGURIDAD.md).
+> completa la migración descrita en [docs/produccion-seguridad.md](docs/produccion-seguridad.md).
 > Las consultas directas de notas están apagadas por defecto
 > (`TOOLI_NOTAS_SSO_ENABLED=0`) porque piden una contraseña institucional por
 > WhatsApp y el SSO automatizado aún no tiene validación integral. Turno y recibo

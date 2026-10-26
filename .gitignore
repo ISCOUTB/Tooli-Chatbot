@@ -1,11 +1,28 @@
 node_modules/
 dist/
+# Variables de entorno: nunca subir credenciales reales.
+# Se ignoran todas las variantes y solo se permiten las plantillas y el entorno
+# de pruebas (cuyos valores son falsos a proposito).
 .env
-.env.typebot
-.env.chatwoot
+.env.*
+!.env*.example
+!.env.test
+!**/.env*.example
 .claude/worktrees/
 tmp-iceberg/
 tmp/
 *.key
 *.pem
 .worktrees/
+
+# Editores y sistema operativo
+.idea/
+.vscode/
+.DS_Store
+
+# Configuración local de Claude Code (por desarrollador)
+.claude/settings.local.json
+
+# Documentacion administrativa del curso (actas, informes, acuerdo de
+# confidencialidad). Se conserva en local, no se publica en el repositorio.
+proyectodocuments/

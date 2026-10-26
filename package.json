@@ -1,6 +1,12 @@
 {
   "name": "tooli-chatbot",
   "version": "0.1.0",
+  "description": "Plataforma conversacional de WhatsApp de la Universidad Tecnologica de Bolivar: captacion de aspirantes a posgrado y servicios al estudiante.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ISCOUTB/tooli-chatbot.git"
+  },
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",

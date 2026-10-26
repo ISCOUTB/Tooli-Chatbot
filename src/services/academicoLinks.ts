@@ -15,7 +15,7 @@
  *   El día que exista una integración real, la costura está definida abajo en
  *   `AcademicoProvider`: se implementa ese contrato y los flujos pasan a mostrar
  *   el dato en vez del enlace, sin reescribir la navegación.
- *   Ver PENDIENTES_PANEL_ASESORES.md (sección 1).
+ *   Ver docs/pendientes-panel-asesores.md (sección 1).
  */
 
 export type AreaRecurso = 'pregrado' | 'posgrado' | 'ambos';

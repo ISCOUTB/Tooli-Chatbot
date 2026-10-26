@@ -233,7 +233,7 @@ npx tsc --noEmit
 | `src/index.ts` | Usa `securityHeaders`, `bodySizeLimit`, rate limit API (prod), `notFoundHandler`, `errorHandler`, llama `validateJwtSecret()` |
 | `src/middleware/auth.ts` | Añade `validateJwtSecret()` con fail-hard en prod + warnings en dev |
 | `src/services/rateLimit.ts` | Añade `createRateLimiter()` factory reutilizable |
-| `SEGURIDAD.md` | **NUEVO** — este reporte |
+| `SECURITY.md` | **NUEVO** — este reporte |
 
 ---
 

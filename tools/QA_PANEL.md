@@ -34,6 +34,6 @@ node tools/mock-panel-server.cjs
 
 En otra terminal, ejecutar `node tools/qa-panel-asesor.cjs`. La prueba confirma que no aparece la selección de broadcast y que las rutas administrativas redirigen a Inicio.
 
-Estas pruebas usan respuestas sintéticas. La descarga PDF de prueba contiene un archivo mínimo; no entra al portal Iceberg. El trabajo de broadcast simulado marca destinatarios como enviados sin llamar a Meta. Las pruebas tampoco envían WhatsApp, consultan Google Sheets, operan Chatwoot real ni verifican el despliegue del VPS. Esas integraciones requieren las credenciales y el entorno de ensayo indicados en `PRODUCCION_SEGURIDAD.md`.
+Estas pruebas usan respuestas sintéticas. La descarga PDF de prueba contiene un archivo mínimo; no entra al portal Iceberg. El trabajo de broadcast simulado marca destinatarios como enviados sin llamar a Meta. Las pruebas tampoco envían WhatsApp, consultan Google Sheets, operan Chatwoot real ni verifican el despliegue del VPS. Esas integraciones requieren las credenciales y el entorno de ensayo indicados en `docs/produccion-seguridad.md`.
 
 Por defecto, los scripts usan Chromium instalado por Playwright (`npx playwright install chromium`). Para otro navegador, define `QA_BROWSER_EXECUTABLE` con su ruta.
