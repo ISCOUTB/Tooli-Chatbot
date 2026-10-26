@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, tooli-pregrados]
   pull_request:
-    branches: [main]
+    branches: [main, tooli-pregrados]
 
 jobs:
   typecheck-build:
@@ -88,7 +88,9 @@ jobs:
       group: tooli-production
       cancel-in-progress: false
     needs: [typecheck-build, docker-build, validate-configs]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Produccion corre la version completa (pregrado + posgrados + nutria),
+    # que vive en tooli-pregrados. main es el corte academico y no se despliega.
+    if: github.ref == 'refs/heads/tooli-pregrados' && github.event_name == 'push'
     steps:
       - name: SSH deploy
         uses: appleboy/ssh-action@v1.0.3
@@ -99,7 +101,7 @@ jobs:
           script: |
             set -e
             cd ~/tooli-chatbot
-            git pull --ff-only origin main
+            git pull --ff-only origin tooli-pregrados
             python3 tools/deploy-preflight.py
             # No recrear Redis ni Chatwoot sin la migración de datos previa.
             docker compose up -d --build --no-deps backend
