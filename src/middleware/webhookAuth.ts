@@ -23,9 +23,20 @@ export function verifyChatwootToken(token: unknown, secret: string): boolean {
   return typeof token === 'string' && secret.length >= 32 && safeEqual(token, secret);
 }
 
+let warnedMissingMetaSecret = false;
+
+/**
+ * Sin META_APP_SECRET se aceptan las entregas sin firma (como antes de esta
+ * validación) para que desplegar sin el secreto no deje al bot sordo. En
+ * cuanto se configura, toda entrega sin firma válida se rechaza.
+ */
 export function requireMetaSignature(req: RawBodyRequest, res: Response, next: NextFunction): void {
   if (!config.metaCloud.appSecret) {
-    res.status(503).json({ error: 'webhook_not_configured' });
+    if (!warnedMissingMetaSecret) {
+      warnedMissingMetaSecret = true;
+      console.warn('[meta-webhook] META_APP_SECRET no configurado: se aceptan entregas SIN verificar la firma.');
+    }
+    next();
     return;
   }
   const signature = req.header('x-hub-signature-256');
