@@ -4,48 +4,18 @@ import { parseGlobalCommand } from './commands';
 import { track } from '../services/metrics';
 import {
   AREAS,
+  formatearListado,
   formatearSugerencias,
   parseAreaSeleccion,
   recomendarPorArea,
 } from './programasCatalog';
 
 // ── Textos informativos (sin opciones numéricas) ──────────────────────────────
+// Se arman desde el catálogo extraído de las páginas oficiales.
 
-const ESPECIALIZACIONES_INFO =
-  '📚 *Especializaciones UTB*\n' +
-  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
-  '• Telecomunicaciones y Redes — $10.2M/sem\n' +
-  '• Logística del Transporte — $9.8M/sem\n' +
-  '• Gestión Ambiental Sostenible — $9.8M/sem\n' +
-  '• Sistemas Energéticos Sostenibles — $11.2M/sem\n' +
-  '• Automatización Industrial — $11.2M/sem\n' +
-  '• Gerencia de Proyectos — $12.5M/sem\n' +
-  '• Análisis y Diseño Estructural — $13M/sem\n' +
-  '• Ingeniería de Software _(virtual)_ — $8.3M/sem\n' +
-  '• Gerencia de Servicios de Salud _(virtual)_ — $7.95M/sem\n' +
-  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem\n\n' +
-  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
-
-const MAESTRIAS_INFO =
-  '🎓 *Maestrías UTB*\n' +
-  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
-  '• Gestión de la Innovación — $9.8M/sem · 4 sem\n' +
-  '• Ingeniería — $10.95M/sem · 4 sem\n' +
-  '• Gerencia de Proyectos — $13.4M/sem · 4 sem\n' +
-  '• *MBA* — $17.9M/sem · 3 sem\n' +
-  '• Gerencia Tributaria — $10.95M/sem · 3 sem\n' +
-  '• *Ciberseguridad* — $13M/sem · 3 sem\n' +
-  '• Educación Mediada por TIC _(virtual)_ — $6.95M/sem · 3 sem\n\n' +
-  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
-
-const DOCTORADOS_INFO =
-  '🔬 *Doctorados UTB*\n' +
-  '_Valores de matrícula publicados para 2026; verifica condiciones vigentes antes de inscribirte._\n\n' +
-  '• Doctorado en Ingeniería — 8 SMMLV/sem\n' +
-  '• Doctorado en Desarrollo Regional y Local — $15.1M/sem\n' +
-  '• Doctorado en Sostenibilidad — $12.3M/sem\n\n' +
-  '_Consulta los requisitos propios de cada programa._\n\n' +
-  'Valores y derechos de inscripción: https://www.utb.edu.co/la-utb/derechos-pecuniarios/';
+const ESPECIALIZACIONES_INFO = formatearListado('especializaciones');
+const MAESTRIAS_INFO = formatearListado('maestrias');
+const DOCTORADOS_INFO = formatearListado('doctorados');
 
 // ── Helper: muestra el selector de categoría como lista interactiva ───────────
 
@@ -139,7 +109,7 @@ export async function handleProgramasCategoria(ctx: FlowContext): Promise<void> 
       await messaging.sendText({
         to: from,
         text:
-          'No reconocí esa área 🤔\n\nElige un número del *1* al *6* de la lista, o escribe *0* para volver.',
+          `No reconocí esa área 🤔\n\nElige un número del *1* al *${AREAS.length}* de la lista, o escribe *0* para volver.`,
       });
       await sendAreasMenu(from);
       return;

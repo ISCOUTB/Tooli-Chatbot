@@ -3,6 +3,7 @@ import axios from 'axios';
 import Redis from 'ioredis';
 import { config } from '../config';
 import { KB_ADMISIONES, KB_POSGRADOS } from './knowledgeBase';
+import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma } from './catalogoUtb';
 import { KB_TI } from './knowledgeBaseTI';
 import { observeAILatency } from './promMetrics';
 
@@ -161,8 +162,20 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-/** Fetchea la página de un programa UTB y devuelve texto limpio. Cache 24h. */
-async function fetchProgramaInfo(nombrePrograma: string): Promise<string> {
+/**
+ * Información de un programa UTB. Primero el catálogo empaquetado (extraído de
+ * las páginas oficiales, ver `catalogoUtb.ts`): el sitio está detrás de
+ * Cloudflare y suele rechazar al bot. Si el nombre no está en el catálogo, se
+ * intenta la página oficial. Cache 24h.
+ */
+async function fetchProgramaInfo(nombrePrograma: string, niveles?: readonly NivelPrograma[]): Promise<string> {
+  const encontrados = buscarPrograma(nombrePrograma, niveles);
+  if (encontrados.length === 1) return fichaPrograma(encontrados[0]);
+  if (encontrados.length > 1) {
+    const fichas = encontrados.map(fichaPrograma).join('\n\n---\n\n');
+    return `Hay ${encontrados.length} programas con ese nombre; aclara con el usuario cuál le interesa.\n\n${fichas}`.slice(0, 6000);
+  }
+
   const slug = slugify(nombrePrograma);
   const cacheKey = `prog-cache:${slug}`;
   const cached = await redis.get(cacheKey);
@@ -170,11 +183,8 @@ async function fetchProgramaInfo(nombrePrograma: string): Promise<string> {
 
   const candidatosUrl = [
     `https://www.utb.edu.co/${slug}/`,
-    `https://www.utb.edu.co/pregrado/${slug}/`,
-    `https://www.utb.edu.co/posgrado/${slug}/`,
-    `https://www.utb.edu.co/posgrado/maestrias/${slug}/`,
-    `https://www.utb.edu.co/posgrado/especializaciones/${slug}/`,
-    `https://www.utb.edu.co/posgrado/doctorados/${slug}/`,
+    `https://www.utb.edu.co/pregrados/${slug}/`,
+    `https://www.utb.edu.co/posgrados/${slug}/`,
   ];
 
   for (const url of candidatosUrl) {
@@ -291,7 +301,8 @@ export async function preguntarAI(
       try {
         const args = JSON.parse(call.function.arguments);
         programaConsultado = args.nombre_programa;
-        const resultado = await fetchProgramaInfo(args.nombre_programa);
+        const niveles = call.function.name === 'consultar_programa_posgrado' ? NIVELES_POSGRADO : undefined;
+        const resultado = await fetchProgramaInfo(args.nombre_programa, niveles);
         messages.push({ role: 'tool', tool_call_id: call.id, content: resultado });
       } catch {
         messages.push({ role: 'tool', tool_call_id: call.id, content: 'Error consultando el programa.' });
