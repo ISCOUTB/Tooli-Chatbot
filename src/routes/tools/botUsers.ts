@@ -4,15 +4,15 @@
  */
 
 import { Router } from 'express';
-import { normalizePhone } from './shared';
+import { motivoVentanaCerrada, normalizePhone } from './shared';
 import { messaging } from '../../flows/shared';
-import { config } from '../../config';
 import { AuthedRequest } from '../../middleware/auth';
 import { logAudit } from '../../services/auditService';
 import { banUser, getBotUser, listActiveUsers, resetSession, setAiEnabled, unbanUser } from '../../services/botUserService';
 import { Response } from 'express';
 import { describeError, maskPhone } from '../../services/logSafe';
-import { ultimoEntranteVerificable, ventanaTextoLibreAbierta } from '../../services/replyWindow';
+import { getSession } from '../../services/session';
+import { chatwootConfigurado, enviarMensaje } from '../../services/chatwootAtencion';
 
 export const botUsersRouter = Router();
 
@@ -93,28 +93,25 @@ botUsersRouter.post('/bot-users/:phone/reply', async (req: AuthedRequest, res: R
   }
 
   try {
-    // Restricción REAL de la WhatsApp Business Platform: fuera de las 24h desde
-    // el último mensaje del usuario, Meta solo acepta plantillas aprobadas. En
-    // vez de dejar que el envío falle con un error críptico de la Graph API, se
-    // avisa acá con el motivo y la alternativa.
-    const info = await getBotUser(phone);
-    const now = Date.now();
-    const ultimoEntranteTs = ultimoEntranteVerificable(info.recentMessages, now);
-    if (config.messagingAdapter === 'meta' && !ventanaTextoLibreAbierta(ultimoEntranteTs, now)) {
-      const detalle = ultimoEntranteTs === null
-        ? 'No hay un mensaje entrante reciente verificable para este contacto. '
-        : `Han pasado ${Math.floor((now - ultimoEntranteTs) / (60 * 60 * 1000))} horas desde su último mensaje. `;
-      res.status(409).json({
-        error: 'fuera_de_ventana',
-        message:
-          detalle +
-          'WhatsApp solo permite texto libre dentro de las 24 horas siguientes; ' +
-          'para retomar el contacto hay que usar una plantilla aprobada por Meta.',
-      });
+    // En vez de dejar que el envío falle con un error críptico de la Graph API,
+    // se avisa acá con el motivo y la alternativa.
+    const motivo = await motivoVentanaCerrada(phone);
+    if (motivo) {
+      res.status(409).json({ error: 'fuera_de_ventana', message: motivo });
       return;
     }
 
-    await messaging.sendText({ to: phone, text: texto });
+    // Si la persona está hablando con un asesor, la respuesta va por su
+    // conversación de atención: así queda en el historial que ve el resto del
+    // equipo, y el webhook la entrega por WhatsApp. Enviarla directo la dejaba
+    // fuera de esa conversación.
+    const session = await getSession(phone);
+    const conversationId = session?.step === 'with_agent' ? Number(session.data.conversationId) : 0;
+    if (conversationId > 0 && chatwootConfigurado()) {
+      await enviarMensaje(conversationId, texto, false);
+    } else {
+      await messaging.sendText({ to: phone, text: texto });
+    }
     await logAudit(req.user!.username, 'mensaje_enviado', `${phone.slice(-4)} · ${texto.length} chars`);
     console.log(`[asesor] respuesta enviada a ${maskPhone(phone)} (${texto.length} chars)`);
     res.json({ ok: true });
