@@ -77,3 +77,28 @@ describe('extractError', () => {
     assert.equal(extractError(err), 'Resultado del envío no confirmado; revisar antes de reenviar.');
   });
 });
+
+describe('sendTemplateToRecipient', () => {
+  it('llena las variables del cuerpo en orden y no manda componentes si no hay', async () => {
+    const { sendTemplateToRecipient } = await import('./broadcastService');
+    const originalPost = axios.post;
+    const originalMeta = { ...config.metaCloud };
+    const bodies: unknown[] = [];
+    config.metaCloud.token = 'test-token';
+    config.metaCloud.phoneNumberId = '123';
+    axios.post = (async (_url: string, body: unknown) => { bodies.push(body); return { data: {} }; }) as typeof axios.post;
+    try {
+      await sendTemplateToRecipient('campana', 'es_CO', '573001112233', ['Laura', 'Ingeniería Industrial']);
+      await sendTemplateToRecipient('aviso', 'es_CO', '573001112233');
+      assert.deepEqual((bodies[0] as { template: unknown }).template, {
+        name: 'campana',
+        language: { code: 'es_CO' },
+        components: [{ type: 'body', parameters: [{ type: 'text', text: 'Laura' }, { type: 'text', text: 'Ingeniería Industrial' }] }],
+      });
+      assert.deepEqual((bodies[1] as { template: unknown }).template, { name: 'aviso', language: { code: 'es_CO' } });
+    } finally {
+      axios.post = originalPost;
+      Object.assign(config.metaCloud, originalMeta);
+    }
+  });
+});

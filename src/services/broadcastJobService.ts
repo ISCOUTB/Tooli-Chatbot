@@ -4,12 +4,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { config } from '../config';
-import { clasificarDestinatarios } from './broadcastValidation';
+import { BroadcastValidationError, clasificarDestinatariosConDatos } from './broadcastValidation';
 import { describeError } from './logSafe';
 import {
-  ensureApprovedTemplate, extractError, sendTemplateToRecipient,
+  TEMPLATE_CON_VARIABLES, ensureApprovedTemplate, extractError, sendTemplateToRecipient,
   validarLanguage, validarTemplateName,
 } from './broadcastService';
+import { estaDadoDeBaja, guardarContextoCampana } from './campanaService';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 const QUEUE = 'broadcast:queue';
@@ -40,6 +41,10 @@ export interface BroadcastJob {
   nextIndex: number;
   currentIndex?: number;
   claimToken?: string;
+  /** Valores de las variables de la plantilla, alineados con `destinatarios`. */
+  parametros?: string[][];
+  /** Contexto para el flujo del bot, alineado con `destinatarios` (null = sin contexto). */
+  contextos?: (Record<string, string> | null)[];
 }
 
 function parseJob(raw: string): BroadcastJob {
@@ -47,8 +52,13 @@ function parseJob(raw: string): BroadcastJob {
   // Redis Lua cjson serializa una tabla vacía como {}, incluso si llegó como [].
   if (!Array.isArray(job.enviados)) job.enviados = [];
   if (!Array.isArray(job.fallidos)) job.fallidos = [];
+  if (job.parametros !== undefined && !Array.isArray(job.parametros)) delete job.parametros;
+  if (job.contextos !== undefined && !Array.isArray(job.contextos)) delete job.contextos;
   return job;
 }
+
+const ERROR_FALTAN_DATOS = (n: number) => `Faltan datos para ${n === 1 ? 'la variable' : `las ${n} variables`} de la plantilla`;
+const ERROR_BAJA = 'Pidió no recibir campañas (baja); no se envió';
 
 export async function enqueueBroadcast(
   templateName: unknown, language: unknown, recipients: unknown, createdBy: string,
@@ -56,7 +66,7 @@ export async function enqueueBroadcast(
 ): Promise<BroadcastJob> {
   const name = validarTemplateName(templateName);
   const lang = validarLanguage(language);
-  const classified = clasificarDestinatarios(recipients);
+  const classified = clasificarDestinatariosConDatos(recipients);
   const hash = createHash('sha256').update(JSON.stringify({
     // Mismo conjunto en distinto orden o formato sigue siendo el mismo envío.
     // Repetirlo intencionalmente requiere esperar 24 h.
@@ -69,19 +79,40 @@ export async function enqueueBroadcast(
     if (existing) return existing;
   }
 
+  let variables = 0;
   if (classified.validos.length) {
     const { token, phoneNumberId, wabaId } = config.metaCloud;
     if (!token || !phoneNumberId || !wabaId) throw new Error('Faltan credenciales de Meta');
-    await ensureApprovedTemplate(name, lang);
+    variables = await ensureApprovedTemplate(name, lang);
+    // Un envío sin datos por destinatario (selección de prospectos) no puede llenar variables.
+    if (variables > 0 && classified.datos.every(d => d.parametros.length === 0)) {
+      throw new BroadcastValidationError(TEMPLATE_CON_VARIABLES);
+    }
   }
+
+  // A quien le falte algún valor para las variables no se le envía; queda en fallidos.
+  const destinatarios: string[] = [];
+  const datos: typeof classified.datos = [];
+  const fallidos = [...classified.invalidos];
+  classified.validos.forEach((numero, i) => {
+    const completos = classified.datos[i].parametros.slice(0, variables);
+    if (completos.length < variables || completos.some(v => !v)) {
+      fallidos.push({ numero, error: ERROR_FALTAN_DATOS(variables) });
+      return;
+    }
+    destinatarios.push(numero);
+    datos.push(classified.datos[i]);
+  });
 
   const now = Date.now();
   const job: BroadcastJob = {
     id: randomUUID(), templateName: name, language: lang, createdBy, createdAt: now,
-    estado: classified.validos.length ? 'pendiente' : 'completado',
-    destinatarios: classified.validos, solicitados: classified.solicitados,
+    estado: destinatarios.length ? 'pendiente' : 'completado',
+    destinatarios, solicitados: classified.solicitados,
     duplicadosOmitidos: classified.duplicadosOmitidos,
-    enviados: [], fallidos: classified.invalidos, nextIndex: 0,
+    enviados: [], fallidos, nextIndex: 0,
+    ...(variables > 0 ? { parametros: datos.map(d => d.parametros.slice(0, variables)) } : {}),
+    ...(datos.some(d => d.contexto) ? { contextos: datos.map(d => d.contexto) } : {}),
   };
   const id = await store.eval(
     `local existing = redis.call('GET', KEYS[1])
@@ -202,6 +233,41 @@ async function renewLease(job: BroadcastJob): Promise<void> {
   );
 }
 
+export interface DependenciasCampana {
+  estaDadoDeBaja: (telefono: string) => Promise<boolean>;
+  guardarContextoCampana: (telefono: string, contexto: Record<string, string>) => Promise<void>;
+}
+
+const CAMPANA_REDIS: DependenciasCampana = { estaDadoDeBaja, guardarContextoCampana };
+
+/**
+ * Un envío: revisa la baja justo antes (puede llegar mientras el trabajo
+ * está en cola) y manda la plantilla con las variables del destinatario.
+ * Devuelve el error a registrar, o undefined si Meta confirmó.
+ */
+export async function enviarADestinatario(
+  job: BroadcastJob, index: number,
+  send: typeof sendTemplateToRecipient, deps: DependenciasCampana = CAMPANA_REDIS,
+): Promise<string | undefined> {
+  const numero = job.destinatarios[index];
+  try {
+    if (await deps.estaDadoDeBaja(numero)) return ERROR_BAJA;
+    await send(job.templateName, job.language, numero, job.parametros?.[index] ?? []);
+    return undefined;
+  } catch (err) {
+    return extractError(err);
+  }
+}
+
+/** Tras un envío confirmado, deja el contexto del destinatario para el flujo del bot. */
+export async function guardarContextoEnviado(job: BroadcastJob, index: number, deps: DependenciasCampana = CAMPANA_REDIS): Promise<void> {
+  const contexto = job.contextos?.[index];
+  if (!contexto || typeof contexto !== 'object') return;
+  // Si esto falla, el envío ya salió: la persona solo recibirá el flujo sin el contexto.
+  await deps.guardarContextoCampana(job.destinatarios[index], contexto)
+    .catch(err => console.error('[broadcast] contexto:', describeError(err)));
+}
+
 export async function processBroadcastJobs(
   send: typeof sendTemplateToRecipient = sendTemplateToRecipient,
 ): Promise<void> {
@@ -216,14 +282,10 @@ export async function processBroadcastJobs(
     try {
       for (let index = job.nextIndex; index < job.destinatarios.length; index++) {
         if (!(await beginRecipient(job, index))) break;
-        let error: string | undefined;
-        try {
-          await send(job.templateName, job.language, job.destinatarios[index]);
-        } catch (err) {
-          error = extractError(err);
-        }
+        const error = await enviarADestinatario(job, index, send);
         const updated = await finishRecipient(job, index, error);
         if (!updated) break;
+        if (!error) await guardarContextoEnviado(job, index);
         if (updated.estado === 'completado') {
           console.log(`[broadcast] job completado: ${updated.enviados.length}/${updated.solicitados} enviados`);
           try {

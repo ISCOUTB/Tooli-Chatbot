@@ -2,7 +2,7 @@ import axios from 'axios';
 import { config } from '../config';
 import {
   BroadcastValidationError,
-  validarTemplateName, validarLanguage, clasificarDestinatarios,
+  validarTemplateName, validarLanguage, clasificarDestinatarios, contarVariablesCuerpo,
 } from './broadcastValidation';
 import { describeExternalError } from './logSafe';
 
@@ -134,8 +134,11 @@ export async function sendBroadcast(
   }
 
   // Preflight único: evita intentar hasta 200 envíos con un template que no
-  // existe, no está aprobado para el idioma o exige parámetros no soportados.
-  await ensureApprovedTemplate(name, lang);
+  // existe, no está aprobado para el idioma o exige parámetros. Este envío
+  // directo no lleva datos por destinatario; las campañas usan la cola.
+  if (await ensureApprovedTemplate(name, lang) > 0) {
+    throw new BroadcastValidationError(TEMPLATE_CON_VARIABLES);
+  }
 
   const enviados: string[] = [];
   const fallidos: { numero: string; error: string }[] = [...invalidos];
@@ -154,19 +157,26 @@ export async function sendBroadcast(
   return { enviados, fallidos, solicitados, duplicadosOmitidos };
 }
 
-/** Preflight antes de crear un trabajo persistente o enviar un lote directo. */
-export async function ensureApprovedTemplate(name: string, lang: string): Promise<void> {
+export const TEMPLATE_CON_VARIABLES =
+  'Ese template usa variables {{1}}; envíalo como campaña, con los datos de cada destinatario';
+
+/**
+ * Preflight antes de crear un trabajo persistente o enviar un lote directo.
+ * Devuelve cuántas variables `{{n}}` usa el cuerpo de la plantilla.
+ */
+export async function ensureApprovedTemplate(name: string, lang: string): Promise<number> {
   const approved = (await listApprovedTemplates()).find(t => t.name === name && t.language === lang);
   if (!approved) {
     throw new BroadcastValidationError(`El template ${name} (${lang}) no está aprobado o no existe`);
   }
-  if (JSON.stringify(approved.components).includes('{{')) {
-    throw new BroadcastValidationError('Ese template requiere parámetros y todavía no es compatible con envíos masivos');
-  }
+  return contarVariablesCuerpo(approved.components);
 }
 
-/** Un único intento externo. El job registra su inicio ANTES de llamar aquí. */
-export async function sendTemplateToRecipient(name: string, lang: string, to: string): Promise<void> {
+/**
+ * Un único intento externo. El job registra su inicio ANTES de llamar aquí.
+ * `parametros` llena las variables del cuerpo en orden ({{1}}, {{2}}…).
+ */
+export async function sendTemplateToRecipient(name: string, lang: string, to: string, parametros: string[] = []): Promise<void> {
   const { token, phoneNumberId } = config.metaCloud;
   if (!token || !phoneNumberId) throw new Error('Faltan credenciales de Meta');
   const url = `${GRAPH_URL}/${phoneNumberId}/messages`;
@@ -176,7 +186,13 @@ export async function sendTemplateToRecipient(name: string, lang: string, to: st
           messaging_product: 'whatsapp',
           to,
           type: 'template',
-          template: { name, language: { code: lang } },
+          template: {
+            name,
+            language: { code: lang },
+            ...(parametros.length
+              ? { components: [{ type: 'body', parameters: parametros.map(text => ({ type: 'text', text })) }] }
+              : {}),
+          },
         },
         {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

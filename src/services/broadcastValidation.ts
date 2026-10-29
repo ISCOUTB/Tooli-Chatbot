@@ -7,9 +7,10 @@
  *
  * QUÉ NO ES:
  *   Esto no promete texto libre fuera de la ventana de 24 h de Meta. El único
- *   envío permitido es un template APROBADO (ver `listApprovedTemplates`); si el
- *   template requiere parámetros {{1}}, Meta responde error por destinatario y
- *   eso se reporta en `fallidos` sin tumbar el resto.
+ *   envío permitido es un template APROBADO (ver `listApprovedTemplates`). Si
+ *   el template usa variables {{1}}, {{2}}… en el cuerpo, cada destinatario
+ *   tiene que traer sus valores (`clasificarDestinatariosConDatos`); al que le
+ *   falten se reporta en `fallidos` sin tumbar el resto.
  */
 
 export class BroadcastValidationError extends Error {}
@@ -53,6 +54,114 @@ export function normalizarTelefonoBroadcast(raw: unknown): string {
   return String(raw ?? '').replace(/\D/g, '');
 }
 
+/** Número E.164 utilizable (solo dígitos) o null si la entrada no lo es. */
+function telefonoValido(entrada: unknown): { numero: string; valido: boolean } {
+  const texto = String(entrada ?? '').trim();
+  const numero = normalizarTelefonoBroadcast(entrada);
+  const formatoPermitido = /^\+?[\d\s().-]+$/.test(texto);
+  return { numero, valido: formatoPermitido && /^[1-9]\d{9,14}$/.test(numero) };
+}
+
+const ERROR_TELEFONO = 'telefono inválido (usa E.164 de 10–15 dígitos)';
+
+/**
+ * Cuántas variables `{{n}}` usa la plantilla. Solo se admiten en el cuerpo:
+ * las del encabezado o de botones con URL necesitan otro tipo de parámetro,
+ * y las variables con nombre (`{{nombre}}`) todavía no se soportan.
+ */
+export function contarVariablesCuerpo(components: unknown[]): number {
+  let maximo = 0;
+  for (const c of components) {
+    if (!c || typeof c !== 'object') continue;
+    const comp = c as Record<string, unknown>;
+    const texto = JSON.stringify({ ...comp, example: undefined });
+    if (!texto.includes('{{')) continue;
+    if (String(comp.type ?? '').toUpperCase() !== 'BODY') {
+      throw new BroadcastValidationError(
+        'La plantilla tiene variables en el encabezado o en los botones; por ahora solo se admiten en el cuerpo',
+      );
+    }
+    const numeradas = [...texto.matchAll(/\{\{(\d+)\}\}/g)].map(m => Number(m[1]));
+    if (!numeradas.length || /\{\{(?!\d+\}\})/.test(texto)) {
+      throw new BroadcastValidationError('La plantilla usa variables con nombre; por ahora solo se admiten {{1}}, {{2}}…');
+    }
+    maximo = Math.max(maximo, ...numeradas);
+  }
+  return maximo;
+}
+
+/** Largo máximo de una variable de plantilla (nombre, pregrado). */
+export const MAX_LARGO_VARIABLE = 60;
+
+/** Meta rechaza variables con saltos de línea, tabulaciones o 4+ espacios seguidos. */
+export function limpiarVariable(raw: unknown): string {
+  return String(raw ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, MAX_LARGO_VARIABLE);
+}
+
+const CLAVE_CONTEXTO = /^[a-zA-Z_]{1,30}$/;
+
+/** Contexto opaco por destinatario: pocas claves simples y valores cortos, o null. */
+function limpiarContexto(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const limpio: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>).slice(0, 10)) {
+    if (!CLAVE_CONTEXTO.test(k) || typeof v !== 'string') continue;
+    limpio[k] = v.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 100);
+  }
+  return Object.keys(limpio).length ? limpio : null;
+}
+
+export interface DatosDestinatario {
+  /** Valores para `{{1}}`, `{{2}}`… en orden; se usan los que pida la plantilla. */
+  parametros: string[];
+  /** Se guarda para el flujo del bot solo si Meta confirma el envío. */
+  contexto: Record<string, string> | null;
+}
+
+export interface DestinatariosConDatos extends DestinatariosClasificados {
+  /** Alineado con `validos`. */
+  datos: DatosDestinatario[];
+}
+
+/**
+ * Como `clasificarDestinatarios`, pero cada entrada puede ser un teléfono o
+ * `{ telefono, parametros?, contexto? }`: las campañas personalizan la
+ * plantilla por persona y dejan contexto para cuando responda.
+ */
+export function clasificarDestinatariosConDatos(raw: unknown): DestinatariosConDatos {
+  if (!Array.isArray(raw)) {
+    throw new BroadcastValidationError('telefonos debe ser un arreglo');
+  }
+  if (raw.length === 0) {
+    throw new BroadcastValidationError('La lista de destinatarios está vacía');
+  }
+  if (raw.length > MAX_BROADCAST_RECIPIENTS) {
+    throw new BroadcastValidationError(`Máximo ${MAX_BROADCAST_RECIPIENTS} destinatarios por envío`);
+  }
+
+  const validos: string[] = [];
+  const datos: DatosDestinatario[] = [];
+  const vistos = new Set<string>();
+  const invalidos: { numero: string; error: string }[] = [];
+  let duplicadosOmitidos = 0;
+
+  for (const entrada of raw) {
+    const objeto = entrada && typeof entrada === 'object' && !Array.isArray(entrada)
+      ? (entrada as Record<string, unknown>) : null;
+    const { numero, valido } = telefonoValido(objeto ? objeto.telefono : entrada);
+    if (!valido) { invalidos.push({ numero, error: ERROR_TELEFONO }); continue; }
+    if (vistos.has(numero)) { duplicadosOmitidos++; continue; }
+    vistos.add(numero);
+    validos.push(numero);
+    datos.push({
+      parametros: Array.isArray(objeto?.parametros) ? (objeto!.parametros as unknown[]).map(limpiarVariable) : [],
+      contexto: limpiarContexto(objeto?.contexto),
+    });
+  }
+
+  return { validos, datos, invalidos, solicitados: raw.length, duplicadosOmitidos };
+}
+
 export interface DestinatariosClasificados {
   /** Dígitos E.164 (10–15), sin duplicados, en orden de aparición. */
   validos: string[];
@@ -86,11 +195,9 @@ export function clasificarDestinatarios(raw: unknown): DestinatariosClasificados
   let duplicadosOmitidos = 0;
 
   for (const entrada of raw) {
-    const texto = String(entrada ?? '').trim();
-    const numero = normalizarTelefonoBroadcast(entrada);
-    const formatoPermitido = /^\+?[\d\s().-]+$/.test(texto);
-    if (!formatoPermitido || !/^[1-9]\d{9,14}$/.test(numero)) {
-      invalidos.push({ numero, error: 'telefono inválido (usa E.164 de 10–15 dígitos)' });
+    const { numero, valido } = telefonoValido(entrada);
+    if (!valido) {
+      invalidos.push({ numero, error: ERROR_TELEFONO });
       continue;
     }
     if (vistos.has(numero)) { duplicadosOmitidos++; continue; }
