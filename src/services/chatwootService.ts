@@ -21,8 +21,19 @@ export interface ChatwootContact {
 }
 
 /**
+ * Nombres que el bot pone cuando todavía no sabe cómo se llama la persona
+ * (`Usuario 1234`, `Prospecto`) o que Chatwoot deja por defecto (el número).
+ */
+export function esNombreGenerico(nombre: string | null | undefined, phoneNumber: string): boolean {
+  const n = (nombre ?? '').trim();
+  return !n || n === 'Prospecto' || /^Usuario \d{4}$/.test(n) || n.replace(/\D/g, '') === phoneNumber;
+}
+
+/**
  * Busca un contacto por número de teléfono en el inbox o lo crea si no existe.
  * `phoneNumber` debe ser solo dígitos (E.164 sin el +), ej: "573215640735"
+ * Si el contacto ya existía con un nombre genérico y ahora se conoce el real,
+ * lo corrige: si no, el asesor lo vería como "Usuario 1234" para siempre.
  */
 export async function getOrCreateContact(phoneNumber: string, name: string): Promise<ChatwootContact> {
   const inboxId = parseInt(config.chatwoot.inboxId);
@@ -35,6 +46,14 @@ export async function getOrCreateContact(phoneNumber: string, name: string): Pro
     );
 
     if (existing) {
+      if (esNombreGenerico(existing.name, phoneNumber) && !esNombreGenerico(name, phoneNumber)) {
+        try {
+          await cw().put(`/contacts/${existing.id}`, { name });
+        } catch (err: unknown) {
+          // No impide abrir la conversación: solo queda el nombre anterior.
+          console.warn('[chatwoot] no se pudo actualizar el nombre del contacto:', describeError({ response: { status: axios.isAxiosError(err) ? err.response?.status : undefined } }));
+        }
+      }
       // Buscar contact_inbox para nuestro inbox
       const ci = await cw().get(`/contacts/${existing.id}/contactable_inboxes`);
       const inb = ci.data?.payload?.find((x: any) => x.inbox?.id === inboxId);

@@ -122,7 +122,7 @@ export async function iniciarConversacionAsesor(
   await messaging.sendText({ to: from, text: '⏳ Conectándote con un asesor…' });
 
   try {
-    const contact = await getOrCreateContact(from, `Usuario ${from.slice(-4)}`);
+    const contact = await getOrCreateContact(from, data.nombre?.trim() || `Usuario ${from.slice(-4)}`);
     const labels: string[] = [];
     if (area === 'posgrados') labels.push('posgrado-prospecto');
     if (fueraHorario) labels.push('fuera-horario');
