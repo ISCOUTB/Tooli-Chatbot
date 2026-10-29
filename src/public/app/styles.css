@@ -907,6 +907,10 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .swipe-row .swipe-actions .sw-primary { background: var(--utb-blue); }
 .swipe-row .swipe-actions .sw-danger { background: var(--danger); }
 .swipe-row.swiped .swipe-content { transform: translateX(var(--swipe-x, -140px)); }
+/* Las acciones solo se ven mientras se desliza o con la fila abierta: ocultas
+   detrás del contenido, el borde redondeado dejaba asomar una franja roja.
+   El retraso deja que la fila termine de cerrarse antes de ocultarlas. */
+.swipe-row:not(.swiped):not(.swiping) .swipe-actions { visibility: hidden; transition: visibility 0s linear 0.3s; }
 
 /* ===================================================================
    Skeleton rows para tablas (loading state elegante en vez de spinner)

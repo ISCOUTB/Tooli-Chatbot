@@ -2,7 +2,7 @@ import { api } from '../core/api.js';
 import { MAX_DESTINATARIOS_CAMPANA, RELACIONES_CAMPANA, parseListaCampana } from '../core/campana.js';
 import { CRM_ESTADOS, PROGRAMA_COLORS, PROGRAMA_LABELS, areaOf, crmCategoria, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, descargarCsv, fechaParaCsv, friendlyDate, initialsFor } from '../core/format.js';
+import { avatarTone, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -150,8 +150,8 @@ async function renderRegistros(main) {
       <div><h1>📝 CRM — Prospectos</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
-        ${canBroadcast ? `<button class="btn btn-secondary" id="openCampana">${icon('send', 14)} Campaña<span class="hide-sm"> por pregrado</span></button>` : ''}
-        <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} Exportar<span class="hide-sm"> CSV</span></button>
+        ${canBroadcast ? `<button class="btn btn-secondary" id="openCampana">${icon('send', 14)} <span>Campaña<span class="hide-sm"> por pregrado</span></span></button>` : ''}
+        <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} <span>Exportar<span class="hide-sm"> CSV</span></span></button>
         <button class="btn btn-secondary" id="refreshReg"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
     </div>
@@ -171,9 +171,9 @@ async function renderRegistros(main) {
         <span class="broadcast-hint" id="broadcastHint" style="display:none;"></span>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-ghost" id="broadcastAll">Todos<span class="hide-sm"> los visibles</span></button>
+        <button class="btn btn-ghost" id="broadcastAll"><span>Todos<span class="hide-sm"> los visibles</span></span></button>
         <button class="btn btn-ghost" id="broadcastClear">Limpiar</button>
-        <button class="btn btn-primary" id="broadcastSendBtn" disabled>${icon('send', 14)} Enviar<span class="hide-sm"> plantilla</span> a 0</button>
+        <button class="btn btn-primary" id="broadcastSendBtn" disabled>${icon('send', 14)} <span>Enviar<span class="hide-sm"> plantilla</span> a 0</span></button>
       </div>
     </div>
     <div id="regContent">
@@ -260,7 +260,7 @@ async function renderRegistros(main) {
     }
     if (btn) {
       btn.disabled = nums.length === 0;
-      btn.innerHTML = `${icon('send', 14)} Enviar<span class="hide-sm"> plantilla</span> a ${nums.length}`;
+      btn.innerHTML = `${icon('send', 14)} <span>Enviar<span class="hide-sm"> plantilla</span> a ${nums.length}</span>`;
     }
   }
 
@@ -711,7 +711,7 @@ async function renderRegistros(main) {
             })()}
             ${row[4] ? `<span class="badge" style="background:${PROGRAMA_COLORS[cat]}22;color:${PROGRAMA_COLORS[cat]};margin-bottom:8px;">${escapeHtml(row[4])}</span>` : ''}
             <div class="crm-card-row">✉️ ${escapeHtml(row[2] || '—')}</div>
-            <div class="crm-card-row">📱 ${escapeHtml(row[3] || '—')}</div>
+            <div class="crm-card-row">📱 ${escapeHtml(formatTelefono(row[3]) || '—')}</div>
             <div class="crm-card-date">${escapeHtml(friendlyDate(row[0]))}</div>
           </div>
         `; }).join('')}
@@ -772,7 +772,7 @@ async function renderRegistros(main) {
     if (!regContent.isConnected) return;
     openProfileSheet({
       avatarBg: avatarTone(nombre || phone), avatarText: initialsFor(phone || nombre, nombre),
-      title: nombre || 'Prospecto', subtitle: email || (phone ? `+${phone}` : undefined),
+      title: nombre || 'Prospecto', subtitle: email || (phone ? formatTelefono(phone) : undefined),
       badges: [
         { label: area, color: area === 'Pregrado' ? '#0284c7' : '#7c3aed' },
         ...(programa ? [{ label: programa, color: PROGRAMA_COLORS[cat] }] : []),
@@ -782,7 +782,7 @@ async function renderRegistros(main) {
       ],
       rows: [
         ...(email ? [{ icon: '📧', label: 'Email', value: email }] : []),
-        ...(phone ? [{ icon: '📱', label: 'WhatsApp', value: `+${phone}` }] : []),
+        ...(phone ? [{ icon: '📱', label: 'WhatsApp', value: formatTelefono(phone) }] : []),
         ...(programa ? [{ icon: '🎓', label: area === 'Pregrado' ? 'Carrera de interés' : 'Programa de interés', value: programa }] : []),
         { icon: '🗓️', label: 'Registrado', value: friendlyDate(fecha) },
         ...(flowInfo?.last ? [{ icon: '💬', label: 'Último mensaje', value: flowInfo.last.text }] : []),

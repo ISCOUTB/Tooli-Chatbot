@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import { FLOW_CATEGORIES, crmEstadoMeta, describirPaso, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
+import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
@@ -253,7 +253,7 @@ function renderInboxRows(filter) {
           <div class="avatar" style="background:${avatarTone(c.phone)}">${initialsFor(c.phone, c.nombre)}</div>
           <div class="inbox-row-body">
             <div class="inbox-row-top">
-              <span class="inbox-row-name">${c.nombre ? escapeHtml(c.nombre) : `+${c.phone}`}</span>
+              <span class="inbox-row-name">${c.nombre ? escapeHtml(c.nombre) : formatTelefono(c.phone)}</span>
               ${c.last ? `<span class="inbox-row-time">${relativeTime(c.last.ts)}</span>` : ''}
             </div>
             <div class="inbox-row-preview">
@@ -341,6 +341,7 @@ function attachSwipeRow(row) {
       if (!swipeIntentaHorizontal(rawDx, rawDy)) return;
       decided = true;
       isHorizontal = true;
+      row.classList.add('swiping');
     }
     if (!isHorizontal) { dragging = false; return; }
     e.preventDefault();
@@ -351,6 +352,7 @@ function attachSwipeRow(row) {
   const finish = () => {
     if (!dragging) return;
     dragging = false;
+    row.classList.remove('swiping');
     content.style.transition = '';
     content.style.transform = '';
     if (dx < -REVEAL / 2) { row.classList.add('swiped'); row.style.setProperty('--swipe-x', `-${REVEAL}px`); haptic(10); closeAllOthers(); }
@@ -448,7 +450,7 @@ async function openThread(phone, opener) {
         <button type="button" class="mobile-only back-link" id="threadBack" aria-label="Volver a la lista de conversaciones" style="margin:0;">${icon('chevronLeft', 18)}</button>
         <div class="avatar" style="background:${avatarTone(phone)};width:36px;height:36px;font-size:13px;">${initialsFor(phone, nombre)}</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:14px;">${nombre ? escapeHtml(nombre) : `+${phone}`}</div>
+          <div style="font-weight:600;font-size:14px;">${nombre ? escapeHtml(nombre) : formatTelefono(phone)}</div>
           <div class="pulse-dot ${info.banned ? 'down' : 'ok'}" style="font-size:11px;">${info.banned ? 'Baneado' : 'Activo'}</div>
         </div>
         <label class="ai-toggle" title="Si la apagas, Tooli deja de responder con IA y escala directo a un asesor">
@@ -576,8 +578,8 @@ function openFichaSheet(phone, nombre, ficha, info) {
   openProfileSheet({
     avatarBg: avatarTone(phone),
     avatarText: initialsFor(phone, nombre),
-    title: nombre || `+${phone}`,
-    subtitle: nombre ? `+${phone}` : undefined,
+    title: nombre || formatTelefono(phone),
+    subtitle: nombre ? formatTelefono(phone) : undefined,
     badges: [
       ...(cat ? [{ label: cat.label, color: cat.color }] : []),
       ...(info?.banned ? [{ label: 'Baneado', color: '#dc2626' }] : []),
