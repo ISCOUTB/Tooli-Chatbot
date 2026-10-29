@@ -1,5 +1,5 @@
 import { api } from '../core/api.js';
-import { FLOW_CATEGORIES, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
+import { FLOW_CATEGORIES, crmEstadoMeta, describirPaso, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
@@ -474,7 +474,7 @@ async function openThread(phone, opener) {
           </div>`;
       })()}
       <div class="inbox-messages thread-initial" id="inboxMessages">
-        ${info.session?.step ? `<div class="thread-meta">Paso actual de la sesión: <strong>${escapeHtml(info.session.step)}</strong></div>` : ''}
+        ${info.session?.step ? `<div class="thread-meta">Paso actual: <strong title="${escapeHtml(info.session.step)}">${escapeHtml(describirPaso(info.session.step))}</strong></div>` : ''}
         ${groups.length === 0 ? `
           <div class="inbox-empty" style="height:auto;padding:48px 16px;flex-direction:column;text-align:center;gap:6px;">
             <div class="inbox-empty-icon">📭</div>
@@ -586,7 +586,7 @@ function openFichaSheet(phone, nombre, ficha, info) {
     rows: [
       ...(info?.session?.data?.correo ? [{ icon: '📧', label: 'Correo', value: info.session.data.correo }] : []),
       ...(info?.session?.data?.programa ? [{ icon: '🎓', label: 'Programa', value: info.session.data.programa }] : []),
-      ...(info?.session?.step ? [{ icon: '🔄', label: 'Paso de la sesión', value: info.session.step }] : []),
+      ...(info?.session?.step ? [{ icon: '🔄', label: 'Paso actual', value: describirPaso(info.session.step) }] : []),
     ],
     extraHtml: fichaHtml(ficha),
     onMount: (sheet) => wireFicha(sheet, phone, ficha, null),

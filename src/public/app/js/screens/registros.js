@@ -776,7 +776,8 @@ async function renderRegistros(main) {
       badges: [
         { label: area, color: area === 'Pregrado' ? '#0284c7' : '#7c3aed' },
         ...(programa ? [{ label: programa, color: PROGRAMA_COLORS[cat] }] : []),
-        ...(flowInfo?.step ? [{ label: flowInfo.step.label, color: flowInfo.step.color }] : []),
+        // La categoría del flujo solo suma si no repite el área ("Posgrado" dos veces).
+        ...(flowInfo?.step && flowInfo.step.label !== area ? [{ label: flowInfo.step.label, color: flowInfo.step.color }] : []),
         ...(flowInfo?.banned ? [{ label: 'Baneado', color: '#dc2626' }] : []),
       ],
       rows: [
