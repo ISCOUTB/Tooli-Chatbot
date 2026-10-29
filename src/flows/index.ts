@@ -15,6 +15,7 @@ import {
   handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
   handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
   handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
+  atenderRespuestaCampana,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
@@ -104,6 +105,8 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
 
 export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
+  // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
+  if (await atenderRespuestaCampana(from, text, session)) return;
   const step = session?.step ?? 'menu';
 
   const handler = HANDLERS[step];

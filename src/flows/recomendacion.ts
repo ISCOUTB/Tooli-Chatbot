@@ -7,7 +7,9 @@
  * con el motor en cada paso, así que nada depende de una lista guardada.
  * Recomendar no pide datos personales.
  */
-import { setSession } from '../services/session';
+import { Session, setSession } from '../services/session';
+import { ContextoCampana, borrarContextoCampana, darDeBaja, leerContextoCampana } from '../services/campanaService';
+import { CONFIRMACION_BAJA, RELACIONES_CAMPANA, parseRespuestaCampana, perfilDeContexto, saludoCampana } from './campanaReco';
 import { MetricEvent, track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
 import { guardarRegistroProspecto } from '../services/registroService';
@@ -144,6 +146,58 @@ async function comandos(from: string, text: string, atras: () => Promise<void>):
     return true;
   }
   return false;
+}
+
+// ── 0. Respuesta a una campaña (cuando el bot escribió primero) ─────────────
+
+/**
+ * Si el bot contactó a la persona con una campaña y este mensaje le responde,
+ * lo atiende y devuelve true. "Ver mis opciones" lleva directo al nivel con
+ * el pregrado que traía la lista; "No me interesa" la da de baja. Un "sí" o
+ * un "no" sueltos solo cuentan si estaba al inicio, y nunca se interrumpe una
+ * conversación con un asesor.
+ */
+export async function atenderRespuestaCampana(from: string, text: string, session: Session | null): Promise<boolean> {
+  if (session?.step === 'with_agent') return false;
+  const respuesta = parseRespuestaCampana(text);
+  if (!respuesta) return false;
+  const enInicio = !session || session.step === 'menu';
+  if (!enInicio && !respuesta.fuerte) return false;
+
+  let contexto: ContextoCampana | null;
+  try {
+    contexto = await leerContextoCampana(from);
+  } catch {
+    return false;
+  }
+  if (!contexto) return false;
+
+  if (respuesta.tipo === 'baja') {
+    await darDeBaja(from);
+    await track('reco_campana_baja');
+    await setSession(from, { step: 'menu', data: {} });
+    await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
+    return true;
+  }
+
+  await borrarContextoCampana(from);
+  await track('reco_campana_ver');
+  const relacion = (RELACIONES_CAMPANA as readonly string[]).includes(contexto.relacion) ? contexto.relacion : 'externo';
+  await messaging.sendText({ to: from, text: saludoCampana(contexto) });
+
+  const perfil = perfilDeContexto(contexto);
+  if (perfil) {
+    await setSession(from, { step: 'reco_nivel', data: { relacion, ...perfil, campana: '1' } });
+    await enviarNivel(from);
+  } else if (relacion === 'externo') {
+    // La lista no traía un pregrado reconocible: se pide como a cualquiera de afuera.
+    await setSession(from, { step: 'reco_pregrado_externo', data: { relacion, campana: '1' } });
+    await pedirPregradoExterno(from);
+  } else {
+    await setSession(from, { step: 'reco_pregrado_grupo', data: { relacion, campana: '1' } });
+    await enviarGrupos(from);
+  }
+  return true;
 }
 
 // ── 1. Relación con la UTB (paso raíz `menu`) ───────────────────────────────
@@ -517,6 +571,7 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
       nivel: data.nivel ?? '',
       recomendados: data.recomendados ?? '[]',
       ...(data.programaInteres ? { programaInteres: data.programaInteres } : {}),
+      ...(data.campana === '1' ? { campana: '1' } : {}),
     },
   });
   await messaging.sendText({

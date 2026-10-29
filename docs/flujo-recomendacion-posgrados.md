@@ -182,6 +182,36 @@ palabras clave:
 Lo que no encaje en nada (agronomía, veterinaria, etc.) va a la orientación
 por áreas que ya existe, en vez de forzar una recomendación.
 
+## Cuando el bot contacta a la persona (campañas)
+
+El panel envía una plantilla aprobada por Meta a una lista que entrega la UTB
+(teléfono, nombre y pregrado), con la relación de toda la lista: egresados
+UTB, estudiantes UTB u otra universidad.
+
+- **Plantilla**: `{{1}}` = nombre y `{{2}}` = pregrado, en el cuerpo (puede
+  usar una, las dos o ninguna). Para egresados y estudiantes UTB va el nombre
+  oficial del programa; para los de afuera, lo que estudiaron. Debe tener dos
+  botones de respuesta rápida: *Ver mis opciones* y *No me interesa*. La crea
+  y aprueba la UTB en Meta Business Manager, categoría marketing.
+- **Al enviar**: el pregrado de la lista se asocia con el mismo motor del
+  flujo. Cuando Meta confirma el envío se guarda el contexto de la persona
+  (relación, nombre, pregrado; 30 días) en `campana:contexto:<teléfono>`.
+- **Si toca *Ver mis opciones***: saludo con su nombre y salta directo al
+  nivel, con su pregrado ya cargado. Si la lista no traía un pregrado
+  reconocible, se le pide como a cualquiera. Al asesor le llega que vino por
+  una campaña.
+- **Si toca *No me interesa***: queda en `campana:bajas` y la cola no le
+  vuelve a enviar ninguna campaña (se revisa justo antes de cada envío). Es
+  la forma de revocar la autorización que exige la Ley 1581.
+- **Para no secuestrar otras conversaciones**: los textos de los botones
+  valen en cualquier paso, pero un *sí* o un *no* sueltos solo cuentan como
+  respuesta a la campaña si la persona estaba al inicio. Nada interrumpe una
+  conversación con un asesor. Si escribe otra cosa, sigue el flujo normal y
+  el contexto queda para cuando toque el botón.
+
+Antes de enviar, la UTB debe tener la autorización de cada persona para
+contactarla por WhatsApp (Meta y la Ley 1581 la exigen).
+
 ## Datos y privacidad
 
 - Recomendar no pide datos personales. En sesión solo quedan relación,
@@ -198,7 +228,8 @@ Eventos nuevos (hay que agregarlos a `metricEventAllowlist.ts`):
 `reco_relacion_externo`, `reco_pregrado_utb`, `reco_externo_coincide`,
 `reco_externo_sin_coincidencia`, `reco_resultados`, `reco_mas_opciones`,
 `reco_ficha`, `reco_ia`, `reco_asesor`, `reco_consentimiento_no`, `reco_lead_completado`,
-`reco_salida_pregrado`, `reco_salida_otras_gestiones`.
+`reco_salida_pregrado`, `reco_salida_otras_gestiones`, `reco_campana_ver`,
+`reco_campana_baja`.
 
 Con eso se puede ver el embudo: cuántos llegan a ver recomendaciones y cuántos
 terminan pidiendo asesor.

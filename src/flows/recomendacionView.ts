@@ -549,6 +549,7 @@ export function resumenRecomendacion(data: Record<string, string> | undefined | 
     `Nivel buscado: ${nivel ?? 'aún no sabe'}.`,
     recomendados && `Programas recomendados: ${recomendados}.`,
     interes && `Revisó en detalle: ${interes}.`,
+    data.campana === '1' && 'Llegó respondiendo una campaña del bot.',
   ].filter(Boolean).join(' ');
 }
 

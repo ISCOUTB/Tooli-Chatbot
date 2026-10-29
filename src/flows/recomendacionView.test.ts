@@ -259,3 +259,11 @@ describe('cierre: ficha, IA y asesor', () => {
     assert.equal(programaInteresLead({ programaInteres: 'no-existe' }), 'Por definir');
   });
 });
+
+describe('resumen para el asesor cuando viene de una campaña', () => {
+  it('lo dice solo si la sesión trae la marca de campaña', () => {
+    const base = { relacion: 'egresado_utb', pregradoId: 'derecho', nivel: 'maestria' };
+    assert.match(resumenRecomendacion({ ...base, campana: '1' })!, /Llegó respondiendo una campaña del bot/);
+    assert.ok(!/campaña/.test(resumenRecomendacion(base)!));
+  });
+});
