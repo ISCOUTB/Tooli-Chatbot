@@ -10,7 +10,7 @@
 import { setSession } from '../services/session';
 import { MetricEvent, track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
-import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuPregrado } from './shared';
+import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
@@ -21,13 +21,11 @@ import {
   ContextoResultados,
   FILAS_GRUPOS,
   FILAS_NIVEL,
-  FILAS_RELACION,
   FilaLista,
   GrupoPregrado,
   NivelElegido,
   PEDIR_PREGRADO_EXTERNO,
   Relacion,
-  SALUDO_RELACION,
   SIN_COINCIDENCIA,
   filasAcciones,
   filasPregrados,
@@ -61,17 +59,6 @@ async function enviarLista(to: string, title: string, description: string, secci
     footer: FOOTER,
     buttonText: 'Elegir',
     sections: [{ title: seccion, rows: [...rows] }],
-  });
-}
-
-async function enviarRelacion(to: string): Promise<void> {
-  await messaging.sendList({
-    to,
-    title: '🎓 Tooli UTB',
-    description: SALUDO_RELACION,
-    footer: 'Universidad Tecnológica de Bolívar',
-    buttonText: 'Elegir',
-    sections: [{ title: 'Tu relación con la UTB', rows: [...FILAS_RELACION] }],
   });
 }
 
@@ -114,11 +101,14 @@ async function noReconocido(to: string, pista: string): Promise<void> {
 
 // ── Entrada ─────────────────────────────────────────────────────────────────
 
-/** Arranca el flujo desde cero: saludo y pregunta por la relación con la UTB. */
+/**
+ * Arranca el flujo desde cero en el paso raíz `menu`: saludo y pregunta por
+ * la relación con la UTB (`sendMenu`).
+ */
 export async function iniciarRecomendacion(to: string): Promise<void> {
-  await setSession(to, { step: 'reco_relacion', data: {} });
+  await setSession(to, { step: 'menu', data: {} });
   await track('reco_inicio');
-  await enviarRelacion(to);
+  await sendMenu(to);
 }
 
 /**
@@ -138,16 +128,21 @@ async function comandos(from: string, text: string, atras: () => Promise<void>):
   return false;
 }
 
-// ── 1. Relación con la UTB ──────────────────────────────────────────────────
+// ── 1. Relación con la UTB (paso raíz `menu`) ───────────────────────────────
 
 export async function handleRecoRelacion(ctx: FlowContext): Promise<void> {
-  const { from, text } = ctx;
-  if (await comandos(from, text, () => enviarRelacion(from))) return;
+  const { from, text, session } = ctx;
 
   const eleccion = parseRelacion(text);
   if (!eleccion) {
+    // Primer mensaje de la conversación ("Hola") o un comando: saludo, sin regaño.
+    if (!session || parseGlobalCommand(text)) {
+      await iniciarRecomendacion(from);
+      return;
+    }
     await noReconocido(from, 'Elige una opción de la lista 👇');
-    await enviarRelacion(from);
+    await track('menu_shown');
+    await sendMenu(from);
     return;
   }
 
@@ -158,8 +153,8 @@ export async function handleRecoRelacion(ctx: FlowContext): Promise<void> {
       await sendMenuPregrado(from);
     } else {
       await track('reco_salida_otras_gestiones');
-      await setSession(from, { step: 'menu', data: {} });
-      await sendMenu(from);
+      await setSession(from, { step: 'menu_clasico', data: {} });
+      await sendMenuClasico(from);
     }
     return;
   }
@@ -177,8 +172,8 @@ export async function handleRecoRelacion(ctx: FlowContext): Promise<void> {
 // ── 2. Pregrado UTB: escuela y programa ─────────────────────────────────────
 
 async function volverARelacion(from: string): Promise<void> {
-  await setSession(from, { step: 'reco_relacion', data: {} });
-  await enviarRelacion(from);
+  await setSession(from, { step: 'menu', data: {} });
+  await sendMenu(from);
 }
 
 async function elegirPregradoUtb(from: string, data: SessionData, pregradoId: string): Promise<void> {

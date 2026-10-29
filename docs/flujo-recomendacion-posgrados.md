@@ -21,8 +21,15 @@ información a la IA o pasar a un asesor.
 ## Entrada y ruteo
 
 El nuevo flujo reemplaza el saludo raíz (`sendMenu`, paso `menu`). Así, todo lo
-que hoy manda a la raíz (el comando *menu*, el *0* en los menús, una sesión
-vencida o un paso desconocido) llega al nuevo saludo sin tocar cada flujo.
+que hoy manda a la raíz (el comando *menu*, una sesión vencida o un paso
+desconocido) llega al nuevo saludo sin tocar cada flujo. El primer mensaje de
+una conversación (por ejemplo *Hola*) recibe el saludo sin “No reconocí esa
+opción”.
+
+El menú Pregrado / Posgrado que antes era la entrada queda como *Otras
+gestiones* (`sendMenuClasico`, paso `menu_clasico`). Desde los menús de
+Pregrado y de Posgrado, *0* o *volver* suben a *Otras gestiones* y *menu* va
+al saludo.
 
 El primer mensaje pregunta la relación con la UTB y, además, saca de inmediato
 a quien no busca posgrado:

@@ -15,6 +15,7 @@ export const messaging: IMessagingAdapter =
 // para no tocar los ~20 archivos que ya las importan desde este módulo.
 export { CODIGO_REGEX, CEDULA_REGEX, EMAIL_REGEX, normalize, isMenuCommand } from './validation';
 import { normalize } from './validation';
+import { FILAS_RELACION, SALUDO_RELACION } from './recomendacionView';
 
 export const PLATAFORMAS_TI: Record<string, string> = {
   '1': 'Banner / Autoservicio',
@@ -97,16 +98,30 @@ export async function volverAlMenuDeOrigen(to: string, data: SessionData | undef
   await sendMenu(to);
 }
 
-/** Punto de entrada del bot: primero se identifica si es un contacto de
- * Pregrado o Posgrado, porque cada uno tiene su propio menú, registro y
- * equipo de asesores — antes todo el bot estaba forzado bajo la marca
- * "Posgrados UTB" aunque Turno/Recibo son trámites de pregrado. */
+/** Punto de entrada del bot (paso `menu`): el flujo de recomendación de
+ * posgrados según el pregrado (`recomendacion.ts`). Pregunta la relación con
+ * la UTB y desde ahí también saca a quien quiere un pregrado o busca otras
+ * gestiones. Todo lo que vuelve "al inicio" llega aquí. */
 export async function sendMenu(to: string): Promise<void> {
-  await messaging.sendButtons({
+  await messaging.sendList({
     to,
     title: '🎓 Tooli UTB',
-    description: 'Hola 👋 Soy el asistente virtual de la Universidad Tecnológica de Bolívar.\n\n¿Sobre qué quieres información?',
+    description: SALUDO_RELACION,
     footer: 'Universidad Tecnológica de Bolívar',
+    buttonText: 'Elegir',
+    sections: [{ title: 'Tu relación con la UTB', rows: [...FILAS_RELACION] }],
+  });
+}
+
+/** "Otras gestiones" (paso `menu_clasico`): el menú Pregrado / Posgrado que
+ * antes era la entrada. Cada área tiene su propio menú, registro y equipo de
+ * asesores (notas, turno, recibo, vida académica…). */
+export async function sendMenuClasico(to: string): Promise<void> {
+  await messaging.sendButtons({
+    to,
+    title: '📋 Otras gestiones',
+    description: '¿Tu gestión es de Pregrado o de Posgrado?',
+    footer: 'Escribe menu para volver al inicio',
     buttons: [
       { id: '1', displayText: '🏫 Pregrado' },
       { id: '2', displayText: '🎓 Posgrado' },
@@ -134,7 +149,7 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
           { id: '7', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '8', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
           { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
-          { id: '0', title: '🔙 Cambiar a Pregrado',  description: 'Volver al menú de inicio' },
+          { id: '0', title: '🔙 Cambiar a Pregrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },
     ],
@@ -161,7 +176,7 @@ export async function sendMenuPregrado(to: string): Promise<void> {
           { id: '7', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
           { id: '8', title: '🧭 Explorar carreras',    description: 'Conoce las áreas y carreras sin registrarte' },
           { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
-          { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver al menú de inicio' },
+          { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },
     ],

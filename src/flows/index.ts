@@ -1,6 +1,6 @@
 import { getSession, setSession } from '../services/session';
 import { FlowContext, sendMenu } from './shared';
-import { handleMenu, handleMenuPosgrado, handleMenuPregrado } from './menu';
+import { handleMenuClasico, handleMenuPosgrado, handleMenuPregrado } from './menu';
 import { handleProgramasCategoria, handleProgramasDetalle } from './programas';
 import { handleProspectoNombre, handleProspectoEmail, handleProspectoPrograma } from './prospecto';
 import { handleRegistroNombre, handleRegistroEmail, handleRegistroPrograma } from './registro';
@@ -34,8 +34,10 @@ import { handleVerifEmail, handleVerifCodigo } from './verificacion';
 import { handleNotasPassword, handleNotasMfa } from './notas';
 
 const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
-  // ── Inicio (elige Pregrado / Posgrado) ──────────────────────────────────────
-  menu: handleMenu,
+  // ── Inicio: recomendación de posgrados según el pregrado ────────────────────
+  menu: handleRecoRelacion,
+  // "Otras gestiones": elegir Pregrado o Posgrado (antes era la entrada)
+  menu_clasico: handleMenuClasico,
   // ── Posgrados ────────────────────────────────────────────────────────────────
   menu_posgrado: handleMenuPosgrado,
   programas_categoria: handleProgramasCategoria,
@@ -47,7 +49,6 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   registro_email: handleRegistroEmail,
   registro_programa: handleRegistroPrograma,
   // ── Recomendación de posgrados según el pregrado ────────────────────────────
-  reco_relacion: handleRecoRelacion,
   reco_pregrado_grupo: handleRecoPregradoGrupo,
   reco_pregrado: handleRecoPregrado,
   reco_pregrado_externo: handleRecoPregradoExterno,
