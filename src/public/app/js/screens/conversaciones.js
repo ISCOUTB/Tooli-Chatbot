@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import { FLOW_CATEGORIES, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, initialsFor, relativeTime } from '../core/format.js';
+import { avatarTone, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
@@ -467,7 +467,7 @@ async function openThread(phone, opener) {
           </div>` : groups.map(g => g.map((m, i) => `
           <div class="bubble-row ${m.direction === 'out' ? 'out' : 'in'} ${i === 0 ? 'group-start' : 'group-mid'}">
             <div class="bubble ${m.direction === 'out' ? 'out' : 'in'} ${i !== 0 ? 'not-first' : ''} ${i !== g.length - 1 ? 'not-last' : ''}">
-              ${escapeHtml(m.text)}
+              ${formatWhatsApp(escapeHtml(m.text))}
               ${i === g.length - 1 ? `<span class="bubble-time">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>` : ''}
             </div>
           </div>
@@ -733,7 +733,7 @@ function setupComposer(phone, nombre) {
     // Burbuja optimista: el mensaje aparece al instante y se marca "enviando".
     const row = document.createElement('div');
     row.className = 'bubble-row out group-start sending';
-    row.innerHTML = `<div class="bubble out">${escapeHtml(texto)}<span class="bubble-time">enviando…</span></div>`;
+    row.innerHTML = `<div class="bubble out">${formatWhatsApp(escapeHtml(texto))}<span class="bubble-time">enviando…</span></div>`;
     msgsEl?.appendChild(row);
     try { msgsEl?.scrollTo({ top: msgsEl.scrollHeight, behavior: reduceMotion() ? 'auto' : 'smooth' }); } catch { if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight; }
 
