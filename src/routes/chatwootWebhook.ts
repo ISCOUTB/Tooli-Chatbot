@@ -8,6 +8,7 @@ import { requireChatwootToken } from '../middleware/webhookAuth';
 import { config } from '../config';
 import { isLinkedSession, linkedChatwootTarget } from '../services/chatwootWebhookGuard';
 import { enqueueInbound } from '../services/inboundInbox';
+import { publicarAtencion } from '../services/atencionEventos';
 
 export const chatwootWebhookRouter = Router();
 
@@ -91,6 +92,9 @@ async function handleMessageCreated(payload: any): Promise<void> {
     return;
   }
   const { phone, conversationId } = target;
+  // Los paneles abiertos se ponen al día aunque la respuesta no salga por
+  // WhatsApp (por ejemplo, si la sesión del bot ya no está con el asesor).
+  publicarAtencion({ tipo: 'mensaje', conversacionId: conversationId, entrante: false });
   const session = await getSession(phone);
   if (!isLinkedSession(session, conversationId)) return;
 
@@ -147,6 +151,7 @@ async function handleConversationResolved(payload: any): Promise<void> {
   const target = linkedChatwootTarget(payload, config.chatwoot.accountId, config.chatwoot.inboxId, 'resolved');
   if (!target) return;
   const { phone, conversationId } = target;
+  publicarAtencion({ tipo: 'estado', conversacionId: conversationId });
   const session = await getSession(phone);
   if (!isLinkedSession(session, conversationId)) return;
   await setSession(phone, { step: 'menu', data: {} });

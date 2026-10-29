@@ -2081,3 +2081,21 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   .atn-accion { padding: 6px 10px; }
   .atn-nota { margin-left: 0; margin-right: 0; }
 }
+
+/* Atención en vivo: insignia de pendientes en el menú y estado de la conexión */
+.nav-insignia {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: #ef4444; color: #fff; font-size: 11px; font-weight: 700; line-height: 20px; text-align: center;
+}
+.tab-icon { position: relative; }
+.tab-icon .nav-insignia {
+  position: absolute; top: -4px; right: -10px; min-width: 17px; height: 17px; line-height: 17px;
+  padding: 0 4px; font-size: 10px; margin: 0; box-shadow: 0 0 0 2px var(--surface);
+}
+.atn-avisos { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.atn-conexion { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; }
+.atn-conexion::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
+.atn-conexion-conectado { color: var(--success); }
+.atn-conexion-conectado::before { background: var(--success); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
+.atn-conexion-reconectando { color: var(--warning); }
+.atn-conexion-reconectando::before { background: var(--warning); }

@@ -3,6 +3,7 @@ import { $, $$, haptic } from './dom.js';
 import { icon } from './icons.js';
 import { clearScreenTimers, setPullToRefresh } from './screen.js';
 import { sesion } from './session.js';
+import { iniciarTiempoReal } from './realtime.js';
 import { ActionSheet } from '../ui/sheet.js';
 
 /* ============= Tab bar móvil ============= */
@@ -121,6 +122,7 @@ async function init() {
   $('#logoutBtn').addEventListener('click', doLogout);
 
   renderTabBar();
+  iniciarTiempoReal();
   navigate(location.hash.slice(1) || 'home');
   window.addEventListener('hashchange', () => {
     const route = location.hash.slice(1) || 'home';
