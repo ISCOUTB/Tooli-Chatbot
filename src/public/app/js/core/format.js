@@ -30,6 +30,15 @@ function friendlyDate(raw) {
 }
 
 
+/* Teléfono legible: 573001234567 → +57 300 123 4567. Lo que no es un celular
+   colombiano se muestra con + y sin agrupar, para no inventarle un formato. */
+function formatTelefono(phone) {
+  const digitos = String(phone ?? '').replace(/\D/g, '');
+  if (!digitos) return '';
+  const co = digitos.match(/^57(3\d{2})(\d{3})(\d{4})$/);
+  return co ? `+57 ${co[1]} ${co[2]} ${co[3]}` : `+${digitos}`;
+}
+
 /* Marcado de WhatsApp para la vista previa: *negrita*, _cursiva_, ~tachado~ y
    ```monoespaciado```. Se aplica SIEMPRE sobre texto ya escapado — nunca sobre
    texto crudo — así el formato no abre una vía de inyección de HTML. */
@@ -78,4 +87,4 @@ function fechaParaCsv(raw) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export { AVATAR_TONES, avatarTone, initialsFor, relativeTime, friendlyDate, formatWhatsApp, csvEscape, descargarCsv, fechaParaCsv };
+export { AVATAR_TONES, avatarTone, initialsFor, relativeTime, friendlyDate, formatTelefono, formatWhatsApp, csvEscape, descargarCsv, fechaParaCsv };

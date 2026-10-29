@@ -311,16 +311,15 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
     timeStyle: 'short',
   });
 
+  // La primera línea es la vista previa de la conversación en la lista de
+  // Chatwoot: le dice al asesor quién es y qué busca sin tener que abrirla.
   const contexto =
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🏫 Nuevo prospecto — Pregrado UTB\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏫 Pregrado · ${carrera} — ${nombre}\n\n` +
     `👤 Nombre: ${nombre}\n` +
     `📱 WhatsApp: +${from}\n` +
     `📧 Email: ${email}\n` +
     `🎯 Carrera de interés: ${carrera}\n` +
-    `📅 Recibido: ${ahora}\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    `📅 Recibido: ${ahora}`;
 
   try {
     const contact = await getOrCreateContact(from, nombre);

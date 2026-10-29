@@ -166,12 +166,12 @@ async function renderUsuarios(main) {
                 <span class="badge ${u.role === 'admin' ? 'admin' : 'asesor'}">${u.role === 'admin' ? 'Admin' : 'Asesor'}</span>
               </div>
               <div class="crm-card-name">${escapeHtml(u.fullName)}</div>
-              <div class="crm-card-row">@${escapeHtml(u.username)}</div>
+              <div class="crm-card-row">@${escapeHtml(u.username)} · ${u.area && u.area !== 'all' ? escapeHtml(areaLabel(u.area)) : 'Todas las áreas'}</div>
               ${u.email ? `<div class="crm-card-row">✉️ ${escapeHtml(u.email)}</div>` : ''}
+              <!-- El área va junto al usuario: como tercera cifra no cabía y quedaba "Admis…". -->
               <div class="advisor-stat-strip">
                 <div class="advisor-stat"><div class="advisor-stat-value">${total}</div><div class="advisor-stat-label">acciones · 7d</div></div>
                 <div class="advisor-stat"><div class="advisor-stat-value">${cartera[u.username]?.total ?? 0}</div><div class="advisor-stat-label">a cargo</div></div>
-                <div class="advisor-stat"><div class="advisor-stat-value">${escapeHtml(areaLabel(u.area))}</div><div class="advisor-stat-label">área</div></div>
               </div>
             </div>
           `; }).join('')}

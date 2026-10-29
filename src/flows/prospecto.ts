@@ -129,17 +129,16 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
     timeStyle: 'short',
   });
 
+  // La primera línea es la vista previa de la conversación en la lista de
+  // Chatwoot: le dice al asesor quién es y qué busca sin tener que abrirla.
   const contexto =
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🎓 Nuevo prospecto — Posgrados UTB\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🎓 Posgrado · ${programa} — ${nombre}\n\n` +
     `👤 Nombre: ${nombre}\n` +
     `📱 WhatsApp: +${from}\n` +
     `📧 Email: ${email}\n` +
     `🎯 Programa de interés: ${programa}\n` +
     (datos.lineas ?? []).map((l) => `${l}\n`).join('') +
-    `📅 Recibido: ${ahora}\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    `📅 Recibido: ${ahora}`;
 
   try {
     const contact = await getOrCreateContact(from, nombre);

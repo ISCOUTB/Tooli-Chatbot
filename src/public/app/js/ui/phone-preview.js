@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
 import { $, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, formatWhatsApp, initialsFor } from '../core/format.js';
+import { avatarTone, formatTelefono, formatWhatsApp, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 
 /* ============= VISTA PREVIA EN TELÉFONO ============= */
@@ -28,7 +28,7 @@ function openPhonePreview(phone, nombre, groups) {
           <span class="wa-back">${icon('chevronLeft', 20)}</span>
           <div class="avatar" style="background:${avatarTone(phone)};width:34px;height:34px;font-size:13px;">${initialsFor(phone, nombre)}</div>
           <div class="wa-header-name">
-            <div>${nombre ? escapeHtml(nombre) : `+${phone}`}</div>
+            <div>${nombre ? escapeHtml(nombre) : formatTelefono(phone)}</div>
             <div class="wa-header-sub">en línea</div>
           </div>
           <span class="wa-header-icons">📹 📞 ⋮</span>

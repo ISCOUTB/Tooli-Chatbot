@@ -110,3 +110,29 @@ describe('crmEstadoMeta', () => {
     }
   });
 });
+
+describe('flowCategory', () => {
+  it('la recomendación de posgrados y el evento tienen categoría en la bandeja', () => {
+    assert.equal(C.flowCategory('reco_correo').key, 'posgrado');
+    assert.equal(C.flowCategory('posg_nombre').key, 'evento');
+  });
+});
+
+describe('describirPaso', () => {
+  it('traduce el paso a lo que la persona está haciendo', () => {
+    assert.equal(C.describirPaso('registro_email'), 'Registro de interés · escribiendo su correo');
+    assert.equal(C.describirPaso('reco_nombre'), 'Recomendación de posgrados · escribiendo su nombre');
+    assert.equal(C.describirPaso('pregrado_explorar_carrera'), 'Explorando carreras · eligiendo opciones');
+    assert.equal(C.describirPaso('esperando_codigo'), 'Consulta de turno · escribiendo su código');
+    assert.equal(C.describirPaso('with_agent'), 'Hablando con un asesor');
+  });
+
+  it('con el flujo conocido pero sin acción, muestra solo el flujo', () => {
+    assert.equal(C.describirPaso('academico_desvincular'), 'Mi vida académica');
+  });
+
+  it('un paso desconocido se muestra tal cual en vez de ocultarse', () => {
+    assert.equal(C.describirPaso('paso_nuevo_raro'), 'paso_nuevo_raro');
+    assert.equal(C.describirPaso(undefined), '');
+  });
+});

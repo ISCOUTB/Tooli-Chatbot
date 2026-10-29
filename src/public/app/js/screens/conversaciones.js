@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
-import { FLOW_CATEGORIES, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
+import { FLOW_CATEGORIES, crmEstadoMeta, describirPaso, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, initialsFor, relativeTime } from '../core/format.js';
+import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
@@ -40,6 +40,14 @@ let threadFxCleanup = null; // Limpieza de efectos con vida de hilo (Esc.2/8).
 const drafts = new Map(); // Borrador sin enviar por teléfono: recuperación exacta (Esc.5).
 const pendingSends = new Set(); // Evita reenviar el mismo borrador al reabrir un hilo.
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+/* Otras pantallas (la ficha del CRM) piden abrir el hilo de una persona. Sin
+   esto el asesor caía en la bandeja general y tenía que buscarla otra vez. */
+let hiloPendiente = null;
+function abrirConversacion(phone) {
+  hiloPendiente = phone;
+  navigate('conversaciones');
+}
 
 function cleanupThreadFx() {
   try { threadFxCleanup?.(); } catch { /* la limpieza nunca debe romper la navegación */ }
@@ -96,6 +104,14 @@ async function renderConversaciones(main) {
   // Sondeo suave de mensajes nuevos. No se re-renderiza la lista sola: si el
   // asesor está leyendo o escribiendo, moverle el piso es peor que avisarle.
   screenInterval(() => buscarMensajesNuevos(), 25_000);
+
+  // El hilo pedido desde otra pantalla se abre sin esperar a la lista: no
+  // depende de ella y la persona puede no estar entre las 30 más recientes.
+  if (hiloPendiente) {
+    const phone = hiloPendiente;
+    hiloPendiente = null;
+    openThread(phone);
+  }
 
   try {
     const r = await api('/api/tools/bot-users');
@@ -237,7 +253,7 @@ function renderInboxRows(filter) {
           <div class="avatar" style="background:${avatarTone(c.phone)}">${initialsFor(c.phone, c.nombre)}</div>
           <div class="inbox-row-body">
             <div class="inbox-row-top">
-              <span class="inbox-row-name">${c.nombre ? escapeHtml(c.nombre) : `+${c.phone}`}</span>
+              <span class="inbox-row-name">${c.nombre ? escapeHtml(c.nombre) : formatTelefono(c.phone)}</span>
               ${c.last ? `<span class="inbox-row-time">${relativeTime(c.last.ts)}</span>` : ''}
             </div>
             <div class="inbox-row-preview">
@@ -325,6 +341,7 @@ function attachSwipeRow(row) {
       if (!swipeIntentaHorizontal(rawDx, rawDy)) return;
       decided = true;
       isHorizontal = true;
+      row.classList.add('swiping');
     }
     if (!isHorizontal) { dragging = false; return; }
     e.preventDefault();
@@ -335,6 +352,7 @@ function attachSwipeRow(row) {
   const finish = () => {
     if (!dragging) return;
     dragging = false;
+    row.classList.remove('swiping');
     content.style.transition = '';
     content.style.transform = '';
     if (dx < -REVEAL / 2) { row.classList.add('swiped'); row.style.setProperty('--swipe-x', `-${REVEAL}px`); haptic(10); closeAllOthers(); }
@@ -432,7 +450,7 @@ async function openThread(phone, opener) {
         <button type="button" class="mobile-only back-link" id="threadBack" aria-label="Volver a la lista de conversaciones" style="margin:0;">${icon('chevronLeft', 18)}</button>
         <div class="avatar" style="background:${avatarTone(phone)};width:36px;height:36px;font-size:13px;">${initialsFor(phone, nombre)}</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:14px;">${nombre ? escapeHtml(nombre) : `+${phone}`}</div>
+          <div style="font-weight:600;font-size:14px;">${nombre ? escapeHtml(nombre) : formatTelefono(phone)}</div>
           <div class="pulse-dot ${info.banned ? 'down' : 'ok'}" style="font-size:11px;">${info.banned ? 'Baneado' : 'Activo'}</div>
         </div>
         <label class="ai-toggle" title="Si la apagas, Tooli deja de responder con IA y escala directo a un asesor">
@@ -458,7 +476,7 @@ async function openThread(phone, opener) {
           </div>`;
       })()}
       <div class="inbox-messages thread-initial" id="inboxMessages">
-        ${info.session?.step ? `<div class="thread-meta">Paso actual de la sesión: <strong>${escapeHtml(info.session.step)}</strong></div>` : ''}
+        ${info.session?.step ? `<div class="thread-meta">Paso actual: <strong title="${escapeHtml(info.session.step)}">${escapeHtml(describirPaso(info.session.step))}</strong></div>` : ''}
         ${groups.length === 0 ? `
           <div class="inbox-empty" style="height:auto;padding:48px 16px;flex-direction:column;text-align:center;gap:6px;">
             <div class="inbox-empty-icon">📭</div>
@@ -467,7 +485,7 @@ async function openThread(phone, opener) {
           </div>` : groups.map(g => g.map((m, i) => `
           <div class="bubble-row ${m.direction === 'out' ? 'out' : 'in'} ${i === 0 ? 'group-start' : 'group-mid'}">
             <div class="bubble ${m.direction === 'out' ? 'out' : 'in'} ${i !== 0 ? 'not-first' : ''} ${i !== g.length - 1 ? 'not-last' : ''}">
-              ${escapeHtml(m.text)}
+              ${formatWhatsApp(escapeHtml(m.text))}
               ${i === g.length - 1 ? `<span class="bubble-time">${new Date(m.ts).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>` : ''}
             </div>
           </div>
@@ -560,8 +578,8 @@ function openFichaSheet(phone, nombre, ficha, info) {
   openProfileSheet({
     avatarBg: avatarTone(phone),
     avatarText: initialsFor(phone, nombre),
-    title: nombre || `+${phone}`,
-    subtitle: nombre ? `+${phone}` : undefined,
+    title: nombre || formatTelefono(phone),
+    subtitle: nombre ? formatTelefono(phone) : undefined,
     badges: [
       ...(cat ? [{ label: cat.label, color: cat.color }] : []),
       ...(info?.banned ? [{ label: 'Baneado', color: '#dc2626' }] : []),
@@ -570,7 +588,7 @@ function openFichaSheet(phone, nombre, ficha, info) {
     rows: [
       ...(info?.session?.data?.correo ? [{ icon: '📧', label: 'Correo', value: info.session.data.correo }] : []),
       ...(info?.session?.data?.programa ? [{ icon: '🎓', label: 'Programa', value: info.session.data.programa }] : []),
-      ...(info?.session?.step ? [{ icon: '🔄', label: 'Paso de la sesión', value: info.session.step }] : []),
+      ...(info?.session?.step ? [{ icon: '🔄', label: 'Paso actual', value: describirPaso(info.session.step) }] : []),
     ],
     extraHtml: fichaHtml(ficha),
     onMount: (sheet) => wireFicha(sheet, phone, ficha, null),
@@ -733,7 +751,7 @@ function setupComposer(phone, nombre) {
     // Burbuja optimista: el mensaje aparece al instante y se marca "enviando".
     const row = document.createElement('div');
     row.className = 'bubble-row out group-start sending';
-    row.innerHTML = `<div class="bubble out">${escapeHtml(texto)}<span class="bubble-time">enviando…</span></div>`;
+    row.innerHTML = `<div class="bubble out">${formatWhatsApp(escapeHtml(texto))}<span class="bubble-time">enviando…</span></div>`;
     msgsEl?.appendChild(row);
     try { msgsEl?.scrollTo({ top: msgsEl.scrollHeight, behavior: reduceMotion() ? 'auto' : 'smooth' }); } catch { if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight; }
 
@@ -792,4 +810,4 @@ function setupComposer(phone, nombre) {
   });
 }
 
-export { renderConversaciones, swipeIntentaHorizontal, cercaDelFondo, aplicarPlaceholders };
+export { renderConversaciones, abrirConversacion, swipeIntentaHorizontal, cercaDelFondo, aplicarPlaceholders };

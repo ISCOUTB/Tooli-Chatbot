@@ -6,17 +6,19 @@ import { sesion } from './session.js';
 import { ActionSheet } from '../ui/sheet.js';
 
 /* ============= Tab bar móvil ============= */
+/* Las pestañas fijas son lo que un asesor usa a diario: responder chats y
+   seguir prospectos. Turno y Recibo son consultas puntuales y van en "Más". */
 const TAB_ROUTES = [
   { route: 'home', icon: 'home', label: 'Inicio' },
-  { route: 'turno', icon: 'clipboard', label: 'Turno' },
-  { route: 'recibo', icon: 'receipt', label: 'Recibo' },
+  { route: 'conversaciones', icon: 'message', label: 'Chats' },
+  { route: 'registros', icon: 'users', label: 'CRM' },
   { route: 'posgrados', icon: 'cap', label: 'Posgrados' },
 ];
 function moreRoutes() {
   const routes = [
+    { route: 'turno', icon: 'clipboard', label: 'Consultar turno' },
+    { route: 'recibo', icon: 'receipt', label: 'Descargar recibo' },
     { route: 'metricas', icon: 'chart', label: 'Métricas' },
-    { route: 'conversaciones', icon: 'message', label: 'Conversaciones' },
-    { route: 'registros', icon: 'users', label: 'Registros BD' },
     { route: 'evento-posgrado', icon: 'bell', label: 'Evento posgrados' },
     { route: 'recordatorios', icon: 'clock', label: 'Recordatorios' },
     { route: 'health', icon: 'pulse', label: 'Estado del sistema' },

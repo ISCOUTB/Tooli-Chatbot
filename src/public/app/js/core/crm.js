@@ -9,9 +9,9 @@ import { sesion } from './session.js';
    src/flows — programas/registro/prospecto son de posgrado, turno/recibo
    son de pregrado/matrícula). Si no hay sesión activa, queda "Sin flujo". */
 const FLOW_CATEGORIES = {
-  posgrado: { label: 'Posgrado', color: '#7c3aed', prefixes: ['menu_posgrado', 'programas_', 'registro_', 'prospecto_'] },
+  posgrado: { label: 'Posgrado', color: '#7c3aed', prefixes: ['menu_posgrado', 'programas_', 'registro_', 'prospecto_', 'reco_'] },
   pregrado: { label: 'Pregrado', color: '#0284c7', prefixes: ['menu_pregrado', 'pregrado_', 'esperando_codigo', 'recibo_'] },
-  evento: { label: 'Evento', color: '#db2777', prefixes: ['evento_'] },
+  evento: { label: 'Evento', color: '#db2777', prefixes: ['evento_', 'posg_'] },
   soporte: { label: 'Soporte', color: '#64748b', prefixes: ['agent_', 'ti_', 'with_agent', 'chatting_with_ai'] },
 };
 function flowCategory(step) {
@@ -20,6 +20,57 @@ function flowCategory(step) {
     if (cat.prefixes.some(p => step.startsWith(p))) return { key, ...cat };
   }
   return null;
+}
+
+/* El paso de la sesión en palabras para el asesor: "registro_email" no le dice
+   nada a quien atiende; "Registro de interés · escribiendo su correo" sí.
+   Pasos que no se reconocen se muestran tal cual, nunca se ocultan. */
+const PASOS_EXACTOS = {
+  menu: 'En el menú principal',
+  menu_clasico: 'En el menú principal',
+  menu_posgrado: 'En el menú de posgrados',
+  menu_pregrado: 'En el menú de pregrado',
+  with_agent: 'Hablando con un asesor',
+  chatting_with_ai: 'Conversando con la IA',
+  agent_area: 'Eligiendo con qué área hablar',
+  esperando_codigo: 'Consulta de turno · escribiendo su código',
+  posg_completada: 'Evento de posgrados · registro completo',
+  posg_registro_pendiente: 'Evento de posgrados · registro sin terminar',
+};
+const PASOS_FLUJO = [
+  ['reco_', 'Recomendación de posgrados'],
+  ['posg_', 'Evento de posgrados'],
+  ['evento_', 'Evento de posgrados'],
+  ['programas_', 'Explorando programas'],
+  ['pregrado_explorar_', 'Explorando carreras'],
+  ['pregrado_', 'Registro de pregrado'],
+  ['registro_', 'Registro de interés'],
+  ['prospecto_', 'Registro de interés'],
+  ['recibo_', 'Descarga de recibo'],
+  ['notas_', 'Consulta de notas'],
+  ['academico_', 'Mi vida académica'],
+  ['verif_', 'Verificación de identidad'],
+  ['ti_', 'Soporte TI'],
+];
+const PASOS_ACCION = [
+  [/_(nombre)$/, 'escribiendo su nombre'],
+  [/_(email|correo)$/, 'escribiendo su correo'],
+  [/_(programa|carrera|nivel|grupo|cual_v|cual_final_v|elegir|categoria|area)$/, 'eligiendo opciones'],
+  [/_(consent|consentimiento)$/, 'aceptando el uso de sus datos'],
+  [/_(confirmar|confirma_v|confirmacion)$/, 'confirmando sus datos'],
+  [/_codigo$/, 'escribiendo su código'],
+  [/_cedula$/, 'escribiendo su cédula'],
+  [/_password$/, 'escribiendo su contraseña'],
+  [/_mfa$/, 'verificando su identidad'],
+  [/_(detalle|ficha|resultados|accion)$/, 'viendo información'],
+];
+function describirPaso(step) {
+  if (!step) return '';
+  if (PASOS_EXACTOS[step]) return PASOS_EXACTOS[step];
+  const flujo = PASOS_FLUJO.find(([prefijo]) => step.startsWith(prefijo))?.[1];
+  const accion = PASOS_ACCION.find(([patron]) => patron.test(step))?.[1];
+  if (flujo && accion) return `${flujo} · ${accion}`;
+  return flujo ?? step;
 }
 
 /* ============= FICHA DE SEGUIMIENTO DEL CRM =============
@@ -227,4 +278,4 @@ const PROGRAMA_COLORS = { pregrado: '#0284c7', especializacion: '#0369a1', maest
 function areaOf(row) { return row[5] || 'Posgrado'; }
 function crmCategoria(row) { return areaOf(row) === 'Pregrado' ? 'pregrado' : programaCategoria(row[4]); }
 
-export { CRM_ESTADOS, crmEstadoMeta, notaHtml, fichaHtml, wireFicha, programaCategoria, PROGRAMA_LABELS, PROGRAMA_COLORS, areaOf, crmCategoria, FLOW_CATEGORIES, flowCategory };
+export { CRM_ESTADOS, crmEstadoMeta, notaHtml, fichaHtml, wireFicha, programaCategoria, PROGRAMA_LABELS, PROGRAMA_COLORS, areaOf, crmCategoria, FLOW_CATEGORIES, flowCategory, describirPaso };
