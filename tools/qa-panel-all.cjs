@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 
 const ROUTES = [
-  'home', 'turno', 'recibo', 'metricas', 'conversaciones', 'posgrados',
+  'home', 'atencion', 'turno', 'recibo', 'metricas', 'conversaciones', 'posgrados',
   'registros', 'evento-posgrado', 'recordatorios', 'health', 'usuarios', 'actividad',
 ];
 

@@ -152,6 +152,105 @@ app.get('/api/tools/metrics/range', (req, res) => {
   j(res, { days: out });
 });
 
+// ── Atención: conversaciones con asesor (en producción viven en Chatwoot) ──
+// MOCK_ATENCION_OFF=1 simula un servidor sin Chatwoot configurado.
+const AGENTES = [
+  { id: 1, nombre: 'Ángel Acero', estado: 'online' },
+  { id: 2, nombre: 'Luis Pérez', estado: 'online' },
+  { id: 3, nombre: 'Ana Díaz', estado: 'offline' },
+];
+const EQUIPOS = [{ id: 10, nombre: 'Admisiones' }, { id: 11, nombre: 'Soporte TI' }];
+const msg = (id, tipo, texto, min, autor = null) => ({ id, tipo, texto, ts: hace(min), autor, adjuntos: [] });
+const ATENCION = [
+  { id: 101, estado: 'open', contacto: { nombre: 'María José Restrepo', telefono: '573001234567' }, asignado: null, equipo: { id: 10, nombre: 'Admisiones' },
+    etiquetas: ['posgrado-prospecto'], prioridad: 'medium', noLeidos: 2,
+    mensajes: [
+      msg(1, 'in', '🎓 Posgrado · Maestría en Ingeniería — María José Restrepo\n\n👤 Nombre: María José Restrepo\n📧 Email: mjrestrepo@gmail.com', 15),
+      msg(2, 'nota', 'Viene del flujo de recomendación. Le interesa la financiación.', 14, 'Tooli'),
+      msg(3, 'in', 'Hola, ¿tienen becas para la maestría?', 3),
+      msg(4, 'in', 'Trabajo en el día, ¿hay horario nocturno?', 2),
+    ] },
+  { id: 102, estado: 'open', contacto: { nombre: 'Carlos Pérez', telefono: '573009876543' }, asignado: { id: 2, nombre: 'Luis Pérez' }, equipo: { id: 10, nombre: 'Admisiones' },
+    etiquetas: [], prioridad: null, noLeidos: 0,
+    mensajes: [
+      msg(5, 'in', '🆘 Soporte Admisiones · Pregrado\n\n📝 Pregunta: ¿Cuándo es mi turno?', 50),
+      msg(6, 'sistema', 'Luis Pérez se asignó la conversación', 48),
+      msg(7, 'out', 'Hola Carlos, tu turno es el *12 de octubre* a las 9:00.', 40, 'Luis Pérez'),
+    ] },
+  { id: 103, estado: 'open', contacto: { nombre: 'Valentina Ortiz', telefono: '573015550101' }, asignado: { id: 1, nombre: 'Ángel Acero' }, equipo: { id: 11, nombre: 'Soporte TI' },
+    etiquetas: ['ai-no-resolvio'], prioridad: 'urgent', noLeidos: 1,
+    mensajes: [msg(8, 'in', '🆘 Soporte TI · SAVIO\n\n📝 Problema: No puedo entrar a SAVIO', 200), msg(9, 'in', '¿Me pueden ayudar?', 190)] },
+  { id: 104, estado: 'pending', contacto: { nombre: 'Andrés Lugo', telefono: '573022220011' }, asignado: { id: 3, nombre: 'Ana Díaz' }, equipo: { id: 10, nombre: 'Admisiones' },
+    etiquetas: [], prioridad: null, noLeidos: 0,
+    mensajes: [msg(10, 'in', 'Les envío el certificado mañana', 1500), msg(11, 'out', 'Perfecto, quedamos atentos.', 1490, 'Ana Díaz')] },
+  { id: 105, estado: 'resolved', contacto: { nombre: 'Laura Ríos', telefono: '573033330022' }, asignado: { id: 2, nombre: 'Luis Pérez' }, equipo: { id: 10, nombre: 'Admisiones' },
+    etiquetas: [], prioridad: null, noLeidos: 0,
+    mensajes: [msg(12, 'in', 'Gracias, ya pude inscribirme', 3000), msg(13, 'sistema', 'Conversación resuelta por Luis Pérez', 2990)] },
+];
+const yoAtencion = () => (ROL === 'admin' ? 1 : 2);
+const resumenAtencion = ({ mensajes, ...c }) => {
+  const u = mensajes[mensajes.length - 1];
+  return { ...c, ultimoMensaje: u ? { texto: u.texto, ts: u.ts, tipo: u.tipo } : null, actividadTs: u ? u.ts : 0 };
+};
+app.use('/api/tools/atencion', (_q, res, next) => process.env.MOCK_ATENCION_OFF
+  ? res.status(503).json({ error: 'chatwoot_no_configurado', message: 'La bandeja de atención no está configurada en este servidor.' })
+  : next());
+app.get('/api/tools/atencion/equipo', (_q, res) => j(res, { agentes: AGENTES, equipos: EQUIPOS, yo: yoAtencion(), miEquipoId: ROL === 'admin' ? null : 10 }));
+app.get('/api/tools/atencion/conversaciones', (req, res) => {
+  const yo = yoAtencion();
+  const base = ATENCION.filter(c => c.estado === (req.query.estado || 'open') && (!req.query.equipo || String(c.equipo?.id) === req.query.equipo));
+  const filtro = req.query.asignado || 'todas';
+  const filtradas = base.filter(c => filtro === 'todas' || (filtro === 'sin_asignar' ? !c.asignado : c.asignado?.id === yo));
+  j(res, {
+    conversaciones: filtradas.map(resumenAtencion).sort((a, b) => b.actividadTs - a.actividadTs),
+    conteos: { mias: base.filter(c => c.asignado?.id === yo).length, sin_asignar: base.filter(c => !c.asignado).length, todas: base.length },
+    truncado: false,
+  });
+});
+const convAtencion = (req, res) => {
+  const c = ATENCION.find(x => x.id === Number(req.params.id));
+  if (!c) res.status(404).json({ error: 'no_encontrada', message: 'La conversación no existe o no es del bot.' });
+  return c;
+};
+app.get('/api/tools/atencion/conversaciones/:id', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  c.noLeidos = 0;
+  j(res, { conversacion: resumenAtencion(c), mensajes: c.mensajes, hayAnteriores: false });
+});
+app.post('/api/tools/atencion/conversaciones/:id/mensajes', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  const texto = String(req.body.texto || '').trim();
+  if (!texto) return res.status(400).json({ error: 'validation_error', message: 'El mensaje no puede estar vacío.' });
+  // El de Andrés lleva más de 24 h sin escribir: Meta no aceptaría texto libre.
+  if (!req.body.privado && c.id === 104) {
+    return res.status(409).json({ error: 'fuera_de_ventana', message: 'Han pasado 25 horas desde su último mensaje. WhatsApp solo permite texto libre dentro de las 24 horas siguientes; para retomar el contacto hay que usar una plantilla aprobada por Meta.' });
+  }
+  const autor = AGENTES.find(a => a.id === yoAtencion()).nombre;
+  c.mensajes.push({ id: Date.now(), tipo: req.body.privado ? 'nota' : 'out', texto, ts: Date.now(), autor, adjuntos: [] });
+  j(res, { ok: true });
+});
+app.post('/api/tools/atencion/conversaciones/:id/estado', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  c.estado = req.body.estado;
+  c.mensajes.push({ id: Date.now(), tipo: 'sistema', texto: `Estado cambiado a ${req.body.estado}`, ts: Date.now(), autor: null, adjuntos: [] });
+  j(res, { ok: true });
+});
+app.post('/api/tools/atencion/conversaciones/:id/asignar', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  const { asesorId, equipoId } = req.body;
+  if (asesorId !== undefined) {
+    const id = asesorId === 'yo' ? yoAtencion() : asesorId;
+    const a = AGENTES.find(x => x.id === id);
+    c.asignado = a ? { id: a.id, nombre: a.nombre } : null;
+  }
+  if (equipoId !== undefined) c.equipo = EQUIPOS.find(e => e.id === equipoId) ?? null;
+  j(res, { ok: true });
+});
+
 app.get('/api/tools/chatwoot/summary', (_q, res) => j(res, { open: 7, unassigned: 3, pending: 2, resolvedToday: 11 }));
 app.get('/api/tools/audit/me', (_q, res) => j(res, { entries: [
   { ts: hace(30), action: 'turno_consultado', target: 'T00098765' },

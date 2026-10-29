@@ -2021,3 +2021,63 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   cursor: pointer; border-radius: 6px;
 }
 .hint-retry:hover { text-decoration: underline; }
+
+/* ===================================================================
+   Atención — conversaciones con asesor (antes solo en Chatwoot).
+   Reutiliza el layout de la bandeja (.inbox, .inbox-row, .bubble).
+   =================================================================== */
+.atn-filtros { display: flex; flex-direction: column; gap: 8px; padding: 6px 10px 8px; flex-shrink: 0; }
+.atn-asignado .segmented { width: 100%; }
+.atn-asignado .segmented button { flex: 1 0 auto; padding: 6px 10px; font-size: 12.5px; }
+.atn-select {
+  width: auto; max-width: 100%; padding: 6px 28px 6px 10px; font-size: 12.5px; border-radius: 999px;
+  background: rgba(118, 118, 128, 0.1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: none; color: var(--text); cursor: pointer;
+}
+.atn-select[hidden] { display: none; }
+.atn-row { align-items: flex-start; }
+.atn-row.activa { background: rgba(0, 48, 135, 0.09); }
+.atn-row-meta { display: flex; align-items: center; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+.atn-chip {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; color: var(--text-muted);
+  background: rgba(118, 118, 128, 0.12); padding: 2px 7px; border-radius: 999px; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.atn-chip-alerta { color: #b45309; background: #fef3c7; }
+.atn-no-leidos {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--utb-blue); color: #fff; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.atn-truncado { font-size: 11.5px; color: var(--text-muted); text-align: center; padding: 10px; }
+.atn-estado { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 6px; }
+.atn-accion { font-size: 12.5px; padding: 7px 12px; min-height: 34px; flex-shrink: 0; }
+.atn-cabecera-info { flex: 1; min-width: 0; }
+.atn-cabecera-nombre { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.atn-cabecera-sub { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.atn-acciones { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.atn-asignacion {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.atn-asignacion:empty { display: none; }
+.atn-campo { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); min-width: 0; }
+.atn-autor { display: block; font-size: 10.5px; font-weight: 700; opacity: 0.75; margin-bottom: 2px; }
+.atn-nota {
+  align-self: stretch; margin: 6px 8% 8px; padding: 9px 13px; font-size: 13px; line-height: 1.4;
+  background: #fef9c3; color: #713f12; border: 1px solid #fde68a; border-radius: 12px;
+}
+.atn-nota-autor { font-size: 11px; font-weight: 700; margin-bottom: 3px; }
+.atn-adjunto-img { display: block; max-width: 220px; max-height: 220px; border-radius: 10px; margin-top: 6px; }
+.atn-adjunto { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12.5px; color: inherit; text-decoration: underline; }
+.atn-anteriores { align-self: center; font-size: 12.5px; margin-bottom: 10px; }
+.atn-modo { margin-bottom: 8px; }
+.atn-modo .segmented button { padding: 5px 12px; font-size: 12px; }
+.atn-composer-nota .composer-input { background: #fef9c3; border-color: #fde68a; }
+@media (max-width: 720px) {
+  /* Las acciones bajan a su propia fila: el nombre necesita el ancho. */
+  .atn-cabecera { flex-wrap: wrap; row-gap: 8px; }
+  .atn-acciones { width: 100%; justify-content: flex-end; }
+  .atn-accion { padding: 6px 10px; }
+  .atn-nota { margin-left: 0; margin-right: 0; }
+}

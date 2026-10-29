@@ -59,14 +59,15 @@ async function renderHome(main) {
   const stats = main.querySelector('#stats');
 
   const QUICK_ITEMS = [
-    { icon: 'message', label: 'Conversaciones', sub: 'Bandeja de WhatsApp', go: () => navigate('conversaciones') },
+    { icon: 'phone', label: 'Atención', sub: 'Conversaciones que el bot pasó a un asesor', go: () => navigate('atencion') },
+    { icon: 'message', label: 'Conversaciones', sub: 'Todo lo que la gente habló con el bot', go: () => navigate('conversaciones') },
     { icon: 'clipboard', label: 'Consultar turno', sub: 'Turno de matrícula por código', go: () => navigate('turno') },
     { icon: 'receipt', label: 'Descargar recibo', sub: 'PDF desde Iceberg', go: () => navigate('recibo') },
     { icon: 'users', label: 'CRM · Prospectos', sub: 'Búsqueda y filtros', go: () => navigate('registros') },
     { icon: 'cap', label: 'Posgrados', sub: 'Gráficas y embudo', go: () => navigate('posgrados') },
     { icon: 'clock', label: 'Recordatorios', sub: 'Mensajes programados por WhatsApp', go: () => navigate('recordatorios') },
     { icon: 'chart', label: 'Métricas', sub: 'Actividad de los últimos días', go: () => navigate('metricas') },
-    { icon: 'message', label: `Abrir Chatwoot${sesion.caps.chatwootSso ? ' · SSO' : ''}`, sub: 'Atender conversaciones humanas', go: () => openChatwootExternal() },
+    { icon: 'message', label: `Abrir Chatwoot${sesion.caps.chatwootSso ? ' · SSO' : ''}`, sub: 'La plataforma de atención anterior', go: () => openChatwootExternal() },
     { icon: 'chart', label: 'Abrir Grafana', sub: 'Métricas técnicas en vivo', go: () => window.open(sesion.urls.grafana, '_blank', 'noopener') },
   ];
   $('#quickAccess').innerHTML = QUICK_ITEMS.map((item, i) => `
@@ -123,8 +124,8 @@ async function renderHome(main) {
       }
       if (chatwootRes.status === 'fulfilled') {
         const cw = chatwootRes.value;
-        if (cw.unassigned > 0) rows.push({ tone: 'danger', html: `<strong>${cw.unassigned}</strong> ${cw.unassigned === 1 ? 'conversación' : 'conversaciones'} sin asignar en Chatwoot`, go: 'conversaciones' });
-        if (cw.pending > 0) rows.push({ tone: 'warning', html: `<strong>${cw.pending}</strong> ${cw.pending === 1 ? 'conversación pendiente' : 'conversaciones pendientes'} de responder`, go: 'conversaciones' });
+        if (cw.unassigned > 0) rows.push({ tone: 'danger', html: `<strong>${cw.unassigned}</strong> ${cw.unassigned === 1 ? 'conversación' : 'conversaciones'} con asesor sin asignar`, go: 'atencion' });
+        if (cw.pending > 0) rows.push({ tone: 'warning', html: `<strong>${cw.pending}</strong> ${cw.pending === 1 ? 'conversación pendiente' : 'conversaciones pendientes'} de responder`, go: 'atencion' });
       }
       if (healthRes.status === 'fulfilled') {
         const bad = Object.entries(healthRes.value.checks ?? {}).filter(([, c]) => c.status === 'down' || c.status === 'degraded');

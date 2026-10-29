@@ -15,6 +15,11 @@ function cw(): AxiosInstance {
   return client;
 }
 
+/** Cliente de la API de Chatwoot para otros módulos (la bandeja de atención). */
+export function chatwootApi(): AxiosInstance {
+  return cw();
+}
+
 export interface ChatwootContact {
   contactId: number;
   sourceId: string;

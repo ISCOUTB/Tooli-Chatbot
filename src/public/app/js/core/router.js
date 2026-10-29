@@ -6,16 +6,17 @@ import { sesion } from './session.js';
 import { ActionSheet } from '../ui/sheet.js';
 
 /* ============= Tab bar móvil ============= */
-/* Las pestañas fijas son lo que un asesor usa a diario: responder chats y
-   seguir prospectos. Turno y Recibo son consultas puntuales y van en "Más". */
+/* Las pestañas fijas son lo que un asesor usa a diario: atender a quien el
+   bot le pasó, revisar chats y seguir prospectos. El resto va en "Más". */
 const TAB_ROUTES = [
   { route: 'home', icon: 'home', label: 'Inicio' },
+  { route: 'atencion', icon: 'phone', label: 'Atención' },
   { route: 'conversaciones', icon: 'message', label: 'Chats' },
   { route: 'registros', icon: 'users', label: 'CRM' },
-  { route: 'posgrados', icon: 'cap', label: 'Posgrados' },
 ];
 function moreRoutes() {
   const routes = [
+    { route: 'posgrados', icon: 'cap', label: 'Posgrados' },
     { route: 'turno', icon: 'clipboard', label: 'Consultar turno' },
     { route: 'recibo', icon: 'receipt', label: 'Descargar recibo' },
     { route: 'metricas', icon: 'chart', label: 'Métricas' },
@@ -74,6 +75,7 @@ function openMoreSheet() {
 
 const NAV_ROUTES = [
   { route: 'home', icon: 'home', label: 'Inicio' },
+  { route: 'atencion', icon: 'phone', label: 'Atención' },
   { route: 'turno', icon: 'clipboard', label: 'Consultar turno' },
   { route: 'recibo', icon: 'receipt', label: 'Descargar recibo' },
   { route: 'metricas', icon: 'chart', label: 'Métricas' },

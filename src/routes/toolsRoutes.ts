@@ -25,6 +25,7 @@ import { broadcastRouter } from './tools/broadcast';
 import { crmRouter } from './tools/crm';
 import { quickRepliesRouter } from './tools/quickReplies';
 import { inboundRouter } from './tools/inbound';
+import { atencionRouter } from './tools/atencion';
 
 export const toolsRouter = Router();
 
@@ -46,3 +47,4 @@ toolsRouter.use(broadcastRouter);
 toolsRouter.use(crmRouter);
 toolsRouter.use(quickRepliesRouter);
 toolsRouter.use(inboundRouter);
+toolsRouter.use(atencionRouter);
