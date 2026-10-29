@@ -17,6 +17,7 @@ import { renderTurno } from './screens/turno.js';
 import { renderRecibo } from './screens/recibo.js';
 import { renderMetricas } from './screens/metricas.js';
 import { renderConversaciones } from './screens/conversaciones.js';
+import { renderAtencion } from './screens/atencion.js';
 import { renderPosgrados } from './screens/posgrados.js';
 import { renderRegistros } from './screens/registros.js';
 import { renderEventoPosgrado } from './screens/evento.js';
@@ -31,6 +32,7 @@ registrarPantallas({
   recibo: renderRecibo,
   metricas: renderMetricas,
   conversaciones: renderConversaciones,
+  atencion: renderAtencion,
   posgrados: renderPosgrados,
   registros: renderRegistros,
   'evento-posgrado': renderEventoPosgrado,
