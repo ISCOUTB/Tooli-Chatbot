@@ -13,6 +13,7 @@ import { CONFIRMACION_BAJA, RELACIONES_CAMPANA, parseRespuestaCampana, perfilDeC
 import { MetricEvent, track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
 import { guardarRegistroProspecto } from '../services/registroService';
+import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
@@ -27,6 +28,8 @@ import {
   FILAS_TRAS_FICHA,
   PEDIR_CONSENTIMIENTO,
   PEDIR_NOMBRE,
+  etiquetasCrmRecomendacion,
+  notaCrmRecomendacion,
   filasElegirPrograma,
   formatearFicha,
   idsMostrados,
@@ -661,10 +664,27 @@ export async function handleRecoCorreo(ctx: FlowContext): Promise<void> {
   await registrarLeadYConectar(from, { ...data, correo });
 }
 
+const AUTOR_BOT = 'Tooli (bot)';
+
 /**
- * Guarda el lead (Sheets y HubSpot) y abre la conversación con el asesor.
- * El asesor es lo que la persona pidió: si Sheets falla se registra el
- * error y se sigue, porque la conversación en Chatwoot ya lleva los datos.
+ * Deja en la ficha del CRM del panel la nota con el pregrado y las
+ * recomendaciones, y las etiquetas del flujo. Nunca bloquea al asesor.
+ */
+async function anotarEnCrm(from: string, data: SessionData): Promise<void> {
+  try {
+    const nota = notaCrmRecomendacion(data);
+    if (nota) await agregarNota(from, nota, AUTOR_BOT);
+    const ficha = await getFicha(from);
+    await setEtiquetas(from, [...ficha.etiquetas, ...etiquetasCrmRecomendacion(data)], AUTOR_BOT);
+  } catch (err) {
+    console.error('[reco] no se pudo anotar en el CRM:', describeExternalError(err));
+  }
+}
+
+/**
+ * Guarda el lead (Sheets, ficha del CRM y HubSpot) y abre la conversación
+ * con el asesor. El asesor es lo que la persona pidió: si Sheets o el CRM
+ * fallan se registra el error y se sigue, porque Chatwoot ya lleva los datos.
  */
 async function registrarLeadYConectar(from: string, data: SessionData): Promise<void> {
   const nombre = data.nombre ?? '';
@@ -673,16 +693,12 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
   const resumen = resumenRecomendacion(data);
 
   try {
-    await guardarRegistroProspecto({
-      nombre,
-      email: correo,
-      whatsapp: from,
-      programa: resumen ? `${interes} · ${resumen}` : interes,
-      area: 'Posgrado',
-    });
+    // Solo el programa (o el nivel buscado): el CRM clasifica la fila con este texto.
+    await guardarRegistroProspecto({ nombre, email: correo, whatsapp: from, programa: interes, area: 'Posgrado' });
   } catch (err) {
     console.error('[reco] no se pudo guardar el lead en Sheets:', describeExternalError(err));
   }
+  await anotarEnCrm(from, data);
 
   // HubSpot (CRM de la UTB) sin bloquear el flujo, como en la campaña de posgrados
   void upsertContactoHubspot({
@@ -703,6 +719,6 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
       ...(resumen ? [`🧭 ${resumen}`] : []),
       '🔒 Autorizó el tratamiento de datos (Ley 1581 de 2012)',
     ],
-    etiquetas: ['reco-pregrado'],
+    etiquetas: etiquetasCrmRecomendacion(data),
   });
 }

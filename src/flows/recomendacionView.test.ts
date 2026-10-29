@@ -34,6 +34,8 @@ import {
   parseRelacion,
   parseSiNo,
   parseSinCoincidencia,
+  etiquetasCrmRecomendacion,
+  notaCrmRecomendacion,
   programaInteresLead,
   programaPorNumero,
   resumenRecomendacion,
@@ -265,5 +267,44 @@ describe('resumen para el asesor cuando viene de una campaña', () => {
     const base = { relacion: 'egresado_utb', pregradoId: 'derecho', nivel: 'maestria' };
     assert.match(resumenRecomendacion({ ...base, campana: '1' })!, /Llegó respondiendo una campaña del bot/);
     assert.ok(!/campaña/.test(resumenRecomendacion(base)!));
+  });
+});
+
+describe('lead en el CRM del panel', () => {
+  // El CRM clasifica la fila con `programaCategoria` sobre la columna de programa.
+  globalThis.document ??= {
+    querySelector: () => null,
+    createElement: () => ({ style: {}, classList: { add() {}, remove() {} }, appendChild() {} }),
+    body: { appendChild() {} },
+  } as unknown as Document;
+
+  it('la columna de programa lleva solo el interés y el CRM la clasifica bien', async () => {
+    const { programaCategoria } = await import('../public/app/js/core/crm.js');
+    const recomendadosDerecho = JSON.stringify(['maestria-en-derecho', 'especializacion-en-derecho-comercial', 'doctorado-en-desarrollo-regional-y-local']);
+    const casos: [Record<string, string>, string, string][] = [
+      // Derecho sin nivel: antes salía "doctorado" porque el resumen nombraba uno de los recomendados
+      [{ pregradoId: 'derecho', nivel: '', recomendados: recomendadosDerecho }, 'Por definir', 'otro'],
+      [{ pregradoId: 'derecho', nivel: 'maestria', recomendados: recomendadosDerecho }, 'Por definir (Maestría)', 'maestria'],
+      // Industrial interesado en una especialización: antes salía "maestria"
+      [{ pregradoId: 'ingenieria-industrial', nivel: '', programaInteres: 'especializacion-en-gerencia-de-produccion-y-calidad' },
+        'Especialización en Gerencia de Producción y Calidad', 'especializacion'],
+      [{ familiaId: 'salud', nivel: 'doctorado' }, 'Por definir (Doctorado)', 'doctorado'],
+    ];
+    for (const [data, columna, categoria] of casos) {
+      assert.equal(programaInteresLead(data), columna);
+      assert.equal(programaCategoria(columna), categoria, columna);
+    }
+  });
+
+  it('la nota automática lleva el resumen y lo que escribió la persona; las etiquetas marcan la campaña', () => {
+    const data = { relacion: 'externo', pregradoId: 'ingenieria-industrial', nivel: 'maestria', pregradoTexto: 'Ingeniería de Producción', campana: '1' };
+    const nota = notaCrmRecomendacion(data)!;
+    assert.match(nota, /^Recomendación por pregrado \(bot\): Pregrado: Ingeniería Industrial \(de otra universidad\)/);
+    assert.match(nota, /Escribió como pregrado: "Ingeniería de Producción"/);
+    assert.match(nota, /campaña del bot/);
+    assert.ok(nota.length <= 2000, 'el CRM acepta notas de hasta 2000 caracteres');
+    assert.deepEqual(etiquetasCrmRecomendacion(data), ['reco-pregrado', 'campaña']);
+    assert.deepEqual(etiquetasCrmRecomendacion({ pregradoId: 'derecho' }), ['reco-pregrado']);
+    assert.equal(notaCrmRecomendacion({}), null);
   });
 });

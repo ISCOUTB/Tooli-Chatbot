@@ -553,7 +553,30 @@ export function resumenRecomendacion(data: Record<string, string> | undefined | 
   ].filter(Boolean).join(' ');
 }
 
-/** Programa de interés para el lead: el que revisó o, si no, "Por definir". */
+/**
+ * Programa de interés para el lead: el que revisó o, si no, "Por definir"
+ * con el nivel que buscaba. Va solo, sin el resumen: el CRM del panel
+ * clasifica la fila buscando "doctorado", "maestr" o "especial" en este texto.
+ */
 export function programaInteresLead(data: Record<string, string>): string {
-  return (data.programaInteres && getPrograma(data.programaInteres)?.nombre) || 'Por definir';
+  const revisado = data.programaInteres && getPrograma(data.programaInteres)?.nombre;
+  if (revisado) return revisado;
+  const nivel = data.nivel && data.nivel !== 'pregrado' ? NOMBRE_NIVEL[data.nivel as NivelPrograma] : undefined;
+  return nivel ? `Por definir (${nivel})` : 'Por definir';
+}
+
+/**
+ * Nota automática para la ficha del CRM: el resumen del recorrido y, para el
+ * asesor, lo que la persona escribió como pregrado. El panel escapa el texto.
+ */
+export function notaCrmRecomendacion(data: Record<string, string>): string | null {
+  const resumen = resumenRecomendacion(data);
+  if (!resumen) return null;
+  const escrito = data.pregradoTexto ? ` Escribió como pregrado: "${data.pregradoTexto.slice(0, 100)}".` : '';
+  return `Recomendación por pregrado (bot): ${resumen}${escrito}`;
+}
+
+/** Etiquetas de la ficha del CRM para un lead del flujo de recomendación. */
+export function etiquetasCrmRecomendacion(data: Record<string, string>): string[] {
+  return ['reco-pregrado', ...(data.campana === '1' ? ['campaña'] : [])];
 }
