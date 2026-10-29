@@ -36,7 +36,9 @@ import {
   parseSinCoincidencia,
   etiquetasCrmRecomendacion,
   notaCrmRecomendacion,
+  pregradoLead,
   programaInteresLead,
+  relacionLead,
   programaPorNumero,
   resumenRecomendacion,
   textoConfirmacion,
@@ -306,5 +308,20 @@ describe('lead en el CRM del panel', () => {
     assert.deepEqual(etiquetasCrmRecomendacion(data), ['reco-pregrado', 'campaña']);
     assert.deepEqual(etiquetasCrmRecomendacion({ pregradoId: 'derecho' }), ['reco-pregrado']);
     assert.equal(notaCrmRecomendacion({}), null);
+  });
+});
+
+describe('lead en HubSpot', () => {
+  it('pregrado: el nombre UTB para la comunidad UTB; lo escrito para los de afuera', () => {
+    assert.equal(pregradoLead({ relacion: 'egresado_utb', pregradoId: 'ingenieria-industrial' }), 'Ingeniería Industrial');
+    assert.equal(pregradoLead({ relacion: 'externo', pregradoId: 'ingenieria-industrial', pregradoTexto: 'Ingeniería de Producción' }), 'Ingeniería de Producción');
+    assert.equal(pregradoLead({ relacion: 'externo', familiaId: 'salud' }), 'Salud');
+    assert.equal(pregradoLead({}), '');
+  });
+
+  it('relación con la UTB en palabras', () => {
+    assert.equal(relacionLead({ relacion: 'egresado_utb' }), 'Egresado(a) UTB');
+    assert.equal(relacionLead({ relacion: 'externo' }), 'Otra universidad');
+    assert.equal(relacionLead({ relacion: 'otra-cosa' }), '');
   });
 });

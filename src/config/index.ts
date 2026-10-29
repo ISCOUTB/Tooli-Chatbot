@@ -29,11 +29,16 @@ const schema = z.object({
   HUBSPOT_ACTIVO: z.string().optional().default('false'),
   HUBSPOT_TOKEN: z.string().optional(), // Private App token (scope crm.objects.contacts.write)
   HUBSPOT_FUENTE_VALOR: z.string().optional().default('Bot WhatsApp - Evento Posgrados'),
+  // Fuente de los leads del flujo de recomendación por pregrado y de sus campañas
+  HUBSPOT_FUENTE_RECOMENDACION: z.string().optional().default('Bot WhatsApp - Recomendación por pregrado'),
+  HUBSPOT_FUENTE_CAMPANA: z.string().optional().default('Bot WhatsApp - Campaña por pregrado'),
   // Nombres internos de propiedades personalizadas (vacío = no se envían)
   HUBSPOT_PROP_POSGRADO: z.string().optional(),
   HUBSPOT_PROP_FUENTE: z.string().optional(),
   HUBSPOT_PROP_CONSENTIMIENTO: z.string().optional(),
   HUBSPOT_PROP_FINANCIACION: z.string().optional(),
+  HUBSPOT_PROP_PREGRADO: z.string().optional(),
+  HUBSPOT_PROP_RELACION: z.string().optional(),
   // ─────────────────────────────────────────────────────────────────────────────
   CHATWOOT_URL: z.string().optional(),
   CHATWOOT_ACCOUNT_ID: z.string().optional(),
@@ -99,10 +104,14 @@ export const config = {
     activo: env.HUBSPOT_ACTIVO === 'true',
     token: env.HUBSPOT_TOKEN ?? '',
     fuenteValor: env.HUBSPOT_FUENTE_VALOR ?? 'Bot WhatsApp - Evento Posgrados',
+    fuenteRecomendacion: env.HUBSPOT_FUENTE_RECOMENDACION ?? 'Bot WhatsApp - Recomendación por pregrado',
+    fuenteCampana: env.HUBSPOT_FUENTE_CAMPANA ?? 'Bot WhatsApp - Campaña por pregrado',
     propPosgrado: env.HUBSPOT_PROP_POSGRADO ?? '',
     propFuente: env.HUBSPOT_PROP_FUENTE ?? '',
     propConsentimiento: env.HUBSPOT_PROP_CONSENTIMIENTO ?? '',
     propFinanciacion: env.HUBSPOT_PROP_FINANCIACION ?? '',
+    propPregrado: env.HUBSPOT_PROP_PREGRADO ?? '',
+    propRelacion: env.HUBSPOT_PROP_RELACION ?? '',
   },
   openai: {
     apiKey: env.OPENAI_API_KEY,

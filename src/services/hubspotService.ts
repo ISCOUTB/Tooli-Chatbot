@@ -11,6 +11,12 @@ export interface HubspotLead {
   posgradoInteres: string;
   interesFinanciacion: string;
   consentimiento: boolean;
+  /** Fuente del lead; si falta, HUBSPOT_FUENTE_VALOR (la del evento de posgrados). */
+  fuente?: string;
+  /** Pregrado que estudia o estudió (flujo de recomendación). */
+  pregrado?: string;
+  /** Relación con la UTB: egresado, estudiante u otra universidad. */
+  relacion?: string;
 }
 
 /**
@@ -23,6 +29,10 @@ export interface HubspotLead {
  * Requisitos:
  *  - HUBSPOT_TOKEN: token de una Private App con scope crm.objects.contacts.write
  *  - (opcional) HUBSPOT_PROP_* con el nombre interno de las propiedades custom
+ *
+ * Si la propiedad de fuente es de tipo desplegable en HubSpot, los valores de
+ * HUBSPOT_FUENTE_* tienen que existir como opciones; si no, HubSpot rechaza el
+ * contacto y solo se guardan los datos básicos.
  */
 export async function upsertContactoHubspot(lead: HubspotLead): Promise<void> {
   if (!config.hubspot.activo || !config.hubspot.token) {
@@ -45,11 +55,13 @@ export async function upsertContactoHubspot(lead: HubspotLead): Promise<void> {
   // Propiedades personalizadas — solo si se configuró su nombre interno
   const full: Record<string, string> = { ...base };
   if (config.hubspot.propPosgrado) full[config.hubspot.propPosgrado] = lead.posgradoInteres;
-  if (config.hubspot.propFuente) full[config.hubspot.propFuente] = config.hubspot.fuenteValor;
+  if (config.hubspot.propFuente) full[config.hubspot.propFuente] = lead.fuente || config.hubspot.fuenteValor;
   if (config.hubspot.propConsentimiento) {
     full[config.hubspot.propConsentimiento] = lead.consentimiento ? 'true' : 'false';
   }
   if (config.hubspot.propFinanciacion) full[config.hubspot.propFinanciacion] = lead.interesFinanciacion;
+  if (config.hubspot.propPregrado && lead.pregrado) full[config.hubspot.propPregrado] = lead.pregrado;
+  if (config.hubspot.propRelacion && lead.relacion) full[config.hubspot.propRelacion] = lead.relacion;
 
   const headers = {
     Authorization: `Bearer ${config.hubspot.token}`,

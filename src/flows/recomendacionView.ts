@@ -576,6 +576,24 @@ export function notaCrmRecomendacion(data: Record<string, string>): string | nul
   return `Recomendación por pregrado (bot): ${resumen}${escrito}`;
 }
 
+/** Pregrado para el CRM externo: el nombre UTB, lo que escribió la persona o su familia. */
+export function pregradoLead(data: Record<string, string>): string {
+  const utb = data.pregradoId ? getPrograma(data.pregradoId)?.nombre : undefined;
+  if (utb && data.relacion !== 'externo') return utb;
+  if (data.pregradoTexto) return data.pregradoTexto.slice(0, 100);
+  return utb ?? FAMILIAS_EXTERNAS.find((f) => f.id === data.familiaId)?.titulo ?? '';
+}
+
+const RELACION_LEAD: Record<Relacion, string> = {
+  estudiante_utb: 'Estudiante de pregrado UTB',
+  egresado_utb: 'Egresado(a) UTB',
+  externo: 'Otra universidad',
+};
+
+export function relacionLead(data: Record<string, string>): string {
+  return RELACION_LEAD[data.relacion as Relacion] ?? '';
+}
+
 /** Etiquetas de la ficha del CRM para un lead del flujo de recomendación. */
 export function etiquetasCrmRecomendacion(data: Record<string, string>): string[] {
   return ['reco-pregrado', ...(data.campana === '1' ? ['campaña'] : [])];

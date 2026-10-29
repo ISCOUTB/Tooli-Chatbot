@@ -7,6 +7,7 @@
  * con el motor en cada paso, así que nada depende de una lista guardada.
  * Recomendar no pide datos personales.
  */
+import { config } from '../config';
 import { Session, setSession } from '../services/session';
 import { ContextoCampana, borrarContextoCampana, darDeBaja, leerContextoCampana } from '../services/campanaService';
 import { CONFIRMACION_BAJA, RELACIONES_CAMPANA, parseRespuestaCampana, perfilDeContexto, saludoCampana } from './campanaReco';
@@ -30,6 +31,8 @@ import {
   PEDIR_NOMBRE,
   etiquetasCrmRecomendacion,
   notaCrmRecomendacion,
+  pregradoLead,
+  relacionLead,
   filasElegirPrograma,
   formatearFicha,
   idsMostrados,
@@ -708,6 +711,9 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
     posgradoInteres: interes,
     interesFinanciacion: '',
     consentimiento: true,
+    fuente: data.campana === '1' ? config.hubspot.fuenteCampana : config.hubspot.fuenteRecomendacion,
+    pregrado: pregradoLead(data),
+    relacion: relacionLead(data),
   });
 
   await track('reco_lead_completado', { area: 'posgrados' });
