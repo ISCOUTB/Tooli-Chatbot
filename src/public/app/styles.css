@@ -331,6 +331,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 .sidebar .user-block button:hover { background: rgba(255, 255, 255, 0.1); }
 
 .main { flex: 1; min-width: 0; overflow-y: auto; }
+/* Un <canvas> mide 300 px hasta que Chart.js termina de cargar desde el CDN y
+   lo ajusta: a 320 px de ancho eso desbordaba la tarjeta de Métricas. */
+.main canvas { display: block; max-width: 100%; }
 
 @media (max-width: 1024px) {
   .home-grid { grid-template-columns: minmax(0, 1fr) !important; }
