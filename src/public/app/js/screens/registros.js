@@ -1,4 +1,5 @@
 import { api } from '../core/api.js';
+import { MAX_DESTINATARIOS_CAMPANA, RELACIONES_CAMPANA, parseListaCampana } from '../core/campana.js';
 import { CRM_ESTADOS, PROGRAMA_COLORS, PROGRAMA_LABELS, areaOf, crmCategoria, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, descargarCsv, fechaParaCsv, friendlyDate, initialsFor } from '../core/format.js';
@@ -149,6 +150,7 @@ async function renderRegistros(main) {
       <div><h1>📝 CRM — Prospectos</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
+        ${canBroadcast ? `<button class="btn btn-secondary" id="openCampana">${icon('send', 14)} Campaña<span class="hide-sm"> por pregrado</span></button>` : ''}
         <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} Exportar<span class="hide-sm"> CSV</span></button>
         <button class="btn btn-secondary" id="refreshReg"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
@@ -196,6 +198,7 @@ async function renderRegistros(main) {
     renderCrmGrid();
   });
   $('#exportCsv').addEventListener('click', () => exportarCrmCsv());
+  $('#openCampana')?.addEventListener('click', () => openCampanaSheet());
   $('#crmMios').addEventListener('click', (e) => {
     haptic(10);
     crmSoloMios = !crmSoloMios;
@@ -224,7 +227,7 @@ async function renderRegistros(main) {
     const nums = selectedTelefonos();
     if (!nums.length) { toast('Selecciona al menos un prospecto con WhatsApp'); return; }
     if (nums.length > 200) { toast('Máximo 200 destinatarios por envío'); return; }
-    openBroadcastSheet(nums);
+    openBroadcastSheet(nums, null, main.querySelector('#broadcastSendBtn'));
   });
 
   function updateSelectToggle() {
@@ -275,7 +278,97 @@ async function renderRegistros(main) {
     }
   }
 
-  async function openBroadcastSheet(telefonos) {
+  /* Campaña por pregrado: el admin pega la lista de la UTB (teléfono, nombre,
+     pregrado), elige a quiénes corresponde y sigue a la hoja de plantillas. */
+  function openCampanaSheet() {
+    const opener = main.querySelector('#openCampana');
+    const overlay = document.createElement('div');
+    overlay.className = 'sheet-backdrop';
+    overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '500';
+    overlay.innerHTML = `
+      <div class="action-sheet" role="dialog" aria-modal="true" aria-label="Campaña por pregrado" style="max-width:520px;">
+        <div class="sheet-group" style="padding:16px;text-align:left;">
+          <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Campaña por pregrado</div>
+          <div class="field-help" style="margin-bottom:10px;">Pega la lista con tres columnas: <strong>teléfono, nombre y pregrado</strong>, una persona por línea. Puedes copiarla directo de Excel. Los celulares de 10 dígitos se toman como de Colombia (+57).</div>
+          <label class="field-label" for="cmpLista" style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;">Lista</label>
+          <textarea id="cmpLista" rows="7" placeholder="3001112233&#9;Laura Gómez&#9;Ingeniería Industrial" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:10px;resize:vertical;"></textarea>
+          <div style="font-size:12.5px;font-weight:600;margin:10px 0 6px;">¿A quiénes va?</div>
+          <div id="cmpRelacionWrap"></div>
+          <div id="cmpResumen" aria-live="polite" style="font-size:12.5px;color:var(--text-muted);margin:8px 0 12px;">Pega la lista para ver el resumen.</div>
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-secondary" id="cmpCancel" style="flex:1;">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="cmpNext" style="flex:1;" disabled>Elegir plantilla</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => { overlay.classList.add('open'); overlay.querySelector('#cmpLista')?.focus({ preventScroll: true }); });
+    let closed = false;
+    const close = (devolverFoco = true) => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('hashchange', onHash);
+      document.removeEventListener('keydown', onKey);
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 260);
+      if (devolverFoco && opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+    const onHash = () => close();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key !== 'Tab') return;
+      const controls = Array.from(overlay.querySelectorAll('textarea, input, button')).filter(el => !el.disabled && el.getClientRects().length);
+      if (!controls.length) return;
+      if (e.shiftKey && (document.activeElement === controls[0] || !overlay.contains(document.activeElement))) { e.preventDefault(); controls.at(-1).focus(); }
+      else if (!e.shiftKey && (document.activeElement === controls.at(-1) || !overlay.contains(document.activeElement))) { e.preventDefault(); controls[0].focus(); }
+    };
+    window.addEventListener('hashchange', onHash);
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('#cmpCancel').addEventListener('click', () => close());
+
+    const listaEl = overlay.querySelector('#cmpLista');
+    const resumenEl = overlay.querySelector('#cmpResumen');
+    const nextBtn = overlay.querySelector('#cmpNext');
+    let lectura = parseListaCampana('');
+    let relacion = RELACIONES_CAMPANA[0].id;
+    const relacionWrap = overlay.querySelector('#cmpRelacionWrap');
+    relacionWrap.appendChild(buildSegmented(
+      RELACIONES_CAMPANA.map(r => ({ value: r.id, label: r.label })),
+      relacion, (v) => { relacion = v; },
+    ));
+    hacerSegmentadoAccesible(relacionWrap.querySelector('.segmented'), 'A quiénes va la campaña');
+
+    const pintarResumen = () => {
+      lectura = parseListaCampana(listaEl.value);
+      const { destinatarios, errores, duplicados, sinPregrado, excedeMaximo } = lectura;
+      const partes = [`<strong>${destinatarios.length}</strong> persona${destinatarios.length === 1 ? '' : 's'} lista${destinatarios.length === 1 ? '' : 's'}`];
+      if (duplicados) partes.push(`${duplicados} repetida${duplicados === 1 ? '' : 's'}`);
+      if (sinPregrado) partes.push(`${sinPregrado} sin pregrado (el bot se lo preguntará)`);
+      let html = partes.join(' · ');
+      if (errores.length) {
+        html += `<div style="color:var(--danger);margin-top:4px;">${errores.length} línea${errores.length === 1 ? '' : 's'} sin usar: ${errores.slice(0, 5).map(e => `${e.linea} (${escapeHtml(e.motivo)})`).join(', ')}${errores.length > 5 ? '…' : ''}</div>`;
+      }
+      if (excedeMaximo) html += `<div style="color:var(--danger);margin-top:4px;">Máximo ${MAX_DESTINATARIOS_CAMPANA} personas por envío; divide la lista.</div>`;
+      resumenEl.innerHTML = listaEl.value.trim() ? html : 'Pega la lista para ver el resumen.';
+      nextBtn.disabled = !destinatarios.length || excedeMaximo;
+    };
+    listaEl.addEventListener('input', pintarResumen);
+
+    nextBtn.addEventListener('click', () => {
+      if (nextBtn.disabled) return;
+      const { destinatarios } = lectura;
+      close(false);
+      openBroadcastSheet(destinatarios.map(d => d.telefono), { destinatarios, relacion }, opener);
+    });
+  }
+
+  /* `campana` = { destinatarios, relacion } para la campaña por pregrado; null para prospectos seleccionados. */
+  async function openBroadcastSheet(telefonos, campana = null, opener = null) {
+    const total = campana ? campana.destinatarios.length : telefonos.length;
+    const relacionLabel = campana ? (RELACIONES_CAMPANA.find(r => r.id === campana.relacion)?.label ?? '') : '';
     const overlay = document.createElement('div');
     overlay.className = 'sheet-backdrop';
     overlay.style.alignItems = 'center';
@@ -283,9 +376,12 @@ async function renderRegistros(main) {
     overlay.innerHTML = `
       <div class="action-sheet" role="dialog" aria-modal="true" aria-label="Enviar plantilla por WhatsApp" style="max-width:480px;">
         <div class="sheet-group" style="padding:16px;text-align:left;">
-          <div class="sheet-title" style="text-align:left;margin-bottom:4px;">Enviar plantilla por WhatsApp</div>
-          <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${telefonos.length} destinatario${telefonos.length !== 1 ? 's' : ''} · Solo templates aprobados por Meta (sin variables {{1}} por ahora)</div>
-          <div class="field-help" style="margin-bottom:12px;">Solo se permiten templates sin placeholders. El servidor comprueba el template antes de crear el envío.</div>
+          <div class="sheet-title" style="text-align:left;margin-bottom:4px;">${campana ? 'Enviar campaña por WhatsApp' : 'Enviar plantilla por WhatsApp'}</div>
+          ${campana ? `
+          <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${total} persona${total !== 1 ? 's' : ''} · ${escapeHtml(relacionLabel)} · Solo templates aprobados por Meta</div>
+          <div class="field-help" style="margin-bottom:12px;">La plantilla puede usar <strong>{{1}}</strong> = nombre y <strong>{{2}}</strong> = pregrado en el cuerpo, con los botones “Ver mis opciones” y “No me interesa”. Al que toca “Ver mis opciones” el bot le recomienda posgrados para su pregrado; a quien se dio de baja no se le envía.</div>` : `
+          <div class="sheet-subtitle" style="text-align:left;margin-bottom:4px;">${total} destinatario${total !== 1 ? 's' : ''} · Solo templates aprobados por Meta (sin variables {{1}})</div>
+          <div class="field-help" style="margin-bottom:12px;">Solo se permiten templates sin placeholders; los que usan variables se envían desde “Campaña por pregrado”. El servidor comprueba el template antes de crear el envío.</div>`}
           <div class="field-help" style="margin-bottom:12px;">El mismo template al mismo conjunto de destinatarios se acepta una sola vez por 24 horas. Un reintento muestra el trabajo original.</div>
           <div id="bcTemplates"><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div><div class="skeleton skeleton-line" style="height:14px;margin:8px 0;"></div></div>
           <div id="bcSelectedInfo" style="font-size:12px;color:var(--text-muted);margin:8px 0 10px;"></div>
@@ -299,7 +395,6 @@ async function renderRegistros(main) {
       </div>
     `;
     document.body.appendChild(overlay);
-    const opener = main.querySelector('#broadcastSendBtn');
     requestAnimationFrame(() => { overlay.classList.add('open'); overlay.querySelector('#bcCancel')?.focus({ preventScroll: true }); });
     let closed = false;
     const close = () => {
@@ -401,7 +496,7 @@ async function renderRegistros(main) {
       if (chosen) infoEl.textContent = `Seleccionado: ${chosen.name} (${chosen.language})`;
       else infoEl.textContent = 'Toca un template para seleccionarlo';
       confirmBtn.disabled = !chosen;
-      confirmBtn.textContent = chosen ? `📨 Enviar "${chosen.name}" a ${telefonos.length}` : '📨 Enviar';
+      confirmBtn.textContent = chosen ? `📨 Enviar "${chosen.name}" a ${total}` : '📨 Enviar';
       listEl.querySelectorAll('.bc-template-row').forEach(btn => btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.idx);
         chosen = templates[idx];
@@ -439,7 +534,9 @@ async function renderRegistros(main) {
       try {
         const res = await api('/api/tools/broadcast/send', {
           method: 'POST',
-          body: JSON.stringify({ templateName: chosen.name, language: chosen.language, telefonos }),
+          body: JSON.stringify(campana
+            ? { templateName: chosen.name, language: chosen.language, destinatarios: campana.destinatarios, relacion: campana.relacion }
+            : { templateName: chosen.name, language: chosen.language, telefonos }),
         });
         if (!overlay.isConnected || !res) return;
         const body = await res.json().catch(() => ({}));
@@ -448,7 +545,7 @@ async function renderRegistros(main) {
           const msg = body.message || body.error || `HTTP ${res.status}`;
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}${res.status === 403 ? ' — Solo administradores pueden enviar broadcasts.' : ''}</div>`;
           resultEl.innerHTML = '';
-          confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${telefonos.length}`;
+          confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${total}`;
           haptic([20,30,20]);
           return;
         }
@@ -463,7 +560,7 @@ async function renderRegistros(main) {
         if (!overlay.isConnected) return;
         alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudo confirmar el trabajo: ${escapeHtml(err.message || String(err))}. Si reintentas la misma selección, el servidor devolverá el trabajo existente durante 24 horas.</div>`;
         resultEl.innerHTML = '';
-        confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${telefonos.length}`;
+        confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${total}`;
         haptic([20,30,20]);
       }
     });
