@@ -180,9 +180,9 @@ por áreas que ya existe, en vez de forzar una recomendación.
 Eventos nuevos (hay que agregarlos a `metricEventAllowlist.ts`):
 `reco_inicio`, `reco_relacion_estudiante_utb`, `reco_relacion_egresado_utb`,
 `reco_relacion_externo`, `reco_pregrado_utb`, `reco_externo_coincide`,
-`reco_externo_sin_coincidencia`, `reco_resultados`, `reco_ficha`, `reco_ia`,
-`reco_asesor`, `reco_lead_completado`, `reco_salida_pregrado`,
-`reco_salida_otras_gestiones`.
+`reco_externo_sin_coincidencia`, `reco_resultados`, `reco_mas_opciones`,
+`reco_ficha`, `reco_ia`, `reco_asesor`, `reco_lead_completado`,
+`reco_salida_pregrado`, `reco_salida_otras_gestiones`.
 
 Con eso se puede ver el embudo: cuántos llegan a ver recomendaciones y cuántos
 terminan pidiendo asesor.

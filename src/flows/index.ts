@@ -11,6 +11,10 @@ import {
 import { handleAcademicoMenu } from './academico';
 import { handleAcademicAccount, handleAcademicUnlink } from './academicAccount';
 import { handleExplorarArea, handleExplorarCarrera, handleExplorarAccion } from './pregradoExplorar';
+import {
+  handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
+  handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
+} from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
@@ -42,6 +46,15 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   registro_nombre: handleRegistroNombre,
   registro_email: handleRegistroEmail,
   registro_programa: handleRegistroPrograma,
+  // ── Recomendación de posgrados según el pregrado ────────────────────────────
+  reco_relacion: handleRecoRelacion,
+  reco_pregrado_grupo: handleRecoPregradoGrupo,
+  reco_pregrado: handleRecoPregrado,
+  reco_pregrado_externo: handleRecoPregradoExterno,
+  reco_confirmar: handleRecoConfirmar,
+  reco_sin_coincidencia: handleRecoSinCoincidencia,
+  reco_nivel: handleRecoNivel,
+  reco_resultados: handleRecoResultados,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
   pregrado_explorar_area: handleExplorarArea,

@@ -45,7 +45,7 @@ export async function sendCategoriasMenu(to: string): Promise<void> {
 // estados siguen siendo `programas_categoria` / `programas_detalle` y el
 // índice de flujos no se toca.
 
-async function sendAreasMenu(to: string): Promise<void> {
+export async function sendAreasMenu(to: string): Promise<void> {
   await messaging.sendList({
     to,
     title: '🧭 Ayúdame a elegir',

@@ -21,6 +21,10 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'academico_derechos', 'verificacion_iniciada', 'verificacion_completada',
   'savio_cursos_consultados', 'savio_cuenta_no_encontrada', 'savio_error',
   'notas_consultadas', 'notas_no_encontradas',
+  'reco_inicio', 'reco_relacion_estudiante_utb', 'reco_relacion_egresado_utb',
+  'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide',
+  'reco_externo_sin_coincidencia', 'reco_resultados', 'reco_mas_opciones',
+  'reco_salida_pregrado', 'reco_salida_otras_gestiones',
 ]);
 
 export function isMetricEvent(value: unknown): value is MetricEvent {
