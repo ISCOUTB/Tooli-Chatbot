@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 import { describeError } from './logSafe';
+import { publicarAtencion } from './atencionEventos';
 
 let client: AxiosInstance | null = null;
 
@@ -153,6 +154,9 @@ export async function createConversation(opts: CreateConversationOpts): Promise<
       })
       .catch(() => {});
   }
+
+  // Aviso en vivo al panel: alguien nuevo espera a un asesor.
+  publicarAtencion({ tipo: 'nueva', conversacionId: conversationId, entrante: true, texto: opts.initialMessage.split('\n')[0] });
 
   return conversationId;
 }

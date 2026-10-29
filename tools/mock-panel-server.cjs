@@ -195,6 +195,35 @@ const resumenAtencion = ({ mensajes, ...c }) => {
 app.use('/api/tools/atencion', (_q, res, next) => process.env.MOCK_ATENCION_OFF
   ? res.status(503).json({ error: 'chatwoot_no_configurado', message: 'La bandeja de atención no está configurada en este servidor.' })
   : next());
+// En vivo: los paneles abiertos reciben cada cambio por Server-Sent Events.
+const clientesSse = new Set();
+const emitirAtencion = (evento) => {
+  const linea = `event: atencion\ndata: ${JSON.stringify({ ...evento, ts: Date.now() })}\n\n`;
+  clientesSse.forEach(res => res.write(linea));
+};
+app.get('/api/tools/atencion/eventos', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders();
+  res.write('retry: 5000\n\n');
+  clientesSse.add(res);
+  req.on('close', () => clientesSse.delete(res));
+});
+app.get('/api/tools/atencion/resumen', (_q, res) => {
+  const abiertas = ATENCION.filter(c => c.estado === 'open');
+  const sinAsignar = abiertas.filter(c => !c.asignado).length;
+  const misSinLeer = abiertas.filter(c => c.asignado?.id === yoAtencion() && c.noLeidos > 0).length;
+  j(res, { sinAsignar, misSinLeer, pendientes: sinAsignar + misSinLeer });
+});
+// Solo del mock: simula que la persona escribe (o que llega alguien nuevo).
+// POST /api/mock/atencion/simular { id?: number, texto?: string }
+app.post('/api/mock/atencion/simular', (req, res) => {
+  const c = ATENCION.find(x => x.id === Number(req.body.id)) ?? ATENCION.find(x => x.estado === 'open');
+  const texto = req.body.texto || '¿Siguen ahí? Tengo otra pregunta.';
+  c.mensajes.push({ id: Date.now(), tipo: 'in', texto, ts: Date.now(), autor: null, adjuntos: [] });
+  c.noLeidos += 1;
+  emitirAtencion({ tipo: 'mensaje', conversacionId: c.id, entrante: true, nombre: c.contacto.nombre, texto });
+  j(res, { ok: true, id: c.id });
+});
 app.get('/api/tools/atencion/equipo', (_q, res) => j(res, { agentes: AGENTES, equipos: EQUIPOS, yo: yoAtencion(), miEquipoId: ROL === 'admin' ? null : 10 }));
 app.get('/api/tools/atencion/conversaciones', (req, res) => {
   const yo = yoAtencion();
@@ -229,6 +258,7 @@ app.post('/api/tools/atencion/conversaciones/:id/mensajes', (req, res) => {
   }
   const autor = AGENTES.find(a => a.id === yoAtencion()).nombre;
   c.mensajes.push({ id: Date.now(), tipo: req.body.privado ? 'nota' : 'out', texto, ts: Date.now(), autor, adjuntos: [] });
+  emitirAtencion({ tipo: 'mensaje', conversacionId: c.id, entrante: false });
   j(res, { ok: true });
 });
 app.post('/api/tools/atencion/conversaciones/:id/estado', (req, res) => {
@@ -236,6 +266,7 @@ app.post('/api/tools/atencion/conversaciones/:id/estado', (req, res) => {
   if (!c) return;
   c.estado = req.body.estado;
   c.mensajes.push({ id: Date.now(), tipo: 'sistema', texto: `Estado cambiado a ${req.body.estado}`, ts: Date.now(), autor: null, adjuntos: [] });
+  emitirAtencion({ tipo: 'estado', conversacionId: c.id });
   j(res, { ok: true });
 });
 app.post('/api/tools/atencion/conversaciones/:id/asignar', (req, res) => {
@@ -248,6 +279,7 @@ app.post('/api/tools/atencion/conversaciones/:id/asignar', (req, res) => {
     c.asignado = a ? { id: a.id, nombre: a.nombre } : null;
   }
   if (equipoId !== undefined) c.equipo = EQUIPOS.find(e => e.id === equipoId) ?? null;
+  emitirAtencion({ tipo: 'asignacion', conversacionId: c.id });
   j(res, { ok: true });
 });
 
