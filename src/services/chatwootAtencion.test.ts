@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { contarPorAsignado, filtrarPorAsignado, mapConversacion, mapMensaje, tipoDeMensaje } from './chatwootAtencion';
+import {
+  ValidacionArchivoError,
+  ValidacionEtiquetasError,
+  contarPorAsignado,
+  filtrarPorAsignado,
+  mapConversacion,
+  mapMensaje,
+  normalizarEtiquetas,
+  tipoDeMensaje,
+  validarArchivoAdjunto,
+} from './chatwootAtencion';
 
 /**
  * Traducción de la API de Chatwoot a la bandeja de atención del panel. Las
@@ -87,5 +97,34 @@ describe('filtrarPorAsignado', () => {
 
   it('cuenta cada pestaña sobre la misma lista', () => {
     assert.deepEqual(contarPorAsignado(lista, 4), { mias: 1, sin_asignar: 1, todas: 3 });
+  });
+});
+
+describe('normalizarEtiquetas', () => {
+  it('normaliza, conserva el orden y quita repetidas', () => {
+    assert.deepEqual(normalizarEtiquetas(['  Posgrado Prospecto ', 'urgente', 'POSGRADO   PROSPECTO']), ['posgrado-prospecto', 'urgente']);
+  });
+
+  it('rechaza formas inválidas y más de diez etiquetas', () => {
+    assert.throws(() => normalizarEtiquetas(['área']), ValidacionEtiquetasError);
+    assert.throws(() => normalizarEtiquetas(Array.from({ length: 11 }, (_, i) => `etiqueta-${i}`)), ValidacionEtiquetasError);
+  });
+});
+
+describe('validarArchivoAdjunto', () => {
+  it('decodifica el archivo y elimina rutas del nombre', () => {
+    const archivo = validarArchivoAdjunto({ nombre: '../documentos/carta.txt', tipo: 'text/plain', base64: Buffer.from('hola').toString('base64') });
+    assert.equal(archivo.nombre, 'carta.txt');
+    assert.equal(archivo.tipo, 'text/plain');
+    assert.equal(archivo.datos.toString(), 'hola');
+  });
+
+  it('rechaza tipos, base64 y tamaños no permitidos', () => {
+    assert.throws(() => validarArchivoAdjunto({ nombre: 'x.exe', tipo: 'application/octet-stream', base64: 'eA==' }), ValidacionArchivoError);
+    assert.throws(() => validarArchivoAdjunto({ nombre: 'x.txt', tipo: 'text/plain', base64: 'no es base64' }), ValidacionArchivoError);
+    assert.throws(
+      () => validarArchivoAdjunto({ nombre: 'x.txt', tipo: 'text/plain', base64: Buffer.alloc(3 * 1024 * 1024 + 1).toString('base64') }),
+      (err: unknown) => err instanceof ValidacionArchivoError && err.status === 413 && err.codigo === 'archivo_muy_grande',
+    );
   });
 });

@@ -5,13 +5,15 @@
  */
 
 import { Router, Response } from 'express';
-import { AuthedRequest } from '../../middleware/auth';
+import { AuthedRequest, requireAdmin } from '../../middleware/auth';
 import { config } from '../../config';
 import { logAudit } from '../../services/auditService';
 import { getUser } from '../../services/usersService';
 import { describeError } from '../../services/logSafe';
 import {
   ConversacionNoEncontrada,
+  ValidacionArchivoError,
+  ValidacionEtiquetasError,
   ESTADOS_ATENCION,
   EstadoAtencion,
   FILTROS_ASIGNADO,
@@ -20,15 +22,37 @@ import {
   cambiarEstado,
   chatwootConfigurado,
   contarPorAsignado,
+  enviarAdjunto,
   enviarMensaje,
   equipoAtencion,
   filtrarPorAsignado,
+  listarEtiquetas,
   listarConversaciones,
   marcarLeida,
   obtenerConversacion,
+  normalizarEtiquetas,
+  reemplazarEtiquetas,
+  validarArchivoAdjunto,
 } from '../../services/chatwootAtencion';
 import { motivoVentanaCerrada } from './shared';
+import { esNombreGenerico } from '../../services/chatwootService';
+
+const ESTADO_HECHO: Record<EstadoAtencion, string> = {
+  open: 'Conversación reabierta',
+  pending: 'Marcada como pendiente',
+  resolved: 'Conversación resuelta',
+};
 import { formatoSse, publicarAtencion, suscribirAtencion } from '../../services/atencionEventos';
+import {
+  AtencionMacroError,
+  buscarMacro,
+  crearMacro,
+  eliminarMacro,
+  listarMacros,
+  normalizarMacro,
+  planMacro,
+  reemplazarNombre,
+} from '../../services/atencionMacrosService';
 
 export const atencionRouter = Router();
 
@@ -49,6 +73,18 @@ function responderError(res: Response, err: unknown, contexto: string): void {
   }
   console.error(`[atencion] ${contexto}:`, describeError(err));
   res.status(502).json({ error: 'chatwoot_error', message: 'No se pudo hablar con el sistema de atención. Intenta de nuevo.' });
+}
+
+function responderValidacion(res: Response, err: unknown): boolean {
+  if (err instanceof ValidacionArchivoError) {
+    res.status(err.status).json({ error: err.codigo, message: err.message });
+    return true;
+  }
+  if (err instanceof ValidacionEtiquetasError || err instanceof AtencionMacroError) {
+    res.status(400).json({ error: 'validation_error', message: err.message });
+    return true;
+  }
+  return false;
 }
 
 atencionRouter.use('/atencion', (_req, res, next) => {
@@ -107,10 +143,49 @@ atencionRouter.get('/atencion/equipo', async (req: AuthedRequest, res: Response)
   }
 });
 
+atencionRouter.get('/atencion/etiquetas', async (_req: AuthedRequest, res: Response) => {
+  try {
+    res.json({ etiquetas: await listarEtiquetas() });
+  } catch (err) {
+    responderError(res, err, 'etiquetas');
+  }
+});
+
+atencionRouter.get('/atencion/macros', async (_req: AuthedRequest, res: Response) => {
+  try {
+    res.json({ macros: await listarMacros() });
+  } catch (err) {
+    responderError(res, err, 'listar macros');
+  }
+});
+
+atencionRouter.post('/atencion/macros', requireAdmin, async (req: AuthedRequest, res: Response) => {
+  try {
+    const macro = await crearMacro(req.body, req.user!.username);
+    await logAudit(req.user!.username, 'atencion_macro_creada', macro.nombre);
+    res.json({ macro });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'crear macro');
+  }
+});
+
+atencionRouter.delete('/atencion/macros/:id', requireAdmin, async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!await eliminarMacro(String(req.params.id))) {
+      res.status(404).json({ error: 'no_encontrada', message: 'La macro no existe.' });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    responderError(res, err, 'eliminar macro');
+  }
+});
+
 atencionRouter.get('/atencion/conversaciones', async (req: AuthedRequest, res: Response) => {
   const estado = String(req.query.estado ?? 'open') as EstadoAtencion;
   const asignado = String(req.query.asignado ?? 'todas') as FiltroAsignado;
   const equipoId = req.query.equipo ? idValido(String(req.query.equipo)) : null;
+  const etiqueta = req.query.etiqueta ? String(req.query.etiqueta).trim().toLowerCase().replace(/\s+/g, '-') : '';
   if (!ESTADOS_ATENCION.includes(estado) || !FILTROS_ASIGNADO.includes(asignado)) {
     res.status(400).json({ error: 'validation_error', message: 'Filtro no válido.' });
     return;
@@ -118,13 +193,126 @@ atencionRouter.get('/atencion/conversaciones', async (req: AuthedRequest, res: R
   try {
     const [{ conversaciones, truncado }, yo] = await Promise.all([listarConversaciones(estado), miChatwootId(req)]);
     const delEquipo = equipoId ? conversaciones.filter((c) => c.equipo?.id === equipoId) : conversaciones;
+    const filtradas = etiqueta ? delEquipo.filter((c) => c.etiquetas.some((item) => item.toLowerCase() === etiqueta)) : delEquipo;
     res.json({
-      conversaciones: filtrarPorAsignado(delEquipo, asignado, yo),
-      conteos: contarPorAsignado(delEquipo, yo),
+      conversaciones: filtrarPorAsignado(filtradas, asignado, yo),
+      conteos: contarPorAsignado(filtradas, yo),
       truncado,
     });
   } catch (err) {
     responderError(res, err, 'listar');
+  }
+});
+
+atencionRouter.post('/atencion/conversaciones/:id/etiquetas', async (req: AuthedRequest, res: Response) => {
+  const id = idValido(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'validation_error', message: 'Conversación no válida.' });
+    return;
+  }
+  try {
+    const etiquetas = normalizarEtiquetas(req.body?.etiquetas);
+    await reemplazarEtiquetas(id, etiquetas);
+    publicarAtencion({ tipo: 'asignacion', conversacionId: id });
+    await logAudit(req.user!.username, 'atencion_etiquetas', `conv ${id} · ${etiquetas.join(', ') || 'sin etiquetas'}`);
+    res.json({ ok: true, etiquetas });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'actualizar etiquetas');
+  }
+});
+
+atencionRouter.post('/atencion/conversaciones/:id/adjuntos', async (req: AuthedRequest, res: Response) => {
+  const id = idValido(req.params.id);
+  const textoValido = req.body?.texto === undefined || typeof req.body.texto === 'string';
+  const texto = typeof req.body?.texto === 'string' ? req.body.texto.trim() : '';
+  const privado = req.body?.privado === true;
+  if (!id || !textoValido || texto.length > 1024) {
+    const message = !id ? 'Conversación no válida.'
+      : !textoValido ? 'El texto debe ser una cadena.'
+      : 'El texto no puede superar 1024 caracteres.';
+    res.status(400).json({ error: 'validation_error', message });
+    return;
+  }
+  try {
+    const archivo = validarArchivoAdjunto(req.body ?? {});
+    if (!privado) {
+      const { conversacion } = await obtenerConversacion(id);
+      const motivo = conversacion.contacto.telefono ? await motivoVentanaCerrada(conversacion.contacto.telefono) : null;
+      if (motivo) {
+        res.status(409).json({ error: 'fuera_de_ventana', message: motivo });
+        return;
+      }
+    }
+    await enviarAdjunto(id, archivo, texto, privado);
+    publicarAtencion({ tipo: 'mensaje', conversacionId: id, entrante: false });
+    await logAudit(req.user!.username, 'atencion_adjunto', `conv ${id} · ${archivo.nombre}`);
+    res.json({ ok: true });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'enviar adjunto');
+  }
+});
+
+atencionRouter.post('/atencion/conversaciones/:id/macros/:macroId', async (req: AuthedRequest, res: Response) => {
+  const id = idValido(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'validation_error', message: 'Conversación no válida.' });
+    return;
+  }
+  try {
+    const macroGuardada = await buscarMacro(String(req.params.macroId));
+    if (!macroGuardada) {
+      res.status(404).json({ error: 'no_encontrada', message: 'La macro no existe.' });
+      return;
+    }
+    // Se revalida al leer: una entrada antigua o editada a mano en Redis no
+    // debe convertirse en acciones arbitrarias contra Chatwoot.
+    const macro = { ...macroGuardada, ...normalizarMacro(macroGuardada) };
+    const [{ conversacion }, yo] = await Promise.all([obtenerConversacion(id), miChatwootId(req)]);
+    if (macro.acciones.asesorId === 'yo' && !yo) {
+      res.status(409).json({ error: 'sin_usuario_chatwoot', message: 'Tu usuario no tiene cuenta de atención vinculada. Pídele a un administrador que la cree.' });
+      return;
+    }
+    if (macro.acciones.mensaje) {
+      const motivo = conversacion.contacto.telefono ? await motivoVentanaCerrada(conversacion.contacto.telefono) : null;
+      if (motivo) {
+        res.status(409).json({ error: 'fuera_de_ventana', message: motivo });
+        return;
+      }
+    }
+
+    const nombreReal = conversacion.contacto.nombre === 'Sin nombre' || esNombreGenerico(conversacion.contacto.nombre, conversacion.contacto.telefono)
+      ? null : conversacion.contacto.nombre;
+    const etiquetasFinales = macro.acciones.etiquetas
+      ? normalizarEtiquetas([...conversacion.etiquetas, ...macro.acciones.etiquetas])
+      : undefined;
+    const hechos: string[] = [];
+    for (const paso of planMacro(macro.acciones)) {
+      if (paso.tipo === 'nota') {
+        await enviarMensaje(id, String(paso.valor), true);
+        hechos.push('Nota privada agregada');
+      } else if (paso.tipo === 'mensaje') {
+        await enviarMensaje(id, reemplazarNombre(String(paso.valor), nombreReal), false);
+        hechos.push('Mensaje enviado');
+      } else if (paso.tipo === 'etiquetas') {
+        await reemplazarEtiquetas(id, etiquetasFinales!);
+        hechos.push('Etiquetas agregadas');
+      } else if (paso.tipo === 'equipo') {
+        await asignar(id, { equipoId: paso.valor as number | null });
+        hechos.push(paso.valor === null ? 'Equipo quitado' : 'Equipo asignado');
+      } else if (paso.tipo === 'asesor') {
+        const asesorId = paso.valor === 'yo' ? yo! : paso.valor as number | null;
+        await asignar(id, { asesorId });
+        hechos.push(paso.valor === null ? 'Asesor quitado' : 'Asesor asignado');
+      } else {
+        await cambiarEstado(id, paso.valor as EstadoAtencion);
+        hechos.push(ESTADO_HECHO[paso.valor as EstadoAtencion]);
+      }
+    }
+    publicarAtencion({ tipo: 'asignacion', conversacionId: id });
+    await logAudit(req.user!.username, 'atencion_macro', `conv ${id} · ${macro.nombre}`);
+    res.json({ ok: true, hechos });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'ejecutar macro');
   }
 });
 

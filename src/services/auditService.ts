@@ -32,7 +32,11 @@ export type AuditAction =
   | 'inbound_review_resolved'
   | 'atencion_nota_privada'
   | 'atencion_estado_cambiado'
-  | 'atencion_asignada';
+  | 'atencion_asignada'
+  | 'atencion_etiquetas'
+  | 'atencion_adjunto'
+  | 'atencion_macro'
+  | 'atencion_macro_creada';
 
 export interface AuditEntry {
   ts: number;

@@ -4,7 +4,10 @@ import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime }
 import { icon } from '../core/icons.js';
 import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarConversacionVisible, pedirPermisoAvisos, permisoAvisos, preferenciasAvisos } from '../core/realtime.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
+import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { abrirRespuestasRapidas } from '../ui/quick-replies.js';
+import { ActionSheet } from '../ui/sheet.js';
 import { abrirConversacion } from './conversaciones.js';
 
 /* ============= ATENCIÓN =============
@@ -23,6 +26,14 @@ const ESTADOS = {
 const SONDEO_MS = 20_000;
 const RESPALDO_EN_VIVO_MS = 90_000;
 const ESPERA_EVENTO_MS = 400;
+const MAX_ADJUNTO = 3 * 1024 * 1024;
+const TIPOS_ADJUNTO = new Set([
+  'image/jpeg', 'image/png', 'application/pdf', 'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+]);
 
 function etiquetaEstado(estado) {
   return ESTADOS[estado] ?? { label: estado, plural: estado, color: '#64748b' };
@@ -46,14 +57,54 @@ function textoAsignacion(asignado, yo) {
   return yo && asignado.id === yo ? 'Asignada a ti' : `Asignada a ${asignado.nombre}`;
 }
 
-let filtros = { estado: 'open', asignado: 'todas', equipo: '' };
+function formatoTamano(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function validarArchivo(archivo) {
+  if (!archivo) return 'Selecciona un archivo.';
+  if (!TIPOS_ADJUNTO.has(archivo.type)) return 'Tipo de archivo no permitido. Usa imagen, PDF, Office o texto.';
+  if (archivo.size > MAX_ADJUNTO) return 'El archivo supera el máximo de 3 MB.';
+  return null;
+}
+
+function resumenMacro(macro) {
+  const a = macro?.acciones ?? {};
+  const partes = [];
+  if (a.nota) partes.push('Nota');
+  if (a.mensaje) partes.push('Mensaje');
+  if (a.etiquetas?.length) partes.push(...a.etiquetas.slice(0, 2).map(e => `Etiqueta ${e}`));
+  if (Object.hasOwn(a, 'equipoId')) partes.push(a.equipoId == null ? 'Quita equipo' : 'Cambia equipo');
+  if (Object.hasOwn(a, 'asesorId')) partes.push(a.asesorId == null ? 'Quita asesor' : a.asesorId === 'yo' ? 'Te asigna' : 'Cambia asesor');
+  if (a.estado) partes.push(a.estado === 'resolved' ? 'Resuelve' : a.estado === 'pending' ? 'Deja pendiente' : 'Abre');
+  return partes.join(' · ') || 'Sin acciones';
+}
+
+function construirAccionesMacro(valores) {
+  const acciones = {};
+  const nota = String(valores.nota ?? '').trim();
+  const mensaje = String(valores.mensaje ?? '').trim();
+  const etiquetas = String(valores.etiquetas ?? '').split(',').map(e => e.trim()).filter(Boolean);
+  if (nota) acciones.nota = nota;
+  if (mensaje) acciones.mensaje = mensaje;
+  if (etiquetas.length) acciones.etiquetas = etiquetas;
+  if (valores.equipoId !== '') acciones.equipoId = valores.equipoId === 'null' ? null : Number(valores.equipoId);
+  if (valores.asesorId !== '') acciones.asesorId = valores.asesorId === 'null' ? null : valores.asesorId === 'yo' ? 'yo' : Number(valores.asesorId);
+  if (valores.estado) acciones.estado = valores.estado;
+  return acciones;
+}
+
+let filtros = { estado: 'open', asignado: 'todas', equipo: '', etiqueta: '' };
 let equipo = { agentes: [], equipos: [], yo: null, miEquipoId: null };
+let etiquetasCuenta = [];
 let equipoCargado = false;
 let lista = [];
 let abierta = null;       // id de la conversación abierta
 let listaSeq = 0;
 let hiloSeq = 0;
 const borradores = new Map(); // id → { texto, privado }
+let adjuntoActual = null;      // { conversacionId, archivo }
 let cabeceraPintada = '';    // estado y asignación que muestra la cabecera del hilo
 let ultimaCargaLista = 0;
 let ultimaCargaHilo = 0;
@@ -74,7 +125,10 @@ async function renderAtencion(main) {
         <div class="inbox-filter-wrap" id="atnEstadoWrap"></div>
         <div class="atn-filtros">
           <div id="atnAsignadoWrap" class="atn-asignado"></div>
-          <select id="atnEquipo" class="atn-select" aria-label="Filtrar por equipo"><option value="">Todos los equipos</option></select>
+          <div class="atn-filtros-selects">
+            <select id="atnEquipo" class="atn-select" aria-label="Filtrar por equipo"><option value="">Todos los equipos</option></select>
+            <select id="atnEtiqueta" class="atn-select" aria-label="Filtrar por etiqueta"><option value="">Todas las etiquetas</option></select>
+          </div>
         </div>
         <div class="inbox-rows" id="atnFilas" aria-busy="true" aria-label="Cargando conversaciones">${filasEsqueleto()}</div>
       </div>
@@ -88,6 +142,7 @@ async function renderAtencion(main) {
     filtros.estado, (v) => { filtros.estado = v; cargarLista(); },
   ));
   $('#atnEquipo').addEventListener('change', (e) => { filtros.equipo = e.target.value; cargarLista(); });
+  $('#atnEtiqueta').addEventListener('change', (e) => { filtros.etiqueta = e.target.value; cargarLista(); });
   setPullToRefresh(() => cargarLista());
   screenInterval(() => {
     const respaldo = estadoConexion() !== 'conectado' ? SONDEO_MS : RESPALDO_EN_VIVO_MS;
@@ -99,6 +154,7 @@ async function renderAtencion(main) {
 
   if (!equipoCargado) await cargarEquipo();
   pintarFiltroEquipo();
+  pintarFiltroEtiquetas();
   cargarLista();
 }
 
@@ -150,8 +206,9 @@ function pintarAvisos() {
     : permiso === 'denied' ? 'Avisos bloqueados' : permiso === 'default' ? 'Activar avisos' : '';
   wrap.innerHTML = `
     <span class="atn-conexion atn-conexion-${conexion}" role="status">${conexion === 'conectado' ? 'En vivo' : conexion === 'reconectando' ? 'Reconectando…' : 'Actualiza cada 20 s'}</span>
-    ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span>${avisoTexto}</span></button>` : ''}
+    ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" aria-label="${avisoTexto}" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span class="hide-sm">${avisoTexto}</span></button>` : ''}
     <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" title="Tono cuando llega un mensaje">${prefs.sonido ? '🔊' : '🔇'}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
+    ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
   `;
   $('#atnAvisoBtn')?.addEventListener('click', async () => {
     if (permiso === 'default') {
@@ -168,6 +225,7 @@ function pintarAvisos() {
     cambiarPreferencias({ sonido: !prefs.sonido });
     pintarAvisos();
   });
+  $('#atnGestionMacros')?.addEventListener('click', abrirGestionMacros);
 }
 
 function filasEsqueleto() {
@@ -183,13 +241,27 @@ function filasEsqueleto() {
 
 async function cargarEquipo() {
   try {
-    const r = await api('/api/tools/atencion/equipo');
-    if (!r?.ok) return;
-    equipo = await r.json();
+    // Se traen juntas porque ambas listas cambian poco y alimentan todos los
+    // filtros/editores de la pantalla.
+    const [rEquipo, rEtiquetas] = await Promise.all([
+      api('/api/tools/atencion/equipo'),
+      api('/api/tools/atencion/etiquetas'),
+    ]);
+    if (!rEquipo?.ok) return;
+    equipo = await rEquipo.json();
+    if (rEtiquetas?.ok) etiquetasCuenta = (await rEtiquetas.json()).etiquetas ?? [];
     equipoCargado = true;
     // Primera vez: el asesor de un área ve primero las de su equipo.
     if (equipo.miEquipoId && !filtros.equipo) filtros.equipo = String(equipo.miEquipoId);
   } catch { /* sin equipo la bandeja funciona igual, solo sin filtros ni asignación */ }
+}
+
+function pintarFiltroEtiquetas() {
+  const sel = $('#atnEtiqueta');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Todas las etiquetas</option>' +
+    etiquetasCuenta.map(e => `<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('');
+  sel.value = filtros.etiqueta;
 }
 
 function pintarFiltroEquipo() {
@@ -206,7 +278,12 @@ async function cargarLista({ silencioso = false } = {}) {
   if (!filas) return;
   const seq = ++listaSeq;
   if (!silencioso) { filas.setAttribute('aria-busy', 'true'); filas.innerHTML = filasEsqueleto(); }
-  const params = new URLSearchParams({ estado: filtros.estado, asignado: filtros.asignado, ...(filtros.equipo ? { equipo: filtros.equipo } : {}) });
+  const params = new URLSearchParams({
+    estado: filtros.estado,
+    asignado: filtros.asignado,
+    ...(filtros.equipo ? { equipo: filtros.equipo } : {}),
+    ...(filtros.etiqueta ? { etiqueta: filtros.etiqueta } : {}),
+  });
   try {
     const r = await api(`/api/tools/atencion/conversaciones?${params}`);
     if (!r || seq !== listaSeq || !filas.isConnected) return;
@@ -245,6 +322,18 @@ function pintarFiltroAsignado(conteos) {
   wrap.appendChild(buildSegmented(opciones, filtros.asignado, (v) => { filtros.asignado = v; cargarLista(); }));
 }
 
+function colorEtiqueta(nombre) {
+  const color = etiquetasCuenta.find(e => e.nombre === nombre)?.color;
+  return /^#[0-9a-f]{3,8}$/i.test(color ?? '') ? color : '#64748b';
+}
+
+function htmlEtiqueta(nombre, quitable = false) {
+  const seguro = escapeHtml(nombre);
+  return `<span class="atn-chip atn-chip-etiqueta" style="--atn-etiqueta:${colorEtiqueta(nombre)}" title="${seguro}">
+    ${seguro}${quitable ? `<button type="button" class="atn-etiqueta-quitar" data-etiqueta="${seguro}" aria-label="Quitar etiqueta ${seguro}">×</button>` : ''}
+  </span>`;
+}
+
 function pintarFilas(truncado) {
   const filas = $('#atnFilas');
   filas.setAttribute('aria-busy', 'false');
@@ -258,7 +347,9 @@ function pintarFilas(truncado) {
       </div>`;
     return;
   }
-  filas.innerHTML = lista.map(c => `
+  filas.innerHTML = lista.map(c => {
+    const tags = c.etiquetas ?? [];
+    return `
     <button type="button" class="inbox-row atn-row${c.id === abierta ? ' activa' : ''}" data-id="${c.id}">
       <div class="avatar" style="background:${avatarTone(c.contacto.telefono || String(c.id))}">${initialsFor(c.contacto.telefono, c.contacto.nombre)}</div>
       <div class="inbox-row-body">
@@ -270,11 +361,13 @@ function pintarFilas(truncado) {
         <div class="atn-row-meta">
           <span class="atn-chip ${c.asignado ? '' : 'atn-chip-alerta'}">${icon('user', 11)} ${escapeHtml(textoAsignacion(c.asignado, equipo.yo))}</span>
           ${c.equipo ? `<span class="atn-chip">${escapeHtml(c.equipo.nombre)}</span>` : ''}
+          ${tags.slice(0, 2).map(nombre => htmlEtiqueta(nombre)).join('')}
+          ${tags.length > 2 ? `<span class="atn-chip">+${tags.length - 2}</span>` : ''}
           ${c.noLeidos ? `<span class="atn-no-leidos" aria-label="${c.noLeidos} sin leer">${c.noLeidos}</span>` : ''}
         </div>
       </div>
     </button>
-  `).join('') + (truncado ? '<div class="atn-truncado">Se muestran las 100 más recientes.</div>' : '');
+  `; }).join('') + (truncado ? '<div class="atn-truncado">Se muestran las 100 más recientes.</div>' : '');
   $$('.atn-row', filas).forEach(row => row.addEventListener('click', () => abrirHilo(Number(row.dataset.id))));
 }
 
@@ -388,7 +481,7 @@ function cablearAnteriores(id, mensajes) {
 }
 
 function claveCabecera(c) {
-  return JSON.stringify([c.id, c.estado, c.asignado?.id ?? null, c.equipo?.id ?? null]);
+  return JSON.stringify([c.id, c.estado, c.asignado?.id ?? null, c.equipo?.id ?? null, c.etiquetas ?? []]);
 }
 
 function pintarCabecera(c) {
@@ -406,6 +499,7 @@ function pintarCabecera(c) {
     </div>
     <div class="atn-acciones">
     ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion" id="atnHistorial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
+    <button type="button" class="btn btn-ghost atn-accion" id="atnMacrosHilo">${icon('bolt', 14)}<span>Macros</span></button>
     ${c.estado === 'resolved'
       ? '<button type="button" class="btn btn-secondary atn-accion" data-estado="open">Reabrir</button>'
       : `${c.estado === 'open' ? '<button type="button" class="btn btn-ghost atn-accion" data-estado="pending" title="Esperando algo de la persona o de otra área">Pendiente</button>' : '<button type="button" class="btn btn-ghost atn-accion" data-estado="open">Abrir</button>'}
@@ -414,6 +508,7 @@ function pintarCabecera(c) {
   `;
   $('#atnVolver').addEventListener('click', cerrarHilo);
   $('#atnHistorial')?.addEventListener('click', () => abrirConversacion(c.contacto.telefono));
+  $('#atnMacrosHilo')?.addEventListener('click', () => abrirMacrosHilo(c));
   $$('.atn-accion[data-estado]', cab).forEach(b => b.addEventListener('click', () => cambiarEstado(c, b.dataset.estado, b)));
 
   const asig = $('#atnAsignacion');
@@ -433,25 +528,54 @@ function pintarCabecera(c) {
         </select>
       </label>` : ''}
     ${equipo.yo && c.asignado?.id !== equipo.yo ? '<button type="button" class="btn btn-secondary atn-accion" id="atnAsignarme">Asignármela</button>' : ''}
+    <div class="atn-etiquetas" aria-label="Etiquetas de la conversación">
+      ${(c.etiquetas ?? []).map(nombre => htmlEtiqueta(nombre, true)).join('')}
+      <button type="button" class="btn btn-ghost atn-etiqueta-agregar" id="atnAgregarEtiqueta">+ Etiqueta</button>
+    </div>
+    <form class="atn-etiqueta-form" id="atnEtiquetaForm" hidden>
+      <input class="atn-etiqueta-input" id="atnEtiquetaNueva" list="atnEtiquetasCuenta" maxlength="40" placeholder="Nombre de etiqueta" aria-label="Nombre de etiqueta">
+      <datalist id="atnEtiquetasCuenta">${etiquetasCuenta.map(e => `<option value="${escapeHtml(e.nombre)}"></option>`).join('')}</datalist>
+      <button type="submit" class="btn btn-secondary atn-accion">Agregar</button>
+    </form>
   `;
   $('#atnAsesor').value = c.asignado ? String(c.asignado.id) : '';
   if ($('#atnEquipoConv')) $('#atnEquipoConv').value = c.equipo ? String(c.equipo.id) : '';
   $('#atnAsesor').addEventListener('change', (e) => asignarConv(c.id, { asesorId: e.target.value ? Number(e.target.value) : null }));
   $('#atnEquipoConv')?.addEventListener('change', (e) => asignarConv(c.id, { equipoId: e.target.value ? Number(e.target.value) : null }));
   $('#atnAsignarme')?.addEventListener('click', () => asignarConv(c.id, { asesorId: 'yo' }));
+  $$('.atn-etiqueta-quitar', asig).forEach(btn => btn.addEventListener('click', () => {
+    guardarEtiquetas(c, (c.etiquetas ?? []).filter(e => e !== btn.dataset.etiqueta));
+  }));
+  $('#atnAgregarEtiqueta').addEventListener('click', () => {
+    const form = $('#atnEtiquetaForm');
+    form.hidden = !form.hidden;
+    if (!form.hidden) $('#atnEtiquetaNueva').focus();
+  });
+  $('#atnEtiquetaForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nombre = $('#atnEtiquetaNueva').value.trim();
+    if (nombre && !(c.etiquetas ?? []).includes(nombre)) guardarEtiquetas(c, [...(c.etiquetas ?? []), nombre]);
+  });
 }
 
 function pintarHilo(data) {
   const c = data.conversacion;
   const hilo = $('#atnHilo');
   const borrador = borradores.get(c.id) ?? { texto: '', privado: false };
+  if (adjuntoActual?.conversacionId !== c.id) adjuntoActual = null;
   hilo.innerHTML = `
     <div class="inbox-thread-header atn-cabecera" id="atnCabecera"></div>
     <div class="atn-asignacion" id="atnAsignacion"></div>
     <div class="inbox-messages" id="atnMensajes">${htmlMensajes(data.mensajes, data.hayAnteriores)}</div>
     <div class="inbox-thread-footer">
       <div id="atnModoWrap" class="atn-modo"></div>
+      <div class="atn-archivo-chip" id="atnArchivoChip" hidden></div>
       <form class="composer${borrador.privado ? ' atn-composer-nota' : ''}" id="atnComposer" autocomplete="off">
+        <div class="atn-composer-tools">
+          <button type="button" class="atn-composer-tool" id="atnAdjuntar" aria-label="Adjuntar archivo">📎</button>
+          <button type="button" class="atn-composer-tool" id="atnRapidas" aria-label="Respuestas rápidas">${icon('bolt', 17)}</button>
+        </div>
+        <input type="file" id="atnArchivo" hidden accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,application/pdf,text/plain">
         <textarea class="composer-input" id="atnTexto" rows="1" maxlength="4096" aria-label="Escribir a ${escapeHtml(c.contacto.nombre)}"></textarea>
         <button type="submit" class="composer-send" id="atnEnviar" disabled aria-label="Enviar">${icon('send', 18)}</button>
       </form>
@@ -470,14 +594,24 @@ function pintarHilo(data) {
   const ajustar = () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
-    $('#atnEnviar').disabled = !input.value.trim();
+    $('#atnEnviar').disabled = !input.value.trim() && !adjuntoActual?.archivo;
   };
   input.addEventListener('input', ajustar);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#atnComposer').requestSubmit(); }
   });
   $('#atnComposer').addEventListener('submit', (e) => { e.preventDefault(); enviar(c); });
+  $('#atnAdjuntar').addEventListener('click', () => $('#atnArchivo').click());
+  $('#atnArchivo').addEventListener('change', (e) => {
+    const archivo = e.target.files?.[0];
+    const error = validarArchivo(archivo);
+    if (error) { $('#atnPista').textContent = error; e.target.value = ''; return; }
+    adjuntoActual = { conversacionId: c.id, archivo };
+    pintarArchivoSeleccionado(ajustar);
+  });
+  $('#atnRapidas').addEventListener('click', () => abrirRespuestasRapidas(input, ajustar, c.contacto.nombre));
   actualizarModo();
+  pintarArchivoSeleccionado(ajustar);
   ajustar();
   const msgs = $('#atnMensajes');
   msgs.scrollTop = msgs.scrollHeight;
@@ -485,6 +619,22 @@ function pintarHilo(data) {
   const fila = $(`.atn-row[data-id="${c.id}"] .atn-no-leidos`);
   fila?.remove();
   actualizarResumenAtencion();
+}
+
+function pintarArchivoSeleccionado(sync) {
+  const chip = $('#atnArchivoChip');
+  if (!chip) return;
+  const archivo = adjuntoActual?.archivo;
+  chip.hidden = !archivo;
+  chip.innerHTML = archivo ? `${icon('external', 13)} <span>${escapeHtml(archivo.name)}</span><small>${formatoTamano(archivo.size)}</small><button type="button" aria-label="Quitar archivo">×</button>` : '';
+  chip.querySelector('button')?.addEventListener('click', () => {
+    adjuntoActual = null;
+    const input = $('#atnArchivo');
+    if (input) input.value = '';
+    pintarArchivoSeleccionado(sync);
+    sync?.();
+  });
+  sync?.();
 }
 
 function actualizarModo() {
@@ -499,13 +649,20 @@ function actualizarModo() {
 async function enviar(c) {
   const input = $('#atnTexto');
   const texto = input.value.trim();
-  if (!texto) return;
+  const archivo = adjuntoActual?.conversacionId === c.id ? adjuntoActual.archivo : null;
+  if (!texto && !archivo) return;
   const privado = modoPrivado();
   const btn = $('#atnEnviar');
   btn.disabled = true;
   haptic(10);
   try {
-    const r = await api(`/api/tools/atencion/conversaciones/${c.id}/mensajes`, { method: 'POST', body: JSON.stringify({ texto, privado }) });
+    let ruta = `/api/tools/atencion/conversaciones/${c.id}/mensajes`;
+    let body = { texto, privado };
+    if (archivo) {
+      ruta = `/api/tools/atencion/conversaciones/${c.id}/adjuntos`;
+      body = { nombre: archivo.name, tipo: archivo.type, base64: await leerBase64(archivo), texto, privado };
+    }
+    const r = await api(ruta, { method: 'POST', body: JSON.stringify(body) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       // El borrador se queda: el asesor no pierde lo que escribió.
@@ -515,6 +672,11 @@ async function enviar(c) {
     }
     input.value = '';
     input.style.height = 'auto';
+    adjuntoActual = null;
+    const archivoInput = $('#atnArchivo');
+    if (archivoInput) archivoInput.value = '';
+    pintarArchivoSeleccionado();
+    btn.disabled = true;
     borradores.delete(c.id);
     toast(privado ? 'Nota guardada' : 'Mensaje enviado');
     await cargarHilo(c.id, { silencioso: true });
@@ -525,6 +687,176 @@ async function enviar(c) {
     $('#atnPista').textContent = 'Sin conexión: el mensaje no se envió.';
     btn.disabled = false;
   }
+}
+
+function leerBase64(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    lector.onload = () => resolve(String(lector.result).split(',')[1] ?? '');
+    lector.readAsDataURL(archivo);
+  });
+}
+
+async function guardarEtiquetas(c, nuevas) {
+  try {
+    const r = await api(`/api/tools/atencion/conversaciones/${c.id}/etiquetas`, {
+      method: 'POST', body: JSON.stringify({ etiquetas: nuevas }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(data.message || 'No se pudieron actualizar las etiquetas'); return; }
+    c.etiquetas = data.etiquetas;
+    const fila = lista.find(item => item.id === c.id);
+    if (fila) fila.etiquetas = data.etiquetas;
+    pintarCabecera(c);
+    pintarFilas(false);
+    toast('Etiquetas actualizadas');
+  } catch { toast('No se pudieron actualizar las etiquetas'); }
+}
+
+async function obtenerMacros() {
+  const r = await api('/api/tools/atencion/macros');
+  const data = await r.json().catch(() => ({}));
+  if (!r?.ok) throw new Error(data.message || 'No se pudieron cargar las macros');
+  return data.macros ?? [];
+}
+
+async function abrirMacrosHilo(c) {
+  let macros;
+  try { macros = await obtenerMacros(); } catch (err) { toast(err.message); return; }
+  if (!macros.length) { toast('No hay macros. Un administrador puede crearlas desde la cabecera de Atención.'); return; }
+  ActionSheet.open({
+    title: 'Macros',
+    subtitle: 'Elige una secuencia de acciones para esta conversación.',
+    groups: [macros.map(m => ({
+      label: `${m.nombre} — ${resumenMacro(m)}`,
+      icon: icon('bolt', 15),
+      onClick: () => confirmarMacro(c, m),
+    })), [{ label: 'Cancelar', cancel: true }]],
+  });
+}
+
+function confirmarMacro(c, macro) {
+  ActionSheet.open({
+    title: `Aplicar «${macro.nombre}»`,
+    subtitle: resumenMacro(macro),
+    groups: [[{
+      label: `Aplicar «${macro.nombre}»`,
+      icon: icon('bolt', 15),
+      onClick: async () => {
+        try {
+          const r = await api(`/api/tools/atencion/conversaciones/${c.id}/macros/${macro.id}`, { method: 'POST' });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) { toast(data.message || 'No se pudo aplicar la macro'); return; }
+          toast((data.hechos ?? []).join(' · ') || 'Macro aplicada');
+          await cargarHilo(c.id, { silencioso: true });
+          cargarLista({ silencioso: true });
+        } catch { toast('No se pudo aplicar la macro'); }
+      },
+    }], [{ label: 'Cancelar', cancel: true }]],
+  });
+}
+
+function abrirGestionMacros() {
+  const opener = $('#atnGestionMacros');
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-backdrop atn-modal-backdrop';
+  overlay.innerHTML = `
+    <div class="action-sheet atn-macro-modal" role="dialog" aria-modal="true" aria-labelledby="atnMacroTitulo">
+      <div class="atn-macro-cuerpo">
+        <div class="sheet-title" id="atnMacroTitulo">Gestionar macros</div>
+        <p class="field-help">Crea secuencias para resolver tareas repetitivas del equipo.</p>
+        <div id="atnMacroError" class="atn-macro-error" role="alert"></div>
+        <div id="atnMacroLista" class="atn-macro-lista" aria-live="polite">Cargando…</div>
+        <form id="atnMacroForm" class="atn-macro-form">
+          <h3>Nueva macro</h3>
+          <label>Nombre<input id="atnMacroNombre" maxlength="60" required></label>
+          <label>Nota privada<textarea id="atnMacroNota" rows="2"></textarea></label>
+          <label>Mensaje<textarea id="atnMacroMensaje" rows="3"></textarea><small>Puedes usar {nombre}</small></label>
+          <label>Etiquetas<input id="atnMacroEtiquetas" placeholder="beca, urgente"><small>Separadas por comas</small></label>
+          <div class="atn-macro-selects">
+            <label>Equipo<select id="atnMacroEquipo"><option value="">Sin cambio</option><option value="null">Quitar equipo</option>${equipo.equipos.map(e => `<option value="${e.id}">${escapeHtml(e.nombre)}</option>`).join('')}</select></label>
+            <label>Asesor<select id="atnMacroAsesor"><option value="">Sin cambio</option><option value="null">Quitar asesor</option><option value="yo">Quien la aplique</option>${equipo.agentes.map(a => `<option value="${a.id}">${escapeHtml(a.nombre)}</option>`).join('')}</select></label>
+            <label>Estado<select id="atnMacroEstado"><option value="">Sin cambio</option><option value="open">Abierta</option><option value="pending">Pendiente</option><option value="resolved">Resuelta</option></select></label>
+          </div>
+          <div class="atn-modal-acciones"><button type="button" class="btn btn-secondary" id="atnMacroCerrar">Cerrar</button><button type="submit" class="btn btn-primary" id="atnMacroCrear">Crear macro</button></div>
+        </form>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => { overlay.classList.add('open'); $('#atnMacroNombre')?.focus({ preventScroll: true }); });
+
+  let cerrada = false;
+  const cerrar = () => {
+    if (cerrada) return;
+    cerrada = true;
+    document.removeEventListener('keydown', alTeclado);
+    overlay.classList.remove('open');
+    setTimeout(() => overlay.remove(), 260);
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+  };
+  const alTeclado = (e) => {
+    // El ActionSheet de confirmación va encima del modal y administra su
+    // propio foco/Escape mientras exista.
+    if (document.getElementById('activeSheet')) return;
+    if (e.key === 'Escape') { e.preventDefault(); cerrar(); return; }
+    if (e.key !== 'Tab') return;
+    const controles = Array.from(overlay.querySelectorAll('input, textarea, select, button')).filter(el => !el.disabled);
+    if (!controles.length) return;
+    if (e.shiftKey && document.activeElement === controles[0]) { e.preventDefault(); controles.at(-1).focus(); }
+    else if (!e.shiftKey && document.activeElement === controles.at(-1)) { e.preventDefault(); controles[0].focus(); }
+  };
+  document.addEventListener('keydown', alTeclado);
+  overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(); });
+  $('#atnMacroCerrar').addEventListener('click', cerrar);
+
+  const errorEl = $('#atnMacroError');
+  const pintarMacros = async () => {
+    const listaEl = $('#atnMacroLista');
+    try {
+      const macros = await obtenerMacros();
+      listaEl.innerHTML = macros.length ? macros.map(m => `
+        <div class="atn-macro-fila"><div><strong>${escapeHtml(m.nombre)}</strong><small>${escapeHtml(resumenMacro(m))}</small></div>
+          <button type="button" class="btn btn-ghost atn-macro-eliminar" data-id="${m.id}" data-nombre="${escapeHtml(m.nombre)}">Eliminar</button></div>`).join('') : '<div class="inbox-empty-sub">Todavía no hay macros.</div>';
+      $$('.atn-macro-eliminar', listaEl).forEach(btn => btn.addEventListener('click', () => {
+        ActionSheet.open({ title: `Eliminar «${btn.dataset.nombre}»`, groups: [[{
+          label: 'Eliminar macro', destructive: true, onClick: async () => {
+            try {
+              const r = await api(`/api/tools/atencion/macros/${btn.dataset.id}`, { method: 'DELETE' });
+              const data = await r.json().catch(() => ({}));
+              if (!r.ok) { errorEl.textContent = data.message || 'No se pudo eliminar'; return; }
+              toast('Macro eliminada');
+              pintarMacros();
+            } catch { errorEl.textContent = 'Sin conexión: no se pudo eliminar la macro.'; }
+          },
+        }], [{ label: 'Cancelar', cancel: true }]] });
+      }));
+    } catch (err) { listaEl.innerHTML = ''; errorEl.textContent = err.message; }
+  };
+  pintarMacros();
+
+  $('#atnMacroForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    // currentTarget deja de existir después del primer await.
+    const form = e.currentTarget;
+    const acciones = construirAccionesMacro({
+      nota: $('#atnMacroNota').value, mensaje: $('#atnMacroMensaje').value,
+      etiquetas: $('#atnMacroEtiquetas').value, equipoId: $('#atnMacroEquipo').value,
+      asesorId: $('#atnMacroAsesor').value, estado: $('#atnMacroEstado').value,
+    });
+    const btn = $('#atnMacroCrear');
+    btn.disabled = true;
+    errorEl.textContent = '';
+    try {
+      const r = await api('/api/tools/atencion/macros', { method: 'POST', body: JSON.stringify({ nombre: $('#atnMacroNombre').value.trim(), acciones }) });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { errorEl.textContent = data.message || 'No se pudo crear la macro'; return; }
+      form.reset();
+      toast('Macro creada');
+      pintarMacros();
+      $('#atnMacroNombre').focus();
+    } catch { errorEl.textContent = 'Sin conexión: no se pudo crear la macro.'; } finally { btn.disabled = false; }
+  });
 }
 
 async function cambiarEstado(c, estado, btn) {
@@ -554,4 +886,7 @@ async function asignarConv(id, cambios) {
   } catch { toast('No se pudo asignar'); }
 }
 
-export { renderAtencion, etiquetaEstado, vistaPrevia, textoAsignacion };
+export {
+  renderAtencion, etiquetaEstado, vistaPrevia, textoAsignacion,
+  resumenMacro, construirAccionesMacro, validarArchivo, formatoTamano,
+};

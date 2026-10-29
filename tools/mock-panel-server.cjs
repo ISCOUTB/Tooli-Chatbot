@@ -3,7 +3,8 @@
 const express = require('express');
 const path = require('path');
 const app = express();
-app.use(express.json());
+// Un adjunto de 3 MB ocupa cerca de 4 MB al viajar en base64.
+app.use(express.json({ limit: '5mb' }));
 // Mismas cabeceras que src/middleware/security.ts, para probar el panel bajo
 // el CSP real y no descubrir en producción que algo queda bloqueado.
 app.use((_q, res, next) => {
@@ -160,6 +161,20 @@ const AGENTES = [
   { id: 3, nombre: 'Ana Díaz', estado: 'offline' },
 ];
 const EQUIPOS = [{ id: 10, nombre: 'Admisiones' }, { id: 11, nombre: 'Soporte TI' }];
+const ETIQUETAS_CUENTA = [
+  { nombre: 'posgrado-prospecto', color: '#7c3aed', descripcion: 'Interés en posgrados' },
+  { nombre: 'pregrado-prospecto', color: '#2563eb', descripcion: 'Interés en pregrados' },
+  { nombre: 'beca', color: '#16a34a', descripcion: 'Consulta por apoyo financiero' },
+  { nombre: 'ai-no-resolvio', color: '#d97706', descripcion: 'La IA escaló el caso' },
+  { nombre: 'fuera-horario', color: '#64748b', descripcion: null },
+  { nombre: 'urgente', color: '#dc2626', descripcion: null },
+  { nombre: 'inscrito', color: '#0891b2', descripcion: null },
+];
+let siguienteMacroId = 3;
+const MACROS_ATENCION = [
+  { id: 1, nombre: 'Pedir documentos', acciones: { mensaje: 'Hola {nombre}, por favor envíanos los documentos pendientes.', etiquetas: ['documentos-pendientes'] }, creadoPor: 'admin', creadoEn: new Date(hace(4000)).toISOString() },
+  { id: 2, nombre: 'Cerrar como inscrito', acciones: { nota: 'La persona confirmó que completó su inscripción.', estado: 'resolved' }, creadoPor: 'admin', creadoEn: new Date(hace(3000)).toISOString() },
+];
 const msg = (id, tipo, texto, min, autor = null) => ({ id, tipo, texto, ts: hace(min), autor, adjuntos: [] });
 const ATENCION = [
   { id: 101, estado: 'open', contacto: { nombre: 'María José Restrepo', telefono: '573001234567' }, asignado: null, equipo: { id: 10, nombre: 'Admisiones' },
@@ -225,9 +240,12 @@ app.post('/api/mock/atencion/simular', (req, res) => {
   j(res, { ok: true, id: c.id });
 });
 app.get('/api/tools/atencion/equipo', (_q, res) => j(res, { agentes: AGENTES, equipos: EQUIPOS, yo: yoAtencion(), miEquipoId: ROL === 'admin' ? null : 10 }));
+app.get('/api/tools/atencion/etiquetas', (_q, res) => j(res, { etiquetas: ETIQUETAS_CUENTA }));
 app.get('/api/tools/atencion/conversaciones', (req, res) => {
   const yo = yoAtencion();
-  const base = ATENCION.filter(c => c.estado === (req.query.estado || 'open') && (!req.query.equipo || String(c.equipo?.id) === req.query.equipo));
+  const base = ATENCION.filter(c => c.estado === (req.query.estado || 'open')
+    && (!req.query.equipo || String(c.equipo?.id) === req.query.equipo)
+    && (!req.query.etiqueta || c.etiquetas.includes(req.query.etiqueta)));
   const filtro = req.query.asignado || 'todas';
   const filtradas = base.filter(c => filtro === 'todas' || (filtro === 'sin_asignar' ? !c.asignado : c.asignado?.id === yo));
   j(res, {
@@ -261,6 +279,50 @@ app.post('/api/tools/atencion/conversaciones/:id/mensajes', (req, res) => {
   emitirAtencion({ tipo: 'mensaje', conversacionId: c.id, entrante: false });
   j(res, { ok: true });
 });
+const normalizarEtiquetas = (entrada) => {
+  if (!Array.isArray(entrada)) return null;
+  const etiquetas = [...new Set(entrada.map(e => String(e).trim().toLowerCase().replace(/\s+/g, '-')))];
+  return etiquetas.length <= 10 && etiquetas.every(e => /^[a-z0-9][a-z0-9_-]{0,39}$/.test(e)) ? etiquetas : null;
+};
+app.post('/api/tools/atencion/conversaciones/:id/etiquetas', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  const etiquetas = normalizarEtiquetas(req.body.etiquetas);
+  if (!etiquetas) return res.status(400).json({ error: 'validation_error', message: 'Usa hasta 10 etiquetas de 40 caracteres, sin tildes ni símbolos especiales.' });
+  c.etiquetas = etiquetas;
+  emitirAtencion({ tipo: 'etiquetas', conversacionId: c.id });
+  j(res, { ok: true, etiquetas });
+});
+const TIPOS_ADJUNTO_MOCK = new Set([
+  'image/jpeg', 'image/png', 'application/pdf', 'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+]);
+app.post('/api/tools/atencion/conversaciones/:id/adjuntos', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  const { nombre, tipo, base64, privado } = req.body;
+  const texto = String(req.body.texto || '').trim();
+  if (!nombre || !TIPOS_ADJUNTO_MOCK.has(tipo) || typeof base64 !== 'string') {
+    return res.status(400).json({ error: 'validation_error', message: 'El archivo no tiene un tipo permitido.' });
+  }
+  if (Buffer.from(base64, 'base64').length > 3 * 1024 * 1024) {
+    return res.status(413).json({ error: 'archivo_muy_grande', message: 'El archivo supera el máximo de 3 MB.' });
+  }
+  if (!privado && c.id === 104) {
+    return res.status(409).json({ error: 'fuera_de_ventana', message: 'Han pasado 25 horas desde su último mensaje. Usa una plantilla aprobada por Meta.' });
+  }
+  const autor = AGENTES.find(a => a.id === yoAtencion()).nombre;
+  const esImagen = tipo === 'image/jpeg' || tipo === 'image/png';
+  c.mensajes.push({
+    id: Date.now(), tipo: privado ? 'nota' : 'out', texto, ts: Date.now(), autor,
+    adjuntos: [{ tipo: esImagen ? 'image' : 'file', nombre, url: `https://example.com/${esImagen ? 'imagen-adjunta.jpg' : 'adjunto.pdf'}` }],
+  });
+  emitirAtencion({ tipo: 'mensaje', conversacionId: c.id, entrante: false });
+  j(res, { ok: true });
+});
 app.post('/api/tools/atencion/conversaciones/:id/estado', (req, res) => {
   const c = convAtencion(req, res);
   if (!c) return;
@@ -281,6 +343,87 @@ app.post('/api/tools/atencion/conversaciones/:id/asignar', (req, res) => {
   if (equipoId !== undefined) c.equipo = EQUIPOS.find(e => e.id === equipoId) ?? null;
   emitirAtencion({ tipo: 'asignacion', conversacionId: c.id });
   j(res, { ok: true });
+});
+
+const accionesMacroValidas = (acciones) => {
+  if (!acciones || typeof acciones !== 'object' || Array.isArray(acciones)) return false;
+  const claves = Object.keys(acciones);
+  if (!claves.length || claves.some(k => !['nota', 'mensaje', 'etiquetas', 'equipoId', 'asesorId', 'estado'].includes(k))) return false;
+  if (acciones.nota !== undefined && !String(acciones.nota).trim()) return false;
+  if (acciones.mensaje !== undefined && !String(acciones.mensaje).trim()) return false;
+  if (acciones.etiquetas !== undefined && !normalizarEtiquetas(acciones.etiquetas)) return false;
+  if (acciones.equipoId !== undefined && acciones.equipoId !== null && !EQUIPOS.some(e => e.id === acciones.equipoId)) return false;
+  if (acciones.asesorId !== undefined && acciones.asesorId !== null && acciones.asesorId !== 'yo' && !AGENTES.some(a => a.id === acciones.asesorId)) return false;
+  return acciones.estado === undefined || ['open', 'pending', 'resolved'].includes(acciones.estado);
+};
+app.get('/api/tools/atencion/macros', (_q, res) => j(res, { macros: MACROS_ATENCION }));
+app.post('/api/tools/atencion/macros', (req, res) => {
+  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden', message: 'Solo un administrador puede crear macros.' });
+  const nombre = String(req.body.nombre || '').trim();
+  const acciones = req.body.acciones;
+  if (!nombre || nombre.length > 60 || !accionesMacroValidas(acciones) || MACROS_ATENCION.length >= 40) {
+    return res.status(400).json({ error: 'validation_error', message: 'La macro necesita un nombre de hasta 60 caracteres y al menos una acción válida. El máximo es 40 macros.' });
+  }
+  const macro = { id: siguienteMacroId++, nombre, acciones, creadoPor: 'admin', creadoEn: new Date().toISOString() };
+  MACROS_ATENCION.push(macro);
+  emitirAtencion({ tipo: 'macro' });
+  res.status(201).json({ macro });
+});
+app.delete('/api/tools/atencion/macros/:id', (req, res) => {
+  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden', message: 'Solo un administrador puede eliminar macros.' });
+  const indice = MACROS_ATENCION.findIndex(m => m.id === Number(req.params.id));
+  if (indice < 0) return res.status(404).json({ error: 'no_encontrada', message: 'La macro no existe.' });
+  MACROS_ATENCION.splice(indice, 1);
+  emitirAtencion({ tipo: 'macro' });
+  j(res, { ok: true });
+});
+app.post('/api/tools/atencion/conversaciones/:id/macros/:macroId', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  const macro = MACROS_ATENCION.find(m => m.id === Number(req.params.macroId));
+  if (!macro) return res.status(404).json({ error: 'no_encontrada', message: 'La macro no existe.' });
+  // Las precondiciones se revisan antes de tocar nada para que la macro sea atómica.
+  if (macro.acciones.mensaje && !c.contacto.telefono) {
+    return res.status(409).json({ error: 'sin_usuario_chatwoot', message: 'La conversación no tiene un usuario de WhatsApp asociado.' });
+  }
+  if (macro.acciones.mensaje && c.id === 104) {
+    return res.status(409).json({ error: 'fuera_de_ventana', message: 'Han pasado 25 horas desde el último mensaje. No se ejecutó ninguna acción.' });
+  }
+  const etiquetasMacro = macro.acciones.etiquetas ? normalizarEtiquetas([...c.etiquetas, ...macro.acciones.etiquetas]) : null;
+  if (macro.acciones.etiquetas && !etiquetasMacro) {
+    return res.status(400).json({ error: 'validation_error', message: 'La macro dejaría más de 10 etiquetas en la conversación.' });
+  }
+  const hechos = [];
+  const autor = AGENTES.find(a => a.id === yoAtencion()).nombre;
+  if (macro.acciones.nota) {
+    c.mensajes.push({ id: Date.now(), tipo: 'nota', texto: macro.acciones.nota, ts: Date.now(), autor, adjuntos: [] });
+    hechos.push('Nota guardada');
+  }
+  if (macro.acciones.mensaje) {
+    const primerNombre = c.contacto.nombre.trim().split(/\s+/)[0] || 'hola';
+    c.mensajes.push({ id: Date.now() + 1, tipo: 'out', texto: macro.acciones.mensaje.replace(/\{nombre\}/g, primerNombre), ts: Date.now(), autor, adjuntos: [] });
+    hechos.push('Mensaje enviado');
+  }
+  if (macro.acciones.etiquetas) {
+    c.etiquetas = etiquetasMacro;
+    hechos.push('Etiquetas actualizadas');
+  }
+  if (Object.hasOwn(macro.acciones, 'equipoId')) {
+    c.equipo = EQUIPOS.find(e => e.id === macro.acciones.equipoId) ?? null;
+    hechos.push(c.equipo ? 'Equipo actualizado' : 'Equipo quitado');
+  }
+  if (Object.hasOwn(macro.acciones, 'asesorId')) {
+    const id = macro.acciones.asesorId === 'yo' ? yoAtencion() : macro.acciones.asesorId;
+    const agente = AGENTES.find(a => a.id === id);
+    c.asignado = agente ? { id: agente.id, nombre: agente.nombre } : null;
+    hechos.push(c.asignado ? 'Asesor actualizado' : 'Asesor quitado');
+  }
+  if (macro.acciones.estado) {
+    c.estado = macro.acciones.estado;
+    hechos.push(`Estado: ${macro.acciones.estado === 'resolved' ? 'resuelta' : macro.acciones.estado === 'pending' ? 'pendiente' : 'abierta'}`);
+  }
+  emitirAtencion({ tipo: 'macro', conversacionId: c.id });
+  j(res, { ok: true, hechos });
 });
 
 app.get('/api/tools/chatwoot/summary', (_q, res) => j(res, { open: 7, unassigned: 3, pending: 2, resolvedToday: 11 }));
