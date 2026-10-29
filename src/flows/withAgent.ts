@@ -1,5 +1,6 @@
 import { setSession } from '../services/session';
 import { sendIncomingMessage } from '../services/chatwootService';
+import { publicarAtencion } from '../services/atencionEventos';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, normalize } from './shared';
 
@@ -22,6 +23,7 @@ export async function handleWithAgent(ctx: FlowContext): Promise<void> {
   }
   try {
     await sendIncomingMessage(conversationId, text);
+    publicarAtencion({ tipo: 'mensaje', conversacionId: conversationId, entrante: true, nombre: session?.data.nombre, texto: text });
   } catch (err) {
     console.error('[with_agent] error reenviando a Chatwoot:', describeExternalError(err));
     await messaging.sendText({

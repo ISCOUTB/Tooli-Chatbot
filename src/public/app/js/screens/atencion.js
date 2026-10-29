@@ -2,6 +2,7 @@ import { api } from '../core/api.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
+import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarConversacionVisible, pedirPermisoAvisos, permisoAvisos, preferenciasAvisos } from '../core/realtime.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
 import { buildSegmented } from '../ui/controls.js';
 import { abrirConversacion } from './conversaciones.js';
@@ -17,8 +18,11 @@ const ESTADOS = {
   pending: { label: 'Pendiente', plural: 'Pendientes', color: '#d97706' },
   resolved: { label: 'Resuelta', plural: 'Resueltas', color: '#64748b' },
 };
-const REFRESCO_LISTA_MS = 20_000;
-const REFRESCO_HILO_MS = 12_000;
+// Con la conexión en vivo los cambios llegan solos; el sondeo queda de respaldo
+// para cuando se cae (cada 20 s) y como red de seguridad (cada 90 s).
+const SONDEO_MS = 20_000;
+const RESPALDO_EN_VIVO_MS = 90_000;
+const ESPERA_EVENTO_MS = 400;
 
 function etiquetaEstado(estado) {
   return ESTADOS[estado] ?? { label: estado, plural: estado, color: '#64748b' };
@@ -51,13 +55,19 @@ let listaSeq = 0;
 let hiloSeq = 0;
 const borradores = new Map(); // id → { texto, privado }
 let cabeceraPintada = '';    // estado y asignación que muestra la cabecera del hilo
+let ultimaCargaLista = 0;
+let ultimaCargaHilo = 0;
+let eventoTimer = null;
+let idsConEvento = new Set();
 
 async function renderAtencion(main) {
   abierta = null;
+  marcarConversacionVisible(null);
   hiloSeq++;
   main.innerHTML = `
     <div class="page-header">
       <div><h1>🎧 Atención</h1><div class="subtitle">Conversaciones que el bot pasó a un asesor: responde, asigna y resuelve desde aquí.</div></div>
+      <div class="atn-avisos" id="atnAvisos"></div>
     </div>
     <div class="inbox" id="atnInbox">
       <div class="inbox-list glass" id="atnLista">
@@ -79,12 +89,85 @@ async function renderAtencion(main) {
   ));
   $('#atnEquipo').addEventListener('change', (e) => { filtros.equipo = e.target.value; cargarLista(); });
   setPullToRefresh(() => cargarLista());
-  screenInterval(() => cargarLista({ silencioso: true }), REFRESCO_LISTA_MS);
-  screenInterval(() => { if (abierta) cargarHilo(abierta, { silencioso: true }); }, REFRESCO_HILO_MS);
+  screenInterval(() => {
+    const respaldo = estadoConexion() !== 'conectado' ? SONDEO_MS : RESPALDO_EN_VIVO_MS;
+    if (Date.now() - ultimaCargaLista >= respaldo - 1000) cargarLista({ silencioso: true });
+    if (abierta && Date.now() - ultimaCargaHilo >= respaldo - 1000) cargarHilo(abierta, { silencioso: true });
+  }, SONDEO_MS);
+  escucharEnVivo();
+  pintarAvisos();
 
   if (!equipoCargado) await cargarEquipo();
   pintarFiltroEquipo();
   cargarLista();
+}
+
+/* Los oyentes viven en window y la pantalla no tiene un "al salir": cada uno
+   se quita solo la primera vez que llega un evento y la bandeja ya no está. */
+function escucharEnVivo() {
+  const enPantalla = () => !!$('#atnInbox');
+  const alEvento = (e) => {
+    if (!enPantalla()) { window.removeEventListener('tooli:atencion', alEvento); return; }
+    // Varios eventos seguidos (el panel y el webhook avisan del mismo
+    // mensaje) se resuelven con una sola recarga.
+    idsConEvento.add(e.detail?.conversacionId);
+    clearTimeout(eventoTimer);
+    eventoTimer = setTimeout(() => {
+      const ids = idsConEvento;
+      idsConEvento = new Set();
+      cargarLista({ silencioso: true });
+      if (abierta && ids.has(abierta)) cargarHilo(abierta, { silencioso: true });
+    }, ESPERA_EVENTO_MS);
+  };
+  const alConexion = () => {
+    if (!enPantalla()) { window.removeEventListener('tooli:conexion', alConexion); return; }
+    pintarAvisos();
+  };
+  const alAbrir = (e) => {
+    if (!enPantalla()) { window.removeEventListener('tooli:abrir-atencion', alAbrir); return; }
+    abrirPendiente(Number(e.detail));
+  };
+  window.addEventListener('tooli:atencion', alEvento);
+  window.addEventListener('tooli:conexion', alConexion);
+  window.addEventListener('tooli:abrir-atencion', alAbrir);
+}
+
+/** Un aviso del sistema pidió abrir esta conversación. */
+function abrirPendiente(id) {
+  try { sessionStorage.removeItem('atencion.abrir'); } catch { /* nada que limpiar */ }
+  if (!id) return;
+  // Puede estar en otra pestaña de estado o filtro: se muestra igual.
+  abrirHilo(id);
+}
+
+function pintarAvisos() {
+  const wrap = $('#atnAvisos');
+  if (!wrap) return;
+  const conexion = estadoConexion();
+  const prefs = preferenciasAvisos();
+  const permiso = permisoAvisos();
+  const avisoTexto = permiso === 'granted' ? (prefs.escritorio ? 'Avisos activados' : 'Avisos pausados')
+    : permiso === 'denied' ? 'Avisos bloqueados' : permiso === 'default' ? 'Activar avisos' : '';
+  wrap.innerHTML = `
+    <span class="atn-conexion atn-conexion-${conexion}" role="status">${conexion === 'conectado' ? 'En vivo' : conexion === 'reconectando' ? 'Reconectando…' : 'Actualiza cada 20 s'}</span>
+    ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span>${avisoTexto}</span></button>` : ''}
+    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" title="Tono cuando llega un mensaje">${prefs.sonido ? '🔊' : '🔇'}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
+  `;
+  $('#atnAvisoBtn')?.addEventListener('click', async () => {
+    if (permiso === 'default') {
+      const r = await pedirPermisoAvisos();
+      toast(r === 'granted' ? 'Listo: te avisaremos cuando llegue un mensaje' : 'Sin permiso, solo verás los avisos dentro del panel');
+    } else if (permiso === 'granted') {
+      cambiarPreferencias({ escritorio: !prefs.escritorio });
+    } else {
+      toast('El navegador bloqueó los avisos: actívalos en la configuración del sitio');
+    }
+    pintarAvisos();
+  });
+  $('#atnSonidoBtn').addEventListener('click', () => {
+    cambiarPreferencias({ sonido: !prefs.sonido });
+    pintarAvisos();
+  });
 }
 
 function filasEsqueleto() {
@@ -130,8 +213,12 @@ async function cargarLista({ silencioso = false } = {}) {
     const data = await r.json();
     if (!r.ok) throw Object.assign(new Error(data.message), { codigo: data.error });
     lista = data.conversaciones;
+    ultimaCargaLista = Date.now();
     pintarFiltroAsignado(data.conteos);
     pintarFilas(data.truncado);
+    let pendiente = null;
+    try { pendiente = Number(sessionStorage.getItem('atencion.abrir')) || null; } catch { /* sin almacenamiento */ }
+    if (pendiente && !abierta) abrirPendiente(pendiente);
   } catch (err) {
     if (seq !== listaSeq || !filas.isConnected) return;
     if (silencioso) return; // un sondeo fallido no borra lo que el asesor está viendo
@@ -194,6 +281,7 @@ function pintarFilas(truncado) {
 function abrirHilo(id) {
   guardarBorrador();
   abierta = id;
+  marcarConversacionVisible(id);
   $$('.atn-row').forEach(r => r.classList.toggle('activa', Number(r.dataset.id) === id));
   $('#atnInbox').classList.add('thread-open');
   const hilo = $('#atnHilo');
@@ -210,6 +298,7 @@ function abrirHilo(id) {
 function cerrarHilo() {
   guardarBorrador();
   abierta = null;
+  marcarConversacionVisible(null);
   hiloSeq++;
   $('#atnInbox')?.classList.remove('thread-open');
   const hilo = $('#atnHilo');
@@ -233,6 +322,7 @@ async function cargarHilo(id, { silencioso = false } = {}) {
     if (!r || seq !== hiloSeq || abierta !== id) return;
     const data = await r.json();
     if (!r.ok) throw new Error(data.message);
+    ultimaCargaHilo = Date.now();
     if (silencioso && $('#atnMensajes')) {
       // Refresco: solo los mensajes y la cabecera; el borrador no se toca.
       const msgs = $('#atnMensajes');
@@ -394,6 +484,7 @@ function pintarHilo(data) {
   // La lista se refresca aparte; al abrir, Chatwoot la marca como leída.
   const fila = $(`.atn-row[data-id="${c.id}"] .atn-no-leidos`);
   fila?.remove();
+  actualizarResumenAtencion();
 }
 
 function actualizarModo() {

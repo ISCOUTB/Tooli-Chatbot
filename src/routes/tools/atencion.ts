@@ -28,6 +28,7 @@ import {
   obtenerConversacion,
 } from '../../services/chatwootAtencion';
 import { motivoVentanaCerrada } from './shared';
+import { formatoSse, publicarAtencion, suscribirAtencion } from '../../services/atencionEventos';
 
 export const atencionRouter = Router();
 
@@ -56,6 +57,41 @@ atencionRouter.use('/atencion', (_req, res, next) => {
     return;
   }
   next();
+});
+
+/* ===== En vivo =====
+   Server-Sent Events: el panel abre una conexión y recibe cada cambio en las
+   conversaciones con asesor. El latido evita que nginx o el navegador la
+   corten por inactividad. */
+const LATIDO_MS = 25_000;
+
+atencionRouter.get('/atencion/eventos', (req: AuthedRequest, res: Response) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx no debe acumular la respuesta
+  });
+  res.flushHeaders();
+  res.write('retry: 5000\n\n');
+  const cancelar = suscribirAtencion((evento) => res.write(formatoSse(evento)));
+  const latido = setInterval(() => res.write(': latido\n\n'), LATIDO_MS);
+  req.on('close', () => {
+    clearInterval(latido);
+    cancelar();
+  });
+});
+
+/** Lo que pide atención del asesor: sin asignar y las suyas con mensajes sin leer. */
+atencionRouter.get('/atencion/resumen', async (req: AuthedRequest, res: Response) => {
+  try {
+    const [{ conversaciones }, yo] = await Promise.all([listarConversaciones('open'), miChatwootId(req)]);
+    const sinAsignar = conversaciones.filter((c) => !c.asignado).length;
+    const misSinLeer = yo ? conversaciones.filter((c) => c.asignado?.id === yo && c.noLeidos > 0).length : 0;
+    res.json({ sinAsignar, misSinLeer, pendientes: sinAsignar + misSinLeer });
+  } catch (err) {
+    responderError(res, err, 'resumen');
+  }
 });
 
 atencionRouter.get('/atencion/equipo', async (req: AuthedRequest, res: Response) => {
@@ -128,6 +164,7 @@ atencionRouter.post('/atencion/conversaciones/:id/mensajes', async (req: AuthedR
       }
     }
     await enviarMensaje(id, texto, privado);
+    publicarAtencion({ tipo: 'mensaje', conversacionId: id, entrante: false });
     await logAudit(req.user!.username, privado ? 'atencion_nota_privada' : 'mensaje_enviado', `conv ${id} · ${texto.length} chars`);
     res.json({ ok: true });
   } catch (err) {
@@ -144,6 +181,7 @@ atencionRouter.post('/atencion/conversaciones/:id/estado', async (req: AuthedReq
   }
   try {
     await cambiarEstado(id, estado);
+    publicarAtencion({ tipo: 'estado', conversacionId: id });
     await logAudit(req.user!.username, 'atencion_estado_cambiado', `conv ${id} → ${estado}`);
     res.json({ ok: true });
   } catch (err) {
@@ -174,6 +212,7 @@ atencionRouter.post('/atencion/conversaciones/:id/asignar', async (req: AuthedRe
   }
   try {
     await asignar(id, { asesorId, equipoId });
+    publicarAtencion({ tipo: 'asignacion', conversacionId: id });
     await logAudit(req.user!.username, 'atencion_asignada', `conv ${id}${asesorId !== undefined ? ` · asesor ${asesorId ?? 'ninguno'}` : ''}${equipoId !== undefined ? ` · equipo ${equipoId ?? 'ninguno'}` : ''}`);
     res.json({ ok: true });
   } catch (err) {
