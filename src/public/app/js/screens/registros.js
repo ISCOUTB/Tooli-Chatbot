@@ -4,9 +4,9 @@ import { CRM_ESTADOS, PROGRAMA_COLORS, PROGRAMA_LABELS, areaOf, crmCategoria, cr
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, descargarCsv, fechaParaCsv, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
-import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
+import { abrirConversacion } from './conversaciones.js';
 import { buildSegmented } from '../ui/controls.js';
 import { previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
@@ -741,7 +741,7 @@ async function renderRegistros(main) {
           ...(row[3] ? [{ label: 'Vista previa en teléfono', icon: '📲', onClick: () => previewPhoneFor(row[3]) }] : []),
           { label: 'Copiar email', icon: '📧', onClick: () => copyToClipboard(row[2] ?? '', 'Email copiado') },
           { label: 'Copiar WhatsApp', icon: '📱', onClick: () => copyToClipboard(row[3] ?? '', 'Número copiado') },
-          { label: 'Ver conversación', icon: '💬', onClick: () => navigate('conversaciones') },
+          ...(row[3] ? [{ label: 'Ver conversación', icon: '💬', onClick: () => abrirConversacion(row[3]) }] : []),
           { label: 'Ver en Chatwoot', icon: '↗️', onClick: () => window.open(`${sesion.urls.chatwoot}/app/accounts/1/label/${areaOf(row) === 'Pregrado' ? 'pregrado-prospecto' : 'posgrado-prospecto'}`, '_blank', 'noopener') },
         ],
       });
@@ -790,7 +790,7 @@ async function renderRegistros(main) {
       onMount: phone ? (sheet) => wireFicha(sheet, phone, ficha, () => loadReg()) : undefined,
       actions: [
         ...(phone ? [{ label: 'Vista previa en teléfono', icon: '📲', onClick: () => previewPhoneFor(phone), closeAfter: false }] : []),
-        ...(phone ? [{ label: 'Ver conversación', icon: '💬', onClick: () => navigate('conversaciones') }] : []),
+        ...(phone ? [{ label: 'Ver conversación', icon: '💬', onClick: () => abrirConversacion(phone) }] : []),
         { label: 'Ver en Chatwoot', icon: '↗️', onClick: () => window.open(`${sesion.urls.chatwoot}/app/accounts/1/label/${area === 'Pregrado' ? 'pregrado-prospecto' : 'posgrado-prospecto'}`, '_blank', 'noopener') },
       ],
     });

@@ -1850,7 +1850,6 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   transition: transform 0.18s var(--ease-spring), box-shadow 0.2s var(--ease-out);
 }
 .inbox-nuevos[hidden] { display: none; }
-.inbox-nuevos[hidden] { display: none; }
 .inbox-nuevos:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(0, 48, 135, 0.7); }
 .inbox-nuevos:active { transform: scale(0.97); }
 

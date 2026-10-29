@@ -41,6 +41,14 @@ const drafts = new Map(); // Borrador sin enviar por teléfono: recuperación ex
 const pendingSends = new Set(); // Evita reenviar el mismo borrador al reabrir un hilo.
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
+/* Otras pantallas (la ficha del CRM) piden abrir el hilo de una persona. Sin
+   esto el asesor caía en la bandeja general y tenía que buscarla otra vez. */
+let hiloPendiente = null;
+function abrirConversacion(phone) {
+  hiloPendiente = phone;
+  navigate('conversaciones');
+}
+
 function cleanupThreadFx() {
   try { threadFxCleanup?.(); } catch { /* la limpieza nunca debe romper la navegación */ }
   threadFxCleanup = null;
@@ -96,6 +104,14 @@ async function renderConversaciones(main) {
   // Sondeo suave de mensajes nuevos. No se re-renderiza la lista sola: si el
   // asesor está leyendo o escribiendo, moverle el piso es peor que avisarle.
   screenInterval(() => buscarMensajesNuevos(), 25_000);
+
+  // El hilo pedido desde otra pantalla se abre sin esperar a la lista: no
+  // depende de ella y la persona puede no estar entre las 30 más recientes.
+  if (hiloPendiente) {
+    const phone = hiloPendiente;
+    hiloPendiente = null;
+    openThread(phone);
+  }
 
   try {
     const r = await api('/api/tools/bot-users');
@@ -792,4 +808,4 @@ function setupComposer(phone, nombre) {
   });
 }
 
-export { renderConversaciones, swipeIntentaHorizontal, cercaDelFondo, aplicarPlaceholders };
+export { renderConversaciones, abrirConversacion, swipeIntentaHorizontal, cercaDelFondo, aplicarPlaceholders };
