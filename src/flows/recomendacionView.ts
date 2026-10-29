@@ -253,8 +253,9 @@ export const BOTONES_SIN_COINCIDENCIA: readonly Boton[] = [
 export type EleccionSiNo = 'si' | 'no';
 
 export function parseSiNo(input: string): EleccionSiNo | null {
-  const n = normalize(input ?? '');
-  if (['si', 's', 'si es', 'correcto', 'exacto', 'claro'].includes(n)) return 'si';
+  // sin puntuación: "Sí, autorizo" escrito a mano también vale
+  const n = normalize(input ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (['si', 's', 'si es', 'correcto', 'exacto', 'claro', 'si autorizo', 'autorizo', 'acepto'].includes(n)) return 'si';
   if (['no', 'n', 'no es', 'para nada'].includes(n)) return 'no';
   return null;
 }
@@ -357,11 +358,19 @@ export function formatearResultados(
   return partes.join('\n\n');
 }
 
-export type AccionResultados = 'mas' | 'virtual' | 'presencial' | 'nivel' | 'pregrado';
+export type AccionResultados = 'ficha' | 'ia' | 'asesor' | 'mas' | 'virtual' | 'presencial' | 'nivel' | 'pregrado';
+
+const FILA_IA: FilaLista = { id: 'ia', title: '🤖 Preguntar a la IA', description: 'Dudas sobre requisitos, plan de estudios o diferencias' };
+const FILA_ASESOR: FilaLista = { id: 'asesor', title: '👤 Hablar con asesor', description: 'El equipo de Posgrados te contacta' };
+const FILA_MENU: FilaLista = { id: 'menu', title: '🏠 Menú principal', description: 'Volver al inicio' };
 
 /** Acciones tras ver las recomendaciones; solo se ofrece lo que aplica. */
 export function filasAcciones(resultado: ResultadoRecomendacion, ctx: ContextoResultados, yaVioMas: boolean): FilaLista[] {
-  const filas: FilaLista[] = [];
+  const filas: FilaLista[] = [
+    { id: 'ficha', title: '📄 Ver un programa', description: 'Detalle, plan de estudios y valor (o escribe su número)' },
+    FILA_IA,
+    FILA_ASESOR,
+  ];
   if (!yaVioMas && resultado.resto.length) {
     filas.push({ id: 'mas', title: '➕ Más opciones', description: `${resultado.resto.length} programas más para tu pregrado` });
   }
@@ -371,12 +380,15 @@ export function filasAcciones(resultado: ResultadoRecomendacion, ctx: ContextoRe
       : { id: 'virtual', title: '💻 Solo virtuales', description: 'Ver solo programas de UTB Virtual' },
     { id: 'nivel', title: '🎚️ Cambiar nivel', description: 'Especialización, maestría o doctorado' },
     { id: 'pregrado', title: '🔄 Cambiar pregrado', description: 'Empezar de nuevo con otro pregrado' },
-    { id: 'menu', title: '🏠 Menú principal', description: 'Volver al inicio' },
+    FILA_MENU,
   );
   return filas;
 }
 
 const PALABRAS_ACCION: Readonly<Record<AccionResultados, readonly string[]>> = {
+  ficha: ['ficha', 'ver un programa', 'ver programa', 'detalle', 'ver detalle'],
+  ia: ['ia', 'preguntar a la ia', 'asistente', 'asistente ia'],
+  asesor: ['asesor', 'hablar con asesor', 'hablar con un asesor', 'humano', 'agente'],
   mas: ['mas', 'mas opciones', 'ver mas'],
   virtual: ['virtual', 'solo virtuales', 'virtuales'],
   presencial: ['presencial', 'incluir presenciales', 'presenciales'],
@@ -388,4 +400,159 @@ export function parseAccion(input: string): AccionResultados | null {
   const n = normalize(input ?? '');
   const accion = (Object.keys(PALABRAS_ACCION) as AccionResultados[]).find((a) => PALABRAS_ACCION[a].includes(n));
   return accion ?? null;
+}
+
+/** "2" → segundo programa mostrado. Los programas mostrados van en sesión como JSON de IDs. */
+export function programaPorNumero(input: string, mostrados: readonly string[]): string | null {
+  const n = normalize(input ?? '');
+  if (!/^\d+$/.test(n)) return null;
+  return mostrados[parseInt(n, 10) - 1] ?? null;
+}
+
+/** IDs guardados en sesión, solo los que siguen en el catálogo. */
+export function idsMostrados(json: string | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(json ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && !!getPrograma(id)) : [];
+  } catch {
+    return [];
+  }
+}
+
+// ── Paso 5: ficha de un programa ────────────────────────────────────────────
+
+const recortar = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`);
+
+/** Lista para elegir cuál de los programas mostrados ver en detalle. */
+export function filasElegirPrograma(mostrados: readonly string[]): FilaLista[] {
+  return mostrados.slice(0, MAX_FILAS).flatMap((id, i) => {
+    const p = getPrograma(id);
+    if (!p) return [];
+    const corto = p.nombre.replace(/^(Especializaci[oó]n|Maestr[ií]a) en /i, '');
+    return [{
+      id: String(i + 1),
+      title: recortar(`${i + 1}. ${corto}`, MAX_TITULO_FILA),
+      description: recortar(`${p.nombre}${esVirtual(p) ? ' (virtual)' : ''}`, MAX_DESCRIPCION_FILA),
+    }];
+  });
+}
+
+const NOMBRE_NIVEL: Record<NivelPrograma, string> = {
+  pregrado: 'Pregrado',
+  especializacion: 'Especialización',
+  maestria: 'Maestría',
+  doctorado: 'Doctorado',
+};
+
+/** Ficha corta para WhatsApp; la completa (para la IA) es `fichaPrograma` del catálogo. */
+export function formatearFicha(p: ProgramaUtb): string {
+  const datos = [
+    NOMBRE_NIVEL[p.nivel],
+    esVirtual(p) ? 'Virtual' : p.modalidad ?? 'Presencial',
+    p.duracion_semestres ? `${p.duracion_semestres} semestres` : p.duracion,
+    valorCorto(p) ?? 'valor por confirmar',
+  ].filter(Boolean).join(' · ');
+
+  const partes = [`📄 *${p.nombre}*\n${datos}`];
+  const credenciales = [
+    p.titulo_otorgado && `🎓 Título: ${p.titulo_otorgado}`,
+    p.snies && `🏛️ SNIES ${p.snies}${p.acreditacion_alta_calidad ? ' · Acreditación de alta calidad' : ''}`,
+  ].filter(Boolean);
+  if (credenciales.length) partes.push(credenciales.join('\n'));
+  if (p.descripcion?.length) partes.push(recortar(p.descripcion.slice(0, 2).join(' '), 600));
+
+  if (p.plan_estudios.length) {
+    const plan = p.plan_estudios.slice(0, 8).map((s) => `• *${s.periodo}:* ${recortar(s.asignaturas.join(', '), 220)}`);
+    partes.push(`*Plan de estudios*\n${plan.join('\n')}`);
+  }
+
+  const enlaces = [`🔗 Página oficial: ${p.url}`];
+  if (p.plan_estudios_pdf) enlaces.push(`📎 Plan de estudios (PDF): ${p.plan_estudios_pdf}`);
+  else if (p.brochure_pdf) enlaces.push(`📎 Brochure (PDF): ${p.brochure_pdf}`);
+  partes.push(enlaces.join('\n'));
+  partes.push(`_Valor de matrícula publicado para ${VIGENCIA_VALORES}; verifica requisitos y costos en la página oficial._`);
+  return partes.join('\n\n');
+}
+
+export type AccionFicha = 'ia' | 'asesor' | 'recomendaciones';
+
+export const FILAS_TRAS_FICHA: readonly FilaLista[] = [
+  { ...FILA_IA, description: 'Pregunta lo que quieras sobre este programa' },
+  FILA_ASESOR,
+  { id: 'recomendaciones', title: '🔙 Ver recomendaciones', description: 'Volver a los programas recomendados' },
+  FILA_MENU,
+];
+
+export function parseAccionFicha(input: string): AccionFicha | null {
+  const n = normalize(input ?? '');
+  if (PALABRAS_ACCION.ia.includes(n)) return 'ia';
+  if (PALABRAS_ACCION.asesor.includes(n)) return 'asesor';
+  if (['recomendaciones', 'ver recomendaciones', 'volver a las recomendaciones'].includes(n)) return 'recomendaciones';
+  return null;
+}
+
+// ── Paso 6: asesor con consentimiento ───────────────────────────────────────
+
+/** Mismo texto que el flujo de evento de Posgrados. */
+export const PEDIR_CONSENTIMIENTO =
+  '👤 Para que un asesor de Posgrados te contacte necesito tu nombre y tu correo.\n\n' +
+  '🔒 ¿Autorizas que un asesor de la UTB te contacte y el tratamiento de tus datos personales conforme a la *Ley 1581 de 2012*?';
+
+export const BOTONES_CONSENTIMIENTO: readonly Boton[] = [
+  { id: 'si', displayText: '✅ Sí, autorizo' },
+  { id: 'no', displayText: '❌ No' },
+];
+
+export const CONSENTIMIENTO_NEGADO =
+  'Entendido, no guardaré tus datos 👍\n\n' +
+  'Puedes seguir viendo programas o preguntarle a la IA. Si cambias de opinión, elige *Hablar con asesor*.';
+
+export const PEDIR_NOMBRE = '✍️ ¿Cuál es tu *nombre completo*?\n\n_Escribe *0* para volver._';
+
+export function pedirCorreo(nombre: string): string {
+  const primero = nombre.trim().split(/\s+/)[0] ?? '';
+  return `¡Gracias, ${primero}! 📧\n\n¿Cuál es tu *correo electrónico*?\n\n_Escribe *0* para volver._`;
+}
+
+/** Correo general (el institucional de `validation.ts` es solo para estudiantes UTB). */
+export const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ── Contexto para la IA y para el asesor ────────────────────────────────────
+
+const RELACION_TEXTO: Record<Relacion, string> = {
+  estudiante_utb: 'estudiante de pregrado UTB',
+  egresado_utb: 'egresado(a) UTB',
+  externo: 'de otra universidad',
+};
+
+const nombres = (ids: readonly string[]) => ids.map((id) => getPrograma(id)?.nombre).filter(Boolean).join(', ');
+
+/**
+ * Resumen del recorrido para la IA y el asesor. Sale solo de IDs del
+ * catálogo y de valores cerrados: nunca del texto que escribió la persona,
+ * que podría traer instrucciones para la IA.
+ */
+export function resumenRecomendacion(data: Record<string, string> | undefined | null): string | null {
+  if (!data) return null;
+  const pregrado = data.pregradoId
+    ? getPrograma(data.pregradoId)?.nombre
+    : FAMILIAS_EXTERNAS.find((f) => f.id === data.familiaId)?.etiqueta;
+  if (!pregrado) return null;
+
+  const relacion = RELACION_TEXTO[data.relacion as Relacion];
+  const nivel = NOMBRE_NIVEL[data.nivel as NivelPrograma];
+  const recomendados = nombres(idsMostrados(data.recomendados));
+  const interes = data.programaInteres ? getPrograma(data.programaInteres)?.nombre : undefined;
+
+  return [
+    `Pregrado: ${pregrado}${relacion ? ` (${relacion})` : ''}.`,
+    `Nivel buscado: ${nivel ?? 'aún no sabe'}.`,
+    recomendados && `Programas recomendados: ${recomendados}.`,
+    interes && `Revisó en detalle: ${interes}.`,
+  ].filter(Boolean).join(' ');
+}
+
+/** Programa de interés para el lead: el que revisó o, si no, "Por definir". */
+export function programaInteresLead(data: Record<string, string>): string {
+  return (data.programaInteres && getPrograma(data.programaInteres)?.nombre) || 'Por definir';
 }

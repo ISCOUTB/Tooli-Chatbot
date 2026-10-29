@@ -14,6 +14,7 @@ import { handleExplorarArea, handleExplorarCarrera, handleExplorarAccion } from 
 import {
   handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
   handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
+  handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
@@ -56,6 +57,11 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   reco_sin_coincidencia: handleRecoSinCoincidencia,
   reco_nivel: handleRecoNivel,
   reco_resultados: handleRecoResultados,
+  reco_ficha_elegir: handleRecoFichaElegir,
+  reco_ficha: handleRecoFicha,
+  reco_consentimiento: handleRecoConsentimiento,
+  reco_nombre: handleRecoNombre,
+  reco_correo: handleRecoCorreo,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
   pregrado_explorar_area: handleExplorarArea,

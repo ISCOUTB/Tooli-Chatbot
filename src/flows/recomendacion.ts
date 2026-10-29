@@ -10,11 +10,29 @@
 import { setSession } from '../services/session';
 import { MetricEvent, track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
+import { guardarRegistroProspecto } from '../services/registroService';
+import { upsertContactoHubspot } from '../services/hubspotService';
+import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
+import { conectarConAsesorPosgrado } from './prospecto';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
+  BOTONES_CONSENTIMIENTO,
+  CONSENTIMIENTO_NEGADO,
+  CORREO_REGEX,
+  FILAS_TRAS_FICHA,
+  PEDIR_CONSENTIMIENTO,
+  PEDIR_NOMBRE,
+  filasElegirPrograma,
+  formatearFicha,
+  idsMostrados,
+  parseAccionFicha,
+  pedirCorreo,
+  programaInteresLead,
+  programaPorNumero,
+  resumenRecomendacion,
   BOTONES_CONFIRMAR,
   BOTONES_SIN_COINCIDENCIA,
   COINCIDENCIA_DESCARTADA,
@@ -416,13 +434,220 @@ export async function handleRecoResultados(ctx: FlowContext): Promise<void> {
   };
   if (await comandos(from, text, aNivel)) return;
 
+  const mostrados = idsMostrados(data.recomendados);
+  // Escribir el número de un programa abre su ficha directamente.
+  const porNumero = programaPorNumero(text, mostrados);
+  if (porNumero) return mostrarFicha(from, data, porNumero);
+
   const accion = parseAccion(text);
+  if (accion === 'ficha') {
+    if (mostrados.length === 1) return mostrarFicha(from, data, mostrados[0]);
+    await setSession(from, { step: 'reco_ficha_elegir', data });
+    await enviarLista(from, '📄 Ver un programa', '¿Cuál programa quieres ver en detalle?', 'Programas', filasElegirPrograma(mostrados));
+    return;
+  }
+  if (accion === 'ia') return iniciarIa(from, data);
+  if (accion === 'asesor') return pedirConsentimiento(from, data);
   if (accion === 'mas') return mostrarResultados(from, data, true);
   if (accion === 'virtual') return mostrarResultados(from, { ...data, soloVirtual: '1', vioMas: '' });
   if (accion === 'presencial') return mostrarResultados(from, { ...data, soloVirtual: '', vioMas: '' });
   if (accion === 'nivel') return aNivel();
   if (accion === 'pregrado') return iniciarRecomendacion(from);
 
-  await noReconocido(from, 'Elige una opción de la lista 👇');
+  await noReconocido(from, 'Elige una opción de la lista o escribe el número de un programa 👇');
   await enviarAcciones(from, data);
+}
+
+/** Vuelve a las recomendaciones principales (sin "más opciones"). */
+const volverARecomendaciones = (from: string, data: SessionData) => mostrarResultados(from, { ...data, vioMas: '' });
+
+// ── 5. Ficha de un programa ─────────────────────────────────────────────────
+
+export async function handleRecoFichaElegir(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => volverARecomendaciones(from, data))) return;
+
+  const mostrados = idsMostrados(data.recomendados);
+  const id = programaPorNumero(text, mostrados);
+  if (!id) {
+    await noReconocido(from, 'Elige el programa de la lista 👇');
+    await enviarLista(from, '📄 Ver un programa', '¿Cuál programa quieres ver en detalle?', 'Programas', filasElegirPrograma(mostrados));
+    return;
+  }
+  await mostrarFicha(from, data, id);
+}
+
+async function mostrarFicha(from: string, data: SessionData, id: string): Promise<void> {
+  const programa = getPrograma(id);
+  if (!programa) return volverARecomendaciones(from, data);
+  await setSession(from, { step: 'reco_ficha', data: { ...data, programaInteres: id } });
+  await track('reco_ficha', { area: 'posgrados', programa: id });
+  await messaging.sendText({ to: from, text: formatearFicha(programa) });
+  await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
+}
+
+export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => volverARecomendaciones(from, data))) return;
+
+  const accion = parseAccionFicha(text);
+  if (accion === 'ia') return iniciarIa(from, data);
+  if (accion === 'asesor') return pedirConsentimiento(from, data);
+  if (accion === 'recomendaciones') return volverARecomendaciones(from, data);
+
+  await noReconocido(from, 'Elige una opción de la lista 👇');
+  await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
+}
+
+// ── 6. IA con el contexto del pregrado ──────────────────────────────────────
+
+/** Solo pasan a la IA campos cerrados (IDs y valores fijos); `aiChat` arma el resumen con `resumenRecomendacion`. */
+async function iniciarIa(from: string, data: SessionData): Promise<void> {
+  await track('reco_ia', { area: 'posgrados' });
+  await setSession(from, {
+    step: 'chatting_with_ai',
+    data: {
+      area: 'posgrados',
+      originArea: 'posgrado',
+      relacion: data.relacion ?? '',
+      pregradoId: data.pregradoId ?? '',
+      familiaId: data.familiaId ?? '',
+      nivel: data.nivel ?? '',
+      recomendados: data.recomendados ?? '[]',
+      ...(data.programaInteres ? { programaInteres: data.programaInteres } : {}),
+    },
+  });
+  await messaging.sendText({
+    to: from,
+    text:
+      '🤖 *Asistente IA de Posgrados*\n\n' +
+      'Pregúntame lo que quieras sobre estos programas: requisitos, plan de estudios, diferencias entre ellos, horarios o financiación.\n\n' +
+      '_Escribe *asesor* para hablar con una persona, o *menu* para volver._',
+  });
+}
+
+// ── 7. Asesor: consentimiento, nombre, correo y lead ────────────────────────
+
+async function pedirConsentimiento(from: string, data: SessionData): Promise<void> {
+  await track('reco_asesor', { area: 'posgrados' });
+  await setSession(from, { step: 'reco_consentimiento', data });
+  await messaging.sendButtons({
+    to: from,
+    title: '👤 Hablar con un asesor',
+    description: PEDIR_CONSENTIMIENTO,
+    footer: 'Tus datos se usan solo para fines de admisión',
+    buttons: [...BOTONES_CONSENTIMIENTO],
+  });
+}
+
+/** Al paso anterior al consentimiento: la ficha si estaba viendo una, si no las recomendaciones. */
+async function volverAntesDeAsesor(from: string, data: SessionData): Promise<void> {
+  if (data.programaInteres) return mostrarFicha(from, data, data.programaInteres);
+  return volverARecomendaciones(from, data);
+}
+
+export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => volverAntesDeAsesor(from, data))) return;
+
+  const respuesta = parseSiNo(text);
+  if (respuesta === 'si') {
+    await setSession(from, { step: 'reco_nombre', data: { ...data, consentimiento: 'Sí' } });
+    await messaging.sendText({ to: from, text: PEDIR_NOMBRE });
+    return;
+  }
+  if (respuesta === 'no') {
+    await track('reco_consentimiento_no', { area: 'posgrados' });
+    await setSession(from, { step: 'reco_resultados', data });
+    await messaging.sendText({ to: from, text: CONSENTIMIENTO_NEGADO });
+    await enviarAcciones(from, data);
+    return;
+  }
+  await messaging.sendButtons({
+    to: from,
+    title: '👤 Hablar con un asesor',
+    description: PEDIR_CONSENTIMIENTO,
+    footer: 'Tus datos se usan solo para fines de admisión',
+    buttons: [...BOTONES_CONSENTIMIENTO],
+  });
+}
+
+export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => pedirConsentimiento(from, data))) return;
+
+  const nombre = text.trim().replace(/\s+/g, ' ').slice(0, 80);
+  if (nombre.length < 3) {
+    await messaging.sendText({ to: from, text: 'Por favor escribe tu nombre completo (mínimo 3 caracteres) ✍️' });
+    return;
+  }
+  await setSession(from, { step: 'reco_correo', data: { ...data, nombre } });
+  await messaging.sendText({ to: from, text: pedirCorreo(nombre) });
+}
+
+export async function handleRecoCorreo(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  const aNombre = async () => {
+    await setSession(from, { step: 'reco_nombre', data });
+    await messaging.sendText({ to: from, text: PEDIR_NOMBRE });
+  };
+  if (await comandos(from, text, aNombre)) return;
+
+  const correo = text.trim().toLowerCase();
+  if (!CORREO_REGEX.test(correo)) {
+    await messaging.sendText({ to: from, text: '📧 Ese correo no parece válido. Escríbelo de nuevo, por ejemplo: *nombre@correo.com*' });
+    return;
+  }
+  await registrarLeadYConectar(from, { ...data, correo });
+}
+
+/**
+ * Guarda el lead (Sheets y HubSpot) y abre la conversación con el asesor.
+ * El asesor es lo que la persona pidió: si Sheets falla se registra el
+ * error y se sigue, porque la conversación en Chatwoot ya lleva los datos.
+ */
+async function registrarLeadYConectar(from: string, data: SessionData): Promise<void> {
+  const nombre = data.nombre ?? '';
+  const correo = data.correo ?? '';
+  const interes = programaInteresLead(data);
+  const resumen = resumenRecomendacion(data);
+
+  try {
+    await guardarRegistroProspecto({
+      nombre,
+      email: correo,
+      whatsapp: from,
+      programa: resumen ? `${interes} · ${resumen}` : interes,
+      area: 'Posgrado',
+    });
+  } catch (err) {
+    console.error('[reco] no se pudo guardar el lead en Sheets:', describeExternalError(err));
+  }
+
+  // HubSpot (CRM de la UTB) sin bloquear el flujo, como en la campaña de posgrados
+  void upsertContactoHubspot({
+    email: correo,
+    nombre,
+    whatsapp: from,
+    posgradoInteres: interes,
+    interesFinanciacion: '',
+    consentimiento: true,
+  });
+
+  await track('reco_lead_completado', { area: 'posgrados' });
+  await conectarConAsesorPosgrado(from, {
+    nombre,
+    email: correo,
+    programa: interes,
+    lineas: [
+      ...(resumen ? [`🧭 ${resumen}`] : []),
+      '🔒 Autorizó el tratamiento de datos (Ley 1581 de 2012)',
+    ],
+    etiquetas: ['reco-pregrado'],
+  });
 }

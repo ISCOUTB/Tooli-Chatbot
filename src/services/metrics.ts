@@ -78,7 +78,12 @@ export type MetricEvent =
   | 'reco_resultados'
   | 'reco_mas_opciones'
   | 'reco_salida_pregrado'
-  | 'reco_salida_otras_gestiones';
+  | 'reco_salida_otras_gestiones'
+  | 'reco_ficha'
+  | 'reco_ia'
+  | 'reco_asesor'
+  | 'reco_consentimiento_no'
+  | 'reco_lead_completado';
 
 export interface MetricProps {
   area?: 'ti' | 'admisiones' | 'posgrados';

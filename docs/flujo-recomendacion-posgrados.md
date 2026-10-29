@@ -1,6 +1,6 @@
 # Flujo de recomendación de posgrados según el pregrado
 
-Rama: `nuevo-flujo`. Estado: **aprobado el 2026-10-28**; la tabla queda sujeta a la revisión de Posgrados UTB.
+Rama: `nuevo-flujo`. Estado: **implementado** (pasos 1 a 4); la tabla queda sujeta a la revisión de Posgrados UTB.
 
 ## Objetivo
 
@@ -91,18 +91,27 @@ flowchart TD
    como ya dice la base de conocimiento). Acciones: ver la ficha de 1–4,
    preguntar a la IA, hablar con asesor, solo virtuales, cambiar nivel, más
    opciones, menú.
-7. **Ficha** (`reco_ficha`): versión corta para WhatsApp de `fichaPrograma`
-   (modalidad, duración, valor, título, 2–3 líneas de descripción, plan de
-   estudios resumido y enlace).
+7. **Ficha** (`reco_ficha_elegir` → `reco_ficha`): versión corta para WhatsApp
+   (modalidad, duración, valor, título, SNIES, descripción, plan de estudios y
+   enlace). Escribir el número de un programa en los resultados la abre
+   directo. Desde la ficha: IA, asesor, volver a las recomendaciones o menú.
 8. **IA**: pasa a `chatting_with_ai` (área posgrados) con el contexto
-   *“Pregrado: Ingeniería Industrial (egresado UTB). Recomendados: …”*, igual que
-   hoy hace `resumenOrientacion`.
-9. **Asesor / registro**: consentimiento (Ley 1581) → nombre → correo → se crea
-   la conversación en Chatwoot (como `prospecto`) y el lead en Sheets/HubSpot
-   con relación, pregrado, nivel y programas recomendados.
+   *“Pregrado: Ingeniería Industrial (egresado(a) UTB). Nivel buscado: Maestría.
+   Programas recomendados: … Revisó en detalle: …”*, como hoy hace
+   `resumenOrientacion`. El resumen sale solo de IDs del catálogo y valores
+   cerrados, nunca del pregrado escrito, para que nadie meta instrucciones a la
+   IA por ahí. Si desde la IA pide asesor, ese resumen también va en el
+   contexto del traspaso.
+9. **Asesor** (`reco_consentimiento` → `reco_nombre` → `reco_correo`):
+   consentimiento (Ley 1581) → nombre → correo → lead en Sheets (la columna de
+   programa lleva el de interés y el resumen) y HubSpot, y conversación en
+   Chatwoot con el mismo resumen, la constancia del consentimiento y la
+   etiqueta `reco-pregrado`. Si Sheets falla, se registra el error y se sigue:
+   lo que la persona pidió es el asesor, y Chatwoot ya lleva los datos. Si no
+   autoriza, no se guarda nada y vuelve a las opciones.
 
-Comandos globales en todos los pasos: *menu* (vuelve al saludo), *0* (un paso
-atrás), *asesor*.
+Comandos globales en todos los pasos: *menu* (vuelve al saludo) y *0* (un paso
+atrás).
 
 ## Motor de recomendación
 
@@ -188,7 +197,7 @@ Eventos nuevos (hay que agregarlos a `metricEventAllowlist.ts`):
 `reco_inicio`, `reco_relacion_estudiante_utb`, `reco_relacion_egresado_utb`,
 `reco_relacion_externo`, `reco_pregrado_utb`, `reco_externo_coincide`,
 `reco_externo_sin_coincidencia`, `reco_resultados`, `reco_mas_opciones`,
-`reco_ficha`, `reco_ia`, `reco_asesor`, `reco_lead_completado`,
+`reco_ficha`, `reco_ia`, `reco_asesor`, `reco_consentimiento_no`, `reco_lead_completado`,
 `reco_salida_pregrado`, `reco_salida_otras_gestiones`.
 
 Con eso se puede ver el embudo: cuántos llegan a ver recomendaciones y cuántos

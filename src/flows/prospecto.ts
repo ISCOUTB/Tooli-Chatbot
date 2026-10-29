@@ -87,13 +87,39 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
 
   const programa = text.trim();
   const data = session?.data ?? {};
-
-  const nombre = data.nombre ?? 'Prospecto';
-  const email = data.email ?? '';
   const categoria = data.categoria ?? '';
   const orientacion = resumenOrientacion(data.orientacionArea ?? '');
 
   await track('prospecto_completado');
+
+  await conectarConAsesorPosgrado(from, {
+    nombre: data.nombre ?? 'Prospecto',
+    email: data.email ?? '',
+    programa,
+    lineas: [
+      ...(categoria ? [`📚 Categoría vista: ${categoria}`] : []),
+      ...(orientacion ? [`🧭 ${orientacion}`] : []),
+    ],
+  });
+}
+
+export interface DatosAsesorPosgrado {
+  nombre: string;
+  email: string;
+  programa: string;
+  /** Líneas de contexto para el asesor, entre el programa de interés y la fecha. */
+  lineas?: readonly string[];
+  /** Etiquetas extra de la conversación, además de `posgrado-prospecto`. */
+  etiquetas?: readonly string[];
+}
+
+/**
+ * Abre la conversación con el equipo de Posgrados en Chatwoot y deja a la
+ * persona hablando con el asesor (paso `with_agent`). Si Chatwoot falla,
+ * le da los contactos directos y la devuelve al inicio.
+ */
+export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesorPosgrado): Promise<void> {
+  const { nombre, email, programa } = datos;
 
   await messaging.sendText({ to: from, text: '⏳ Conectándote con un asesor de posgrados…' });
 
@@ -111,8 +137,7 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
     `📱 WhatsApp: +${from}\n` +
     `📧 Email: ${email}\n` +
     `🎯 Programa de interés: ${programa}\n` +
-    (categoria ? `📚 Categoría vista: ${categoria}\n` : '') +
-    (orientacion ? `🧭 ${orientacion}\n` : '') +
+    (datos.lineas ?? []).map((l) => `${l}\n`).join('') +
     `📅 Recibido: ${ahora}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
@@ -130,7 +155,7 @@ export async function handleProspectoPrograma(ctx: FlowContext): Promise<void> {
         programa_interes: programa,
         email_prospecto: email,
       },
-      labels: ['posgrado-prospecto'],
+      labels: ['posgrado-prospecto', ...(datos.etiquetas ?? [])],
       priority: 'medium',
     });
 
