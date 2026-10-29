@@ -2027,6 +2027,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
    Reutiliza el layout de la bandeja (.inbox, .inbox-row, .bubble).
    =================================================================== */
 .atn-filtros { display: flex; flex-direction: column; gap: 8px; padding: 6px 10px 8px; flex-shrink: 0; }
+.atn-filtros-selects { display: flex; gap: 6px; flex-wrap: wrap; }
 .atn-asignado .segmented { width: 100%; }
 .atn-asignado .segmented button { flex: 1 0 auto; padding: 6px 10px; font-size: 12.5px; }
 .atn-select {
@@ -2044,6 +2045,14 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .atn-chip-alerta { color: #b45309; background: #fef3c7; }
+.atn-chip-etiqueta {
+  color: var(--atn-etiqueta); border: 1px solid color-mix(in srgb, var(--atn-etiqueta) 38%, transparent);
+  background: color-mix(in srgb, var(--atn-etiqueta) 10%, var(--surface));
+}
+.atn-etiqueta-quitar {
+  border: 0; background: transparent; color: inherit; padding: 0 1px; font: inherit; font-size: 15px;
+  line-height: 1; cursor: pointer;
+}
 .atn-no-leidos {
   margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
   background: var(--utb-blue); color: #fff; font-size: 11px; font-weight: 700;
@@ -2062,6 +2071,14 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 }
 .atn-asignacion:empty { display: none; }
 .atn-campo { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); min-width: 0; }
+.atn-etiquetas { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }
+.atn-etiqueta-agregar { padding: 4px 9px; min-height: 28px; font-size: 11.5px; }
+.atn-etiqueta-form { display: flex; gap: 6px; align-items: center; max-width: 100%; }
+.atn-etiqueta-form[hidden] { display: none; }
+.atn-etiqueta-input {
+  min-width: 0; width: 170px; max-width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px;
+}
 .atn-autor { display: block; font-size: 10.5px; font-weight: 700; opacity: 0.75; margin-bottom: 2px; }
 .atn-nota {
   align-self: stretch; margin: 6px 8% 8px; padding: 9px 13px; font-size: 13px; line-height: 1.4;
@@ -2074,12 +2091,53 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-modo { margin-bottom: 8px; }
 .atn-modo .segmented button { padding: 5px 12px; font-size: 12px; }
 .atn-composer-nota .composer-input { background: #fef9c3; border-color: #fde68a; }
+.atn-composer .composer-input { min-width: 0; }
+.atn-composer-tools { display: flex; gap: 4px; flex: 0 0 auto; }
+.atn-composer-tool {
+  width: 34px; height: 40px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--text-muted); display: grid; place-items: center; cursor: pointer; font-size: 17px;
+}
+.atn-composer-tool:hover { color: var(--utb-blue); border-color: var(--utb-blue-light); }
+.atn-archivo-chip {
+  width: fit-content; max-width: 100%; display: flex; align-items: center; gap: 6px; margin: 0 0 7px;
+  padding: 5px 8px; border-radius: 9px; background: rgba(30, 115, 190, 0.08); color: var(--utb-blue); font-size: 12px;
+}
+.atn-archivo-chip[hidden] { display: none; }
+.atn-archivo-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atn-archivo-chip small { flex: 0 0 auto; color: var(--text-muted); }
+.atn-archivo-chip button { border: 0; background: transparent; color: inherit; padding: 0 2px; font-size: 17px; cursor: pointer; }
+.atn-modal-backdrop { align-items: center; z-index: 390; }
+.atn-macro-modal { max-width: 680px; }
+.atn-macro-cuerpo { padding: 18px; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-float); }
+.atn-macro-cuerpo > .sheet-title { text-align: left; font-size: 18px; }
+.atn-macro-error { min-height: 18px; margin: 4px 0; color: var(--danger); font-size: 12.5px; }
+.atn-macro-lista { display: grid; gap: 6px; margin: 10px 0 16px; }
+.atn-macro-fila { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.atn-macro-fila > div { flex: 1; min-width: 0; }
+.atn-macro-fila strong, .atn-macro-fila small { display: block; overflow-wrap: anywhere; }
+.atn-macro-fila small { margin-top: 2px; color: var(--text-muted); }
+.atn-macro-eliminar { color: var(--danger); flex: 0 0 auto; }
+.atn-macro-form { display: grid; gap: 9px; }
+.atn-macro-form h3 { margin: 0; font-size: 14px; }
+.atn-macro-form label { display: grid; gap: 4px; min-width: 0; font-size: 12.5px; font-weight: 600; }
+.atn-macro-form input, .atn-macro-form textarea, .atn-macro-form select {
+  width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 13px;
+}
+.atn-macro-form textarea { resize: vertical; }
+.atn-macro-form small { color: var(--text-muted); font-weight: 400; }
+.atn-macro-selects { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.atn-modal-acciones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 @media (max-width: 720px) {
   /* Las acciones bajan a su propia fila: el nombre necesita el ancho. */
   .atn-cabecera { flex-wrap: wrap; row-gap: 8px; }
   .atn-acciones { width: 100%; justify-content: flex-end; }
   .atn-accion { padding: 6px 10px; }
   .atn-nota { margin-left: 0; margin-right: 0; }
+  .atn-macro-selects { grid-template-columns: 1fr; }
+  .atn-macro-cuerpo { padding: 14px; }
+  .atn-composer-tools { gap: 2px; }
+  .atn-composer-tool { width: 30px; }
 }
 
 /* Atención en vivo: insignia de pendientes en el menú y estado de la conexión */

@@ -56,3 +56,31 @@ describe('etiquetaEstado', () => {
     assert.equal(A.etiquetaEstado('snoozed').label, 'snoozed');
   });
 });
+
+describe('resumenMacro', () => {
+  it('resume las acciones en el orden que entiende el asesor', () => {
+    assert.equal(A.resumenMacro({ acciones: { nota: 'n', mensaje: 'm', etiquetas: ['beca'], estado: 'resolved' } }), 'Nota · Mensaje · Etiqueta beca · Resuelve');
+  });
+});
+
+describe('construirAccionesMacro', () => {
+  it('omite Sin cambio y convierte las selecciones del formulario', () => {
+    assert.deepEqual(A.construirAccionesMacro({
+      nota: '  revisar ', mensaje: '', etiquetas: 'beca, urgente',
+      equipoId: 'null', asesorId: 'yo', estado: 'pending',
+    }), { nota: 'revisar', etiquetas: ['beca', 'urgente'], equipoId: null, asesorId: 'yo', estado: 'pending' });
+  });
+});
+
+describe('archivos adjuntos', () => {
+  it('valida tipo y límite de 3 MB', () => {
+    assert.equal(A.validarArchivo({ type: 'image/png', size: 100 }), null);
+    assert.match(A.validarArchivo({ type: 'application/zip', size: 100 }), /no permitido/i);
+    assert.match(A.validarArchivo({ type: 'application/pdf', size: 3 * 1024 * 1024 + 1 }), /3 MB/);
+  });
+
+  it('formatea KB y MB', () => {
+    assert.equal(A.formatoTamano(1536), '2 KB');
+    assert.equal(A.formatoTamano(1572864), '1.5 MB');
+  });
+});

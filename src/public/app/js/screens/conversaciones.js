@@ -9,6 +9,7 @@ import { setRemPrefill } from './recordatorios.js';
 import { buildSegmented } from '../ui/controls.js';
 import { groupMessages, openPhonePreview, previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
+import { aplicarPlaceholders, abrirRespuestasRapidas } from '../ui/quick-replies.js';
 import { ActionSheet, contextSheet } from '../ui/sheet.js';
 
 let conversationsCache = [];
@@ -593,73 +594,6 @@ function openFichaSheet(phone, nombre, ficha, info) {
     extraHtml: fichaHtml(ficha),
     onMount: (sheet) => wireFicha(sheet, phone, ficha, null),
     actions: [{ label: 'Vista previa en teléfono', icon: '📲', onClick: () => previewPhoneFor(phone), closeAfter: false }],
-  });
-}
-
-/* Respuestas rápidas: plantillas compartidas del equipo. El placeholder
-   {nombre} se reemplaza acá con el nombre real que capturó el bot — nunca se
-   inserta el literal "{nombre}" en un mensaje que va a un estudiante. */
-let quickRepliesCache = null;
-
-function aplicarPlaceholders(texto, nombre) {
-  const primerNombre = (nombre ?? '').trim().split(/\s+/)[0];
-  return texto.replace(/\{nombre\}/g, primerNombre || 'hola');
-}
-
-async function abrirRespuestasRapidas(input, sync, nombre) {
-  haptic(10);
-  if (!quickRepliesCache) {
-    try {
-      quickRepliesCache = (await (await api('/api/tools/quick-replies')).json()).replies ?? [];
-    } catch {
-      toast('No se pudieron cargar las respuestas rápidas');
-      return;
-    }
-  }
-
-  const insertar = (texto) => {
-    const final = aplicarPlaceholders(texto, nombre);
-    // Se inserta en el cursor y NO se envía: el asesor siempre revisa antes.
-    const pos = input.selectionStart ?? input.value.length;
-    input.value = input.value.slice(0, pos) + final + input.value.slice(pos);
-    input.focus();
-    input.setSelectionRange(pos + final.length, pos + final.length);
-    // Vía evento para que el borrador por teléfono también se guarde (Esc.5).
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    haptic(12);
-  };
-
-  const guardarActual = async () => {
-    const texto = input.value.trim();
-    if (!texto) { toast('Escribe primero el mensaje que quieres guardar'); return; }
-    const titulo = texto.split('\n')[0].slice(0, 48);
-    try {
-      const r = await api('/api/tools/quick-replies', { method: 'POST', body: JSON.stringify({ titulo, texto }) });
-      const data = await r.json();
-      if (!r.ok) { toast(data.message ?? 'No se pudo guardar'); return; }
-      quickRepliesCache = null;
-      toast('Guardada como respuesta rápida');
-      haptic([10, 20, 10]);
-    } catch { toast('No se pudo guardar'); }
-  };
-
-  const grupos = [];
-  if (quickRepliesCache.length) {
-    grupos.push(quickRepliesCache.slice(0, 10).map(q => ({
-      label: q.titulo,
-      icon: icon('bolt', 15),
-      onClick: () => insertar(q.texto),
-    })));
-  }
-  grupos.push([{ label: 'Guardar el mensaje actual', icon: icon('plus', 15), onClick: guardarActual }]);
-  grupos.push([{ label: 'Cancelar', cancel: true }]);
-
-  ActionSheet.open({
-    title: 'Respuestas rápidas',
-    subtitle: quickRepliesCache.length
-      ? 'Se inserta en el mensaje para que la revises antes de enviar.'
-      : 'Aún no hay ninguna. Escribe un mensaje y guárdalo para reutilizarlo.',
-    groups: grupos,
   });
 }
 

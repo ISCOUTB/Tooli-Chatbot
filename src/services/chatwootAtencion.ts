@@ -50,6 +50,45 @@ export interface MensajeAtencion {
 /** No existe o no es del inbox del bot: para el panel, es lo mismo. */
 export class ConversacionNoEncontrada extends Error {}
 
+export class ValidacionEtiquetasError extends Error {}
+
+export class ValidacionArchivoError extends Error {
+  constructor(
+    message: string,
+    public readonly status: 400 | 413 = 400,
+    public readonly codigo = 'validation_error',
+  ) {
+    super(message);
+  }
+}
+
+export interface ArchivoAtencion {
+  nombre: string;
+  tipo: string;
+  datos: Buffer;
+}
+
+export interface EtiquetaAtencion {
+  nombre: string;
+  color: string | null;
+  descripcion: string | null;
+}
+
+const TIPOS_ADJUNTO = new Set([
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+]);
+const MAX_ADJUNTO_BYTES = 3 * 1024 * 1024;
+const ETIQUETA_VALIDA = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
 /* ===== Traducción de la API de Chatwoot (funciones puras, con pruebas) ===== */
 
 /** Chatwoot fecha en segundos; el panel trabaja en milisegundos. */
@@ -111,6 +150,46 @@ export function mapConversacion(raw: any): ConversacionAtencion {
   };
 }
 
+/** La misma forma canónica se usa al editar etiquetas y al ejecutar macros. */
+export function normalizarEtiquetas(valor: unknown): string[] {
+  if (!Array.isArray(valor)) throw new ValidacionEtiquetasError('Las etiquetas deben ser una lista.');
+  const etiquetas: string[] = [];
+  for (const item of valor) {
+    if (typeof item !== 'string') throw new ValidacionEtiquetasError('Cada etiqueta debe ser un texto válido.');
+    const etiqueta = item.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!ETIQUETA_VALIDA.test(etiqueta)) {
+      throw new ValidacionEtiquetasError('Cada etiqueta debe tener entre 1 y 40 caracteres y usar solo letras minúsculas, números, guiones o guiones bajos.');
+    }
+    if (!etiquetas.includes(etiqueta)) etiquetas.push(etiqueta);
+  }
+  if (etiquetas.length > 10) throw new ValidacionEtiquetasError('Una conversación puede tener máximo 10 etiquetas.');
+  return etiquetas;
+}
+
+/** Valida y decodifica antes de construir el multipart que recibe Chatwoot. */
+export function validarArchivoAdjunto(input: { nombre?: unknown; tipo?: unknown; base64?: unknown }): ArchivoAtencion {
+  const tipo = typeof input.tipo === 'string' ? input.tipo.trim().toLowerCase() : '';
+  if (!TIPOS_ADJUNTO.has(tipo)) throw new ValidacionArchivoError('El tipo de archivo no está permitido.');
+
+  const base64 = typeof input.base64 === 'string' ? input.base64.trim() : '';
+  if (!base64 || base64.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) {
+    throw new ValidacionArchivoError('El archivo está vacío o no tiene un contenido base64 válido.');
+  }
+  const datos = Buffer.from(base64, 'base64');
+  if (!datos.length || datos.toString('base64') !== base64) {
+    throw new ValidacionArchivoError('El archivo está vacío o no tiene un contenido base64 válido.');
+  }
+  if (datos.length > MAX_ADJUNTO_BYTES) {
+    throw new ValidacionArchivoError('El archivo no puede superar 3 MB.', 413, 'archivo_muy_grande');
+  }
+
+  const original = typeof input.nombre === 'string' ? input.nombre.trim() : '';
+  const sinRuta = original.split(/[\\/]/).pop()?.replace(/[\u0000-\u001f\u007f]/g, '').trim() ?? '';
+  const nombre = sinRuta.slice(0, 120);
+  if (!nombre) throw new ValidacionArchivoError('El archivo debe tener un nombre válido.');
+  return { nombre, tipo, datos };
+}
+
 /** "Mías" usa el usuario de Chatwoot del asesor; sin él no hay nada que mostrar. */
 export function filtrarPorAsignado(
   lista: ConversacionAtencion[],
@@ -164,7 +243,7 @@ export async function listarConversaciones(estado: EstadoAtencion): Promise<{ co
   return { conversaciones, truncado };
 }
 
-async function conversacionDelInbox(id: number): Promise<any> {
+export async function conversacionDelInbox(id: number): Promise<any> {
   try {
     const r = await chatwootApi().get(`/conversations/${id}`);
     if (!r.data?.id || !esDelInbox(r.data)) throw new ConversacionNoEncontrada();
@@ -201,6 +280,36 @@ export async function enviarMensaje(id: number, texto: string, privado: boolean)
   const raw = await conversacionDelInbox(id);
   await chatwootApi().post(`/conversations/${id}/messages`, { content: texto, message_type: 'outgoing', private: privado });
   return mapConversacion(raw);
+}
+
+export async function listarEtiquetas(): Promise<EtiquetaAtencion[]> {
+  const r = await chatwootApi().get('/labels');
+  const crudas: any[] = Array.isArray(r.data) ? r.data : r.data?.payload ?? [];
+  return crudas
+    .map((e) => ({
+      nombre: String(e?.title ?? ''),
+      color: e?.color == null ? null : String(e.color),
+      descripcion: e?.description == null ? null : String(e.description),
+    }))
+    .filter((e) => e.nombre)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+export async function reemplazarEtiquetas(id: number, etiquetas: string[]): Promise<void> {
+  await conversacionDelInbox(id);
+  await chatwootApi().post(`/conversations/${id}/labels`, { labels: etiquetas });
+}
+
+export async function enviarAdjunto(id: number, archivo: ArchivoAtencion, texto: string, privado: boolean): Promise<void> {
+  await conversacionDelInbox(id);
+  const formulario = new FormData();
+  formulario.append('content', texto);
+  formulario.append('message_type', 'outgoing');
+  formulario.append('private', String(privado));
+  // La copia garantiza un ArrayBuffer propio, aceptado por Blob tanto en
+  // Node 20 como en sus definiciones estrictas de tipos.
+  formulario.append('attachments[]', new Blob([new Uint8Array(archivo.datos).buffer], { type: archivo.tipo }), archivo.nombre);
+  await chatwootApi().post(`/conversations/${id}/messages`, formulario);
 }
 
 /** Resolver dispara el webhook que cierra la sesión del bot y se lo avisa a la persona. */
