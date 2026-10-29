@@ -27,7 +27,16 @@ const MetaImageMessageSchema = z.object({
   image: z.object({ id: z.string(), mime_type: z.string().optional() }),
 });
 
-const MetaMessageSchema = z.union([MetaTextMessageSchema, MetaInteractiveSchema, MetaImageMessageSchema]).and(
+// Toque en un botón de respuesta rápida de una PLANTILLA (los mensajes que
+// inicia el bot). Meta no lo manda como `interactive` sino como `button`.
+const MetaTemplateButtonSchema = z.object({
+  type: z.literal('button'),
+  button: z.object({ payload: z.string().optional(), text: z.string() }),
+});
+
+const MetaMessageSchema = z.union([
+  MetaTextMessageSchema, MetaInteractiveSchema, MetaImageMessageSchema, MetaTemplateButtonSchema,
+]).and(
   z.object({
     from: z.string(),
     id: z.string(),
@@ -96,6 +105,9 @@ export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
           } else if (msg.interactive.type === 'list_reply') {
             text = msg.interactive.list_reply.id;
           }
+        } else if (msg.type === 'button') {
+          // Sin payload definido al enviar, Meta repite el texto del botón.
+          text = msg.button.payload || msg.button.text;
         } else if (msg.type === 'image') {
           text = '__image__';
           mediaId = msg.image.id;
