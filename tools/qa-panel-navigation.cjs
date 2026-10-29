@@ -32,8 +32,8 @@ const ROUTES = [
         await page.locator('#tabBar .tab-item[data-tab="home"]').click();
         await page.waitForFunction(() => location.hash === '#home');
       } else {
-        await page.locator('#tabBar .tab-item[data-tab="turno"]').click();
-        await page.waitForFunction(() => location.hash === '#turno');
+        await page.locator('#tabBar .tab-item[data-tab="conversaciones"]').click();
+        await page.waitForFunction(() => location.hash === '#conversaciones');
       }
       await page.waitForTimeout(1000);
       if (errors.length) failures.push({ route, errors });
