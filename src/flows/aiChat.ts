@@ -6,6 +6,7 @@ import { FlowContext, messaging, sendMenu, sendAiHint, normalize, volverAlMenuDe
 import { iniciarConversacionAsesor, iniciarVerificacionIdentidad } from './agentHandoff';
 import { parseGlobalCommand, resolveAiArea } from './commands';
 import { resumenOrientacion } from './programasCatalog';
+import { resumenRecomendacion } from './recomendacionView';
 
 const TURN_LIMIT_SUGGEST_AGENT = 15;
 
@@ -89,7 +90,10 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
   await track('ai_request', { area: area as 'ti' | 'admisiones' | 'posgrados' });
 
   try {
-    const orientacion = area === 'posgrados' ? resumenOrientacion(data.orientacionArea ?? '') : null;
+    // Contexto de navegación: la orientación por áreas o el flujo de recomendación por pregrado.
+    const orientacion = area === 'posgrados'
+      ? resumenOrientacion(data.orientacionArea ?? '') ?? resumenRecomendacion(data)
+      : null;
     const ai = await preguntarAI(area, text.trim(), history, orientacion ?? undefined);
 
     await messaging.sendText({ to: from, text: `${tituloAsistente}\n\n${ai.answer}` });

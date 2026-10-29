@@ -127,6 +127,23 @@ describe('fechaParaCsv', () => {
   });
 });
 
+describe('formatTelefono', () => {
+  it('agrupa un celular colombiano como se lee en voz alta', () => {
+    assert.equal(F.formatTelefono('573001234567'), '+57 300 123 4567');
+    assert.equal(F.formatTelefono('+57 300-123-4567'), '+57 300 123 4567');
+  });
+
+  it('otros números conservan sus dígitos con +, sin inventar grupos', () => {
+    assert.equal(F.formatTelefono('15551234567'), '+15551234567');
+    assert.equal(F.formatTelefono('5753001234'), '+5753001234');
+  });
+
+  it('sin número devuelve vacío para que la pantalla ponga su guion', () => {
+    assert.equal(F.formatTelefono(''), '');
+    assert.equal(F.formatTelefono(undefined), '');
+  });
+});
+
 describe('formatWhatsApp', () => {
   it('aplica los cuatro formatos de WhatsApp', () => {
     assert.equal(F.formatWhatsApp('esto *va* fin'), 'esto <strong>va</strong> fin');

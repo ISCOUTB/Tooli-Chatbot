@@ -331,6 +331,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 .sidebar .user-block button:hover { background: rgba(255, 255, 255, 0.1); }
 
 .main { flex: 1; min-width: 0; overflow-y: auto; }
+/* Un <canvas> mide 300 px hasta que Chart.js termina de cargar desde el CDN y
+   lo ajusta: a 320 px de ancho eso desbordaba la tarjeta de Métricas. */
+.main canvas { display: block; max-width: 100%; }
 
 @media (max-width: 1024px) {
   .home-grid { grid-template-columns: minmax(0, 1fr) !important; }
@@ -618,6 +621,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .inbox-search input { background: rgba(118, 118, 128, 0.1); border: none; border-radius: 999px; padding: 9px 14px; font-size: 13px; }
 .inbox-filter-wrap { padding: 10px 10px 4px; flex-shrink: 0; }
 .inbox-filter-wrap .segmented { width: 100%; }
+.inbox-filter-wrap .segmented button { flex: 1 0 auto; padding: 7px 12px; }
 .inbox-rows { flex: 1; overflow-y: auto; padding: 0 6px 6px; }
 
 .inbox-row {
@@ -833,11 +837,33 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .segmented {
   display: inline-flex; background: rgba(118, 118, 128, 0.12); border-radius: 10px; padding: 3px; gap: 2px;
   position: relative;
+  /* Con muchas opciones no se corta: se desliza de lado dentro de su espacio */
+  max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
 }
+.segmented::-webkit-scrollbar { display: none; }
+/* Sus contenedores son ítems flex: sin esto miden lo que mide el control
+   completo y lo empujan fuera de la pantalla en vez de dejarlo deslizar. */
+#crmFilterWrap, #crmEtapaWrap, #eventoFilterWrap, #becaVistaWrap, #inboxFilterWrap,
+#pgRangeWrap, #metRangeWrap, #actRangeWrap, #remFiltroWrap, #cmpRelacionWrap,
+#nRoleWrap, #nAreaWrap { min-width: 0; max-width: 100%; }
 .segmented button {
   border: none; background: transparent; padding: 7px 16px; font-size: 13px; font-weight: 600;
   color: var(--text-muted); border-radius: 8px; cursor: pointer; position: relative; z-index: 1;
   transition: color 0.25s var(--ease-out);
+  flex-shrink: 0; white-space: nowrap;
+}
+/* Degradado en el borde que tiene más opciones fuera de la vista */
+.segmented.mas-despues {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+}
+.segmented.mas-antes {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 36px), transparent);
+}
+.segmented.mas-antes.mas-despues {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 36px, #000 calc(100% - 36px), transparent);
 }
 .segmented button.active { color: var(--utb-blue); }
 .segmented .segmented-thumb {
@@ -884,6 +910,10 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .swipe-row .swipe-actions .sw-primary { background: var(--utb-blue); }
 .swipe-row .swipe-actions .sw-danger { background: var(--danger); }
 .swipe-row.swiped .swipe-content { transform: translateX(var(--swipe-x, -140px)); }
+/* Las acciones solo se ven mientras se desliza o con la fila abierta: ocultas
+   detrás del contenido, el borde redondeado dejaba asomar una franja roja.
+   El retraso deja que la fila termine de cerrarse antes de ocultarlas. */
+.swipe-row:not(.swiped):not(.swiping) .swipe-actions { visibility: hidden; transition: visibility 0s linear 0.3s; }
 
 /* ===================================================================
    Skeleton rows para tablas (loading state elegante en vez de spinner)
@@ -1680,15 +1710,18 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   .rem-acciones { flex-direction: column; }
 }
 
-/* Marcado de WhatsApp dentro de la vista previa del teléfono */
-.wa-bubble code {
+/* Marcado de WhatsApp dentro de la vista previa del teléfono y del hilo */
+.wa-bubble code,
+.bubble code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.92em;
   background: rgba(0, 0, 0, 0.06);
   padding: 1px 4px;
   border-radius: 4px;
 }
-.wa-bubble s { opacity: 0.7; }
+.bubble.out code { background: rgba(255, 255, 255, 0.18); }
+.wa-bubble s,
+.bubble s { opacity: 0.7; }
 
 /* Contexto del CRM dentro del hilo de conversación */
 .thread-crm {
@@ -1846,6 +1879,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   animation: fade-rise-in 0.4s var(--ease-spring) backwards;
   transition: transform 0.18s var(--ease-spring), box-shadow 0.2s var(--ease-out);
 }
+.inbox-nuevos[hidden] { display: none; }
 .inbox-nuevos:hover { transform: translateY(-1px); box-shadow: 0 10px 22px -8px rgba(0, 48, 135, 0.7); }
 .inbox-nuevos:active { transform: scale(0.97); }
 

@@ -28,30 +28,39 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
 });
 
 broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest, res: Response) => {
-  const { templateName, language, telefonos } = req.body ?? {};
-  if (!templateName || !language || !Array.isArray(telefonos)) {
-    res.status(400).json({ error: 'missing_fields', message: 'Se requiere { templateName, language, telefonos: string[] }' });
+  // Dos formas: `telefonos` (prospectos seleccionados, plantilla sin variables)
+  // o `destinatarios` + `relacion` (campaña por pregrado: {{1}} nombre, {{2}} pregrado).
+  const { templateName, language, telefonos, destinatarios, relacion } = req.body ?? {};
+  const lista: unknown[] | null = Array.isArray(destinatarios) ? destinatarios : Array.isArray(telefonos) ? telefonos : null;
+  if (!templateName || !language || !lista) {
+    res.status(400).json({
+      error: 'missing_fields',
+      message: 'Se requiere { templateName, language, telefonos: string[] } o { templateName, language, destinatarios, relacion }',
+    });
     return;
   }
-  // Filtro grueso acá; la normalización fina (dígitos, E.164, dedupe) vive en
-  // el servicio para que cada número inválido llegue al resumen de `fallidos`
-  // en vez de desaparecer en silencio.
-  const rawNums: string[] = (telefonos as unknown[])
-    .map(v => String(v ?? '').trim());
-  if (telefonos.length === 0) {
+  if (lista.length === 0) {
     res.status(400).json({ error: 'no_telefonos_validos' });
     return;
   }
-  if (rawNums.length > 200) {
+  if (lista.length > 200) {
     res.status(400).json({ error: 'too_many_recipients', message: 'Máximo 200 destinatarios por envío' });
     return;
   }
   try {
+    // Filtro grueso acá; la normalización fina (dígitos, E.164, dedupe) vive en
+    // el servicio para que cada número inválido llegue al resumen de `fallidos`
+    // en vez de desaparecer en silencio.
+    const { prepararDestinatariosCampana } = await import('../../flows/campanaReco');
+    const recipients = Array.isArray(destinatarios)
+      ? prepararDestinatariosCampana(destinatarios, relacion)
+      : lista.map(v => String(v ?? '').trim());
     const { enqueueBroadcast } = await import('../../services/broadcastJobService');
-    const job = await enqueueBroadcast(templateName, language, rawNums, req.user!.username);
+    const job = await enqueueBroadcast(templateName, language, recipients, req.user!.username);
     res.status(job.estado === 'completado' ? 200 : 202).json({ ok: true, job });
   } catch (err: unknown) {
-    if (err instanceof BroadcastValidationError) {
+    const { CampanaInvalidaError } = await import('../../flows/campanaReco');
+    if (err instanceof BroadcastValidationError || err instanceof CampanaInvalidaError) {
       res.status(400).json({ error: 'validation_error', message: err.message });
       return;
     }

@@ -3,6 +3,7 @@ import axios from 'axios';
 import Redis from 'ioredis';
 import { config } from '../config';
 import { KB_ADMISIONES, KB_POSGRADOS } from './knowledgeBase';
+import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma } from './catalogoUtb';
 import { KB_TI } from './knowledgeBaseTI';
 import { observeAILatency } from './promMetrics';
 
@@ -34,7 +35,7 @@ Reglas:
 3. Si no tienes la información ni siquiera con la herramienta, responde: "No tengo esa información específica. Te recomiendo hablar con un asesor."
 4. NUNCA inventes datos (fechas, costos, requisitos). Si dudas, deriva a un asesor.
 5. NUNCA pidas información personal (cédula, email) — eso lo maneja el flujo del bot.
-6. Si la pregunta es sobre TI / plataformas / contraseñas: indica que escriba *menu*, elija Pregrado o Posgrado y luego *Hablar con asesor* para solicitar Soporte TI.
+6. Si la pregunta es sobre TI / plataformas / contraseñas: indica que escriba *menu*, elija *Otras gestiones*, luego Pregrado o Posgrado y *Hablar con asesor* para solicitar Soporte TI.
 7. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
 
 Tu base de conocimiento sobre UTB:
@@ -53,7 +54,7 @@ Reglas:
 2. NUNCA pidas la contraseña del usuario.
 3. Si el usuario necesita resetear contraseña, sugiere el auto-servicio del portal correspondiente PRIMERO.
 4. Si el usuario indica que el auto-servicio no funcionó, su cuenta está bloqueada, o el problema persiste tras intentos básicos → USA la herramienta iniciar_verificacion_identidad para escalar a un asesor de TI con verificación previa de identidad.
-5. Si la pregunta es sobre admisiones/costos/becas/programas: indica que escriba *menu*, elija Pregrado o Posgrado y luego *Hablar con asesor*.
+5. Si la pregunta es sobre admisiones/costos/becas/programas: indica que escriba *menu*, elija *Otras gestiones*, luego Pregrado o Posgrado y *Hablar con asesor*.
 6. NUNCA inventes URLs ni procedimientos. Si dudas, escala a TI con la herramienta.
 
 Tu base de conocimiento:
@@ -161,8 +162,20 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-/** Fetchea la página de un programa UTB y devuelve texto limpio. Cache 24h. */
-async function fetchProgramaInfo(nombrePrograma: string): Promise<string> {
+/**
+ * Información de un programa UTB. Primero el catálogo empaquetado (extraído de
+ * las páginas oficiales, ver `catalogoUtb.ts`): el sitio está detrás de
+ * Cloudflare y suele rechazar al bot. Si el nombre no está en el catálogo, se
+ * intenta la página oficial. Cache 24h.
+ */
+async function fetchProgramaInfo(nombrePrograma: string, niveles?: readonly NivelPrograma[]): Promise<string> {
+  const encontrados = buscarPrograma(nombrePrograma, niveles);
+  if (encontrados.length === 1) return fichaPrograma(encontrados[0]);
+  if (encontrados.length > 1) {
+    const fichas = encontrados.map(fichaPrograma).join('\n\n---\n\n');
+    return `Hay ${encontrados.length} programas con ese nombre; aclara con el usuario cuál le interesa.\n\n${fichas}`.slice(0, 6000);
+  }
+
   const slug = slugify(nombrePrograma);
   const cacheKey = `prog-cache:${slug}`;
   const cached = await redis.get(cacheKey);
@@ -170,11 +183,8 @@ async function fetchProgramaInfo(nombrePrograma: string): Promise<string> {
 
   const candidatosUrl = [
     `https://www.utb.edu.co/${slug}/`,
-    `https://www.utb.edu.co/pregrado/${slug}/`,
-    `https://www.utb.edu.co/posgrado/${slug}/`,
-    `https://www.utb.edu.co/posgrado/maestrias/${slug}/`,
-    `https://www.utb.edu.co/posgrado/especializaciones/${slug}/`,
-    `https://www.utb.edu.co/posgrado/doctorados/${slug}/`,
+    `https://www.utb.edu.co/pregrados/${slug}/`,
+    `https://www.utb.edu.co/posgrados/${slug}/`,
   ];
 
   for (const url of candidatosUrl) {
@@ -291,7 +301,8 @@ export async function preguntarAI(
       try {
         const args = JSON.parse(call.function.arguments);
         programaConsultado = args.nombre_programa;
-        const resultado = await fetchProgramaInfo(args.nombre_programa);
+        const niveles = call.function.name === 'consultar_programa_posgrado' ? NIVELES_POSGRADO : undefined;
+        const resultado = await fetchProgramaInfo(args.nombre_programa, niveles);
         messages.push({ role: 'tool', tool_call_id: call.id, content: resultado });
       } catch {
         messages.push({ role: 'tool', tool_call_id: call.id, content: 'Error consultando el programa.' });

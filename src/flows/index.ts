@@ -1,6 +1,6 @@
 import { getSession, setSession } from '../services/session';
 import { FlowContext, sendMenu } from './shared';
-import { handleMenu, handleMenuPosgrado, handleMenuPregrado } from './menu';
+import { handleMenuClasico, handleMenuPosgrado, handleMenuPregrado } from './menu';
 import { handleProgramasCategoria, handleProgramasDetalle } from './programas';
 import { handleProspectoNombre, handleProspectoEmail, handleProspectoPrograma } from './prospecto';
 import { handleRegistroNombre, handleRegistroEmail, handleRegistroPrograma } from './registro';
@@ -11,6 +11,12 @@ import {
 import { handleAcademicoMenu } from './academico';
 import { handleAcademicAccount, handleAcademicUnlink } from './academicAccount';
 import { handleExplorarArea, handleExplorarCarrera, handleExplorarAccion } from './pregradoExplorar';
+import {
+  handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
+  handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
+  handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
+  atenderRespuestaCampana,
+} from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
@@ -30,8 +36,10 @@ import { handleVerifEmail, handleVerifCodigo } from './verificacion';
 import { handleNotasPassword, handleNotasMfa } from './notas';
 
 const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
-  // ── Inicio (elige Pregrado / Posgrado) ──────────────────────────────────────
-  menu: handleMenu,
+  // ── Inicio: recomendación de posgrados según el pregrado ────────────────────
+  menu: handleRecoRelacion,
+  // "Otras gestiones": elegir Pregrado o Posgrado (antes era la entrada)
+  menu_clasico: handleMenuClasico,
   // ── Posgrados ────────────────────────────────────────────────────────────────
   menu_posgrado: handleMenuPosgrado,
   programas_categoria: handleProgramasCategoria,
@@ -42,6 +50,19 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   registro_nombre: handleRegistroNombre,
   registro_email: handleRegistroEmail,
   registro_programa: handleRegistroPrograma,
+  // ── Recomendación de posgrados según el pregrado ────────────────────────────
+  reco_pregrado_grupo: handleRecoPregradoGrupo,
+  reco_pregrado: handleRecoPregrado,
+  reco_pregrado_externo: handleRecoPregradoExterno,
+  reco_confirmar: handleRecoConfirmar,
+  reco_sin_coincidencia: handleRecoSinCoincidencia,
+  reco_nivel: handleRecoNivel,
+  reco_resultados: handleRecoResultados,
+  reco_ficha_elegir: handleRecoFichaElegir,
+  reco_ficha: handleRecoFicha,
+  reco_consentimiento: handleRecoConsentimiento,
+  reco_nombre: handleRecoNombre,
+  reco_correo: handleRecoCorreo,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
   pregrado_explorar_area: handleExplorarArea,
@@ -84,6 +105,8 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
 
 export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
+  // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
+  if (await atenderRespuestaCampana(from, text, session)) return;
   const step = session?.step ?? 'menu';
 
   const handler = HANDLERS[step];

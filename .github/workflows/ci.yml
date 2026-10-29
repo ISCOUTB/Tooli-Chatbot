@@ -81,5 +81,34 @@ jobs:
             prom/alertmanager:v0.27.0 \
             -c "sed -e 's|__SLACK_WEBHOOK_URL__|https://hooks.slack.com/services/X/Y/Z|' -e 's|__ALERT_EMAIL_TO__|test@x.com|' -e 's|__ALERT_EMAIL_FROM__|alerts@x.com|' -e 's|__SMTP_HOST__|smtp.x.com:587|' -e 's|__SMTP_USER__|u|' -e 's|__SMTP_PASSWORD__|p|' /etc/alertmanager/alertmanager.yml > /tmp/a.yml && amtool check-config /tmp/a.yml"
 
-  # Sin job de deploy: main es el corte academico del proyecto de grado y no
-  # se despliega. Produccion corre la version completa desde tooli-pregrados.
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    concurrency:
+      group: tooli-production
+      cancel-in-progress: false
+    needs: [typecheck-build, docker-build, validate-configs]
+    # Produccion corre main: el bot de posgrados con la recomendacion por
+    # pregrado. NutriA, voluntarios y el flujo de feria quedan en tooli-pregrados
+    # y ya no se despliegan.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/tooli-chatbot
+            git fetch origin main
+            # El servidor venia desplegando tooli-pregrados: la primera vez se
+            # pasa a main. Si hay cambios locales que lo impiden, se detiene.
+            if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
+              git checkout main 2>/dev/null || git checkout -b main --track origin/main
+            fi
+            git merge --ff-only origin/main
+            python3 tools/deploy-preflight.py
+            # No recrear Redis ni Chatwoot sin la migración de datos previa.
+            docker compose up -d --build --no-deps backend

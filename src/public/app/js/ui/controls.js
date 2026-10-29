@@ -45,7 +45,23 @@ function buildSegmented(options, activeValue, onChange) {
     });
     const activeBtn = buttons.find(b => b.dataset.value === value);
     if (activeBtn) { thumb.style.left = `${activeBtn.offsetLeft}px`; thumb.style.width = `${activeBtn.offsetWidth}px`; }
+    // Si el control se desliza de lado, la opción activa siempre queda a la vista.
+    if (activeBtn && wrap.scrollWidth > wrap.clientWidth) {
+      const desdeIzq = activeBtn.offsetLeft - 36;
+      const hastaDer = activeBtn.offsetLeft + activeBtn.offsetWidth + 36 - wrap.clientWidth;
+      if (wrap.scrollLeft > desdeIzq) wrap.scrollLeft = Math.max(0, desdeIzq);
+      else if (wrap.scrollLeft < hastaDer) wrap.scrollLeft = hastaDer;
+    }
   }
+  // Con más opciones de las que caben, un degradado en el borde avisa que hay
+  // más: antes quedaban cortadas sin ninguna pista ("Event…", "Maes…").
+  function marcarDesborde() {
+    const restante = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft;
+    wrap.classList.toggle('mas-antes', wrap.scrollLeft > 1);
+    wrap.classList.toggle('mas-despues', restante > 1);
+  }
+  wrap.addEventListener('scroll', marcarDesborde, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(marcarDesborde).observe(wrap);
   // El estado accesible debe existir al insertar el control; solo la posición
   // del thumb necesita esperar a que el elemento tenga medidas en el DOM.
   setActive(activeValue);

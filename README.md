@@ -49,11 +49,10 @@ con número verificado por la plataforma.
 
 | Rama | Qué contiene | Despliega |
 |---|---|---|
-| `main` | El proyecto de grado: el bot con sus menús de pregrado y posgrado, el asistente de IA, el handoff a asesor y el panel. Es la rama que se lee para evaluar el trabajo. | No |
-| `tooli-pregrados` | Todo lo de `main` más los módulos que comparten backend pero son campañas aparte: la encuesta NutriA (con su propio número de WhatsApp), el registro de voluntarios y el flujo temporal de feria. | Sí, al VPS |
+| `main` | El proyecto de grado y la versión en producción: el bot con la recomendación de posgrados según el pregrado, sus menús, el asistente de IA, el handoff a asesor y el panel. | Sí, al VPS |
+| `tooli-pregrados` | La versión anterior de producción, con módulos que ya no se despliegan: la encuesta NutriA, el registro de voluntarios y el flujo temporal de feria. | No |
 
-Producción corre la rama completa, así que el trabajo del día a día va allí y
-`main` recibe solo lo que pertenece al proyecto de grado.
+Producción corre `main`: un push a esa rama despliega al VPS.
 
 ---
 
@@ -357,8 +356,8 @@ docker compose logs -f backend
 
 nginx actúa como proxy inverso con certificado TLS sobre el backend en el puerto `3000`.
 
-El despliegue automático lo dispara el CI al hacer push a `tooli-pregrados`, que es la rama
-que corre en producción. `main` ejecuta typecheck, build y pruebas, pero no despliega.
+El despliegue automático lo dispara el CI al hacer push a `main`, que es la rama que corre en
+producción, después de pasar typecheck, build y pruebas.
 
 ---
 
@@ -392,8 +391,8 @@ que corre en producción. `main` ejecuta typecheck, build y pruebas, pero no des
 
 ## Otros módulos
 
-El mismo backend aloja otros dos módulos que no forman parte del proyecto de grado y viven en la
-rama `tooli-pregrados`: **NutriA**, una encuesta guiada sobre hábitos de consumo y marketing
+Hasta octubre de 2026 el mismo backend alojó otros dos módulos que no forman parte del proyecto de
+grado; siguen en la rama `tooli-pregrados` pero ya no se despliegan: **NutriA**, una encuesta guiada sobre hábitos de consumo y marketing
 digital para un proyecto de investigación de la universidad, con su propio número de WhatsApp y su
 tablero público de resultados; y el registro de **voluntarios digitales**, que reutiliza ese mismo
 número cuando se activa.

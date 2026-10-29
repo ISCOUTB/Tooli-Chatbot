@@ -7,7 +7,36 @@
  *         https://www.utb.edu.co/la-utb/directivas/secretaria-general/registro-academico/calendario-academico/
  *
  * Valores de matrícula: vigencia 2026. Revisar la página oficial al cambiar de año.
+ *
+ * Los posgrados (nombres, valores, duración y página de cada uno) se generan
+ * desde `catalogoUtb.ts`, que sale de las páginas oficiales.
  */
+import {
+  DERECHOS_PECUNIARIOS_URL,
+  NivelPrograma,
+  POSGRADOS_URL,
+  POSGRADOS_VIRTUALES_URL,
+  VIGENCIA_VALORES,
+  esVirtual,
+  programasPorNivel,
+  valorSemestre,
+} from './catalogoUtb';
+
+/** Una línea por posgrado vigente: nombre, modalidad, duración, valor y (opcional) página oficial. */
+function lineasPosgrado(nivel: NivelPrograma, conUrl: boolean): string {
+  return programasPorNivel(nivel)
+    .map((p) => {
+      const partes = [
+        p.nombre + (esVirtual(p) ? ' (virtual)' : ''),
+        !esVirtual(p) && p.modalidad && !/^presencial$/i.test(p.modalidad) ? p.modalidad.toLowerCase() : null,
+        p.duracion_semestres ? `${p.duracion_semestres} semestres` : null,
+        valorSemestre(p) ?? 'valor no publicado, confirmar con Posgrados',
+        conUrl ? p.url : null,
+      ];
+      return `- ${partes.filter(Boolean).join(' — ')}`;
+    })
+    .join('\n');
+}
 
 export const KB_ADMISIONES = `
 # UNIVERSIDAD TECNOLÓGICA DE BOLÍVAR (UTB) — Centro de Servicios
@@ -73,7 +102,7 @@ Estos valores corresponden a 2026. Para otra vigencia, no los presentes como act
 - Arquitectura: $8.040.000 / $7.413.000
 - Diseño: $8.040.000
 
-### Escuela de Negocios, Derecho y Sociedad
+### Escuela de Negocios, Leyes y Sociedad
 - Psicología: $7.967.000 / $7.346.000
 - Ciencia Política y Relaciones Internacionales: $6.703.000 / $6.180.000
 - Derecho: $6.871.000 / $6.455.000
@@ -93,37 +122,21 @@ Estos valores corresponden a 2026. Para otra vigencia, no los presentes como act
 
 ### Tecnológicos
 - Tecnología en Sistemas: $1.926.000
-- Tecnología en Logística: $1.926.000
-- Tecnología en Gestión Contable y Financiera: $1.926.000
+- Tecnología en Logística de Transporte Internacional de Mercancías: $1.926.000
+- Tecnología en Operación de Plantas Petroquímicas: $1.926.000
+- Tecnología en Gestión Contable y Financiera (presencial y virtual): $1.926.000
 
-## COSTOS POSGRADO 2026
-Estos valores corresponden a 2026. Para otra vigencia, no los presentes como actuales: remite a https://www.utb.edu.co/la-utb/derechos-pecuniarios/.
+## COSTOS POSGRADO ${VIGENCIA_VALORES}
+Estos valores corresponden a ${VIGENCIA_VALORES}. Para otra vigencia, no los presentes como actuales: remite a ${DERECHOS_PECUNIARIOS_URL}.
 
-### Especializaciones (rango general $8M – $13M/semestre)
-- Telecomunicaciones y Redes: $10.200.000
-- Logística del Transporte: $9.800.000
-- Gestión Ambiental Sostenible: $9.800.000
-- Sistemas Energéticos Sostenibles: $11.200.000
-- Automatización Industrial: $11.200.000
-- Gerencia de Proyectos: $12.500.000
-- Análisis y Diseño Estructural: $13.000.000
-- Ingeniería de Software (virtual): $8.300.000 (2 semestres)
-- Gerencia de Servicios de Salud (virtual): $7.950.000 (2 semestres)
-- Educación Mediada por TIC (virtual): $6.950.000 (2 semestres)
+### Especializaciones
+${lineasPosgrado('especializacion', false)}
 
-### Maestrías (3-4 semestres)
-- Maestría en Gestión de la Innovación: $9.800.000/sem (4 sem)
-- Maestría en Ingeniería: $10.950.000/sem (4 sem)
-- Maestría en Gerencia de Proyectos: $13.400.000/sem (4 sem)
-- MBA: $17.900.000/sem (3 sem)
-- Maestría en Gerencia Tributaria: $10.950.000/sem (3 sem)
-- Maestría en Ciberseguridad: $13.000.000/sem (3 sem)
-- Maestría en Educación Mediada por TIC (virtual): $6.950.000/sem (3 sem)
+### Maestrías
+${lineasPosgrado('maestria', false)}
 
-### Doctorados (8 semestres)
-- Doctorado en Ingeniería: 8 SMMLV/semestre
-- Doctorado en Desarrollo Regional y Local: $15.127.000/sem
-- Doctorado en Sostenibilidad: $12.281.000/sem
+### Doctorados
+${lineasPosgrado('doctorado', false)}
 
 ## OTROS COSTOS
 Los derechos de inscripción y otros trámites dependen de la vigencia y de condiciones particulares. Confirma el valor aplicable en https://www.utb.edu.co/la-utb/derechos-pecuniarios/ o con Admisiones. Los importes siguientes son referencias publicadas para 2026, no promesas de cobro:
@@ -182,31 +195,17 @@ Transformación Digital: Ciencia de Datos, Ingeniería de Sistemas y Computació
 export const KB_POSGRADOS = `
 # UNIVERSIDAD TECNOLÓGICA DE BOLÍVAR (UTB) — Posgrados
 
-## ESPECIALIZACIONES (2 semestres)
-- Telecomunicaciones y Redes: $10.200.000/sem
-- Logística del Transporte: $9.800.000/sem
-- Gestión Ambiental Sostenible: $9.800.000/sem
-- Sistemas Energéticos Sostenibles: $11.200.000/sem
-- Automatización Industrial: $11.200.000/sem
-- Gerencia de Proyectos: $12.500.000/sem
-- Análisis y Diseño Estructural: $13.000.000/sem
-- Ingeniería de Software (virtual): $8.300.000/sem
-- Gerencia de Servicios de Salud (virtual): $7.950.000/sem
-- Educación Mediada por TIC (virtual): $6.950.000/sem
+Formato: programa — modalidad si no es presencial — duración — valor de matrícula ${VIGENCIA_VALORES} por semestre — página oficial.
+Comparte la página oficial del programa cuando el usuario pida más información.
 
-## MAESTRÍAS (3-4 semestres)
-- Maestría en Gestión de la Innovación: $9.800.000/sem — 4 semestres
-- Maestría en Ingeniería: $10.950.000/sem — 4 semestres
-- Maestría en Gerencia de Proyectos: $13.400.000/sem — 4 semestres
-- MBA (Maestría en Administración de Empresas): $17.900.000/sem — 3 semestres
-- Maestría en Gerencia Tributaria: $10.950.000/sem — 3 semestres
-- Maestría en Ciberseguridad: $13.000.000/sem — 3 semestres
-- Maestría en Educación Mediada por TIC (virtual): $6.950.000/sem — 3 semestres
+## ESPECIALIZACIONES
+${lineasPosgrado('especializacion', true)}
 
-## DOCTORADOS (8 semestres)
-- Doctorado en Ingeniería: 8 SMMLV/semestre
-- Doctorado en Desarrollo Regional y Local: $15.127.000/sem
-- Doctorado en Sostenibilidad: $12.281.000/sem
+## MAESTRÍAS
+${lineasPosgrado('maestria', true)}
+
+## DOCTORADOS
+${lineasPosgrado('doctorado', true)}
 
 ## COSTOS DE INSCRIPCIÓN
 Confirma el valor aplicable, promociones y exenciones con Posgrados UTB o en https://www.utb.edu.co/la-utb/derechos-pecuniarios/. No asegures que la inscripción sea gratuita ni cites un importe fijo sin confirmar la vigencia.
@@ -227,8 +226,7 @@ Confirma el valor aplicable, promociones y exenciones con Posgrados UTB o en htt
 ## CONTACTO POSGRADOS UTB
 - Email: mercadeoposgrado@utb.edu.co
 - Teléfonos: 311 3405776 / 310 6508107 / 321 6085653
-- Web: https://www.utb.edu.co/posgrados/
-- Maestrías: https://www.utb.edu.co/posgrado/maestrias/
-- Especializaciones: https://www.utb.edu.co/posgrado/especializaciones/
-- Doctorados: https://www.utb.edu.co/posgrado/doctorados/
+- Todos los posgrados: ${POSGRADOS_URL}
+- Posgrados virtuales (UTB Virtual): ${POSGRADOS_VIRTUALES_URL}
+- Valores de matrícula: ${DERECHOS_PECUNIARIOS_URL}
 `.trim();

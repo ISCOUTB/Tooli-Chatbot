@@ -1,14 +1,30 @@
 /**
  * Catálogo puro de orientación de posgrados (G02).
  *
- * Todo sale de datos ya presentes en el repo (`knowledgeBase.ts` y los
- * textos de `programas.ts`): nombres de programas reales y los enlaces
- * oficiales de categoría. No inventa programas, precios, requisitos ni URLs.
+ * Los programas, valores y enlaces salen del catálogo extraído de las páginas
+ * oficiales (`services/catalogoUtb.ts`). Acá solo se decide qué sugerir por
+ * área y cómo mostrarlo; no se inventan programas, precios, requisitos ni URLs.
  *
  * Es puro a propósito: no importa `shared.ts` (que instancia el adaptador
- * de mensajería) ni servicios, para que `node:test` lo pruebe sin colgarse.
+ * de mensajería) ni servicios con conexiones, para que `node:test` lo pruebe
+ * sin colgarse.
  */
 import { normalize } from './validation';
+import {
+  DERECHOS_PECUNIARIOS_URL,
+  NivelPrograma,
+  POSGRADOS_URL,
+  POSGRADOS_UTB,
+  POSGRADOS_VIRTUALES_URL,
+  VIGENCIA_VALORES,
+  esVirtual,
+  getPrograma,
+  nombreCorto,
+  programasPorNivel,
+  valorCorto,
+} from '../services/catalogoUtb';
+
+export { POSGRADOS_URL, POSGRADOS_VIRTUALES_URL };
 
 export type CategoriaPrograma = 'especializaciones' | 'maestrias' | 'doctorados';
 
@@ -18,51 +34,33 @@ export const CATEGORIAS: readonly CategoriaPrograma[] = [
   'doctorados',
 ];
 
-/** Enlaces oficiales de categoría ya existentes en `knowledgeBase.ts`. */
-export const CATEGORIA_URLS: Record<CategoriaPrograma, string> = {
-  especializaciones: 'https://www.utb.edu.co/posgrado/especializaciones/',
-  maestrias: 'https://www.utb.edu.co/posgrado/maestrias/',
-  doctorados: 'https://www.utb.edu.co/posgrado/doctorados/',
+const NIVEL_DE_CATEGORIA: Record<CategoriaPrograma, NivelPrograma> = {
+  especializaciones: 'especializacion',
+  maestrias: 'maestria',
+  doctorados: 'doctorado',
+};
+const CATEGORIA_DE_NIVEL: Partial<Record<NivelPrograma, CategoriaPrograma>> = {
+  especializacion: 'especializaciones',
+  maestria: 'maestrias',
+  doctorado: 'doctorados',
 };
 
-/** Enlace general oficial ya existente en `knowledgeBase.ts`. */
-export const POSGRADOS_URL = 'https://www.utb.edu.co/posgrados/';
-
-export const URLS_OFICIALES: readonly string[] = [
-  POSGRADOS_URL,
-  CATEGORIA_URLS.especializaciones,
-  CATEGORIA_URLS.maestrias,
-  CATEGORIA_URLS.doctorados,
-];
-
 export interface ProgramaCatalogo {
+  id: string;
   nombre: string;
   categoria: CategoriaPrograma;
+  url: string;
+  virtual: boolean;
 }
 
-/** Los 20 programas reales (10 esp. + 7 mae. + 3 doc.) de `knowledgeBase.ts`. */
-export const PROGRAMAS: readonly ProgramaCatalogo[] = [
-  { nombre: 'Telecomunicaciones y Redes', categoria: 'especializaciones' },
-  { nombre: 'Logística del Transporte', categoria: 'especializaciones' },
-  { nombre: 'Gestión Ambiental Sostenible', categoria: 'especializaciones' },
-  { nombre: 'Sistemas Energéticos Sostenibles', categoria: 'especializaciones' },
-  { nombre: 'Automatización Industrial', categoria: 'especializaciones' },
-  { nombre: 'Gerencia de Proyectos', categoria: 'especializaciones' },
-  { nombre: 'Análisis y Diseño Estructural', categoria: 'especializaciones' },
-  { nombre: 'Ingeniería de Software (virtual)', categoria: 'especializaciones' },
-  { nombre: 'Gerencia de Servicios de Salud (virtual)', categoria: 'especializaciones' },
-  { nombre: 'Educación Mediada por TIC (virtual)', categoria: 'especializaciones' },
-  { nombre: 'Maestría en Gestión de la Innovación', categoria: 'maestrias' },
-  { nombre: 'Maestría en Ingeniería', categoria: 'maestrias' },
-  { nombre: 'Maestría en Gerencia de Proyectos', categoria: 'maestrias' },
-  { nombre: 'MBA', categoria: 'maestrias' },
-  { nombre: 'Maestría en Gerencia Tributaria', categoria: 'maestrias' },
-  { nombre: 'Maestría en Ciberseguridad', categoria: 'maestrias' },
-  { nombre: 'Maestría en Educación Mediada por TIC (virtual)', categoria: 'maestrias' },
-  { nombre: 'Doctorado en Ingeniería', categoria: 'doctorados' },
-  { nombre: 'Doctorado en Desarrollo Regional y Local', categoria: 'doctorados' },
-  { nombre: 'Doctorado en Sostenibilidad', categoria: 'doctorados' },
-];
+/** Todos los posgrados vigentes publicados por la UTB (presenciales y virtuales). */
+export const PROGRAMAS: readonly ProgramaCatalogo[] = POSGRADOS_UTB.map((p) => ({
+  id: p.id,
+  nombre: p.nombre,
+  categoria: CATEGORIA_DE_NIVEL[p.nivel] as CategoriaPrograma,
+  url: p.url,
+  virtual: esVirtual(p),
+}));
 
 export interface AreaInteres {
   id: string;
@@ -70,24 +68,26 @@ export interface AreaInteres {
   descripcion: string;
 }
 
-/** Conjunto corto de áreas; el número en la lista es su posición (1-6). */
+/** Conjunto corto de áreas; el número en la lista es su posición (1-7). */
 export const AREAS: readonly AreaInteres[] = [
-  { id: 'tecnologia', titulo: 'Tecnología y sistemas', descripcion: 'Software, redes y ciberseguridad' },
+  { id: 'tecnologia', titulo: 'Tecnología y sistemas', descripcion: 'Software, datos, redes y ciberseguridad' },
   { id: 'gestion', titulo: 'Gestión y proyectos', descripcion: 'Proyectos, innovación y MBA' },
-  { id: 'negocios', titulo: 'Negocios y finanzas', descripcion: 'Tributaria, logística y negocios' },
+  { id: 'negocios', titulo: 'Negocios y finanzas', descripcion: 'Finanzas, tributaria, logística y negocios' },
   { id: 'energia', titulo: 'Energía y ambiente', descripcion: 'Ambiente, energía y sostenibilidad' },
-  { id: 'industria', titulo: 'Industria y estructuras', descripcion: 'Automatización, estructuras e ingeniería' },
-  { id: 'salud_educacion', titulo: 'Salud y educación', descripcion: 'Salud, educación TIC y desarrollo' },
+  { id: 'industria', titulo: 'Industria y estructuras', descripcion: 'Estructuras, automatización e Industria 4.0' },
+  { id: 'salud_educacion', titulo: 'Salud y educación', descripcion: 'Salud, educación y TIC' },
+  { id: 'derecho_sociedad', titulo: 'Derecho y sociedad', descripcion: 'Derecho, contratación estatal y psicosocial' },
 ];
 
 /** Atajos de una palabra (ya normalizados) hacia cada área. */
 const ALIAS_AREAS: Record<string, readonly string[]> = {
-  tecnologia: ['tecnologia', 'sistemas', 'software', 'ciberseguridad'],
+  tecnologia: ['tecnologia', 'sistemas', 'software', 'ciberseguridad', 'datos'],
   gestion: ['gestion', 'proyectos', 'innovacion', 'mba'],
   negocios: ['negocios', 'finanzas', 'tributaria', 'logistica'],
   energia: ['energia', 'ambiente', 'sostenibilidad'],
   industria: ['industria', 'estructuras', 'automatizacion', 'infraestructura'],
-  salud_educacion: ['salud', 'educacion', 'desarrollo'],
+  salud_educacion: ['salud', 'educacion', 'docencia'],
+  derecho_sociedad: ['derecho', 'leyes', 'juridica', 'contratacion', 'psicologia', 'sociedad'],
 };
 
 export interface SugerenciaPrograma {
@@ -96,48 +96,56 @@ export interface SugerenciaPrograma {
   /** Encaje breve; nunca promete admisión ni empleabilidad. */
   encaje: string;
   url: string;
+  virtual: boolean;
 }
 
 interface SugerenciaBase {
-  programa: string;
-  categoria: CategoriaPrograma;
+  /** `id` del programa en el catálogo extraído. */
+  id: string;
   encaje: string;
 }
 
 const SUGERENCIAS: Record<string, readonly SugerenciaBase[]> = {
   tecnologia: [
-    { programa: 'Ingeniería de Software (virtual)', categoria: 'especializaciones', encaje: 'Afin si vienes de sistemas o software y buscas modalidad virtual.' },
-    { programa: 'Maestría en Ciberseguridad', categoria: 'maestrias', encaje: 'Afin si te atrae la seguridad de redes y sistemas.' },
-    { programa: 'Telecomunicaciones y Redes', categoria: 'especializaciones', encaje: 'Relacionada con redes y telecomunicaciones.' },
-    { programa: 'Maestría en Ingeniería', categoria: 'maestrias', encaje: 'Opción con enfoque en investigación aplicada en ingeniería.' },
+    { id: 'virtual-ingenieria-de-software', encaje: 'Afín si vienes de sistemas o software y buscas modalidad virtual.' },
+    { id: 'maestria-en-ciberseguridad', encaje: 'Afín si te atrae la seguridad de redes y sistemas.' },
+    { id: 'maestria-en-estadistica-aplicada-y-ciencia-de-datos', encaje: 'Relacionada con análisis de datos y modelos estadísticos.' },
+    { id: 'especializacion-en-telecomunicaciones-y-redes', encaje: 'Relacionada con redes y telecomunicaciones.' },
   ],
   gestion: [
-    { programa: 'Gerencia de Proyectos', categoria: 'especializaciones', encaje: 'Afin si coordinas o quieres coordinar proyectos.' },
-    { programa: 'Maestría en Gerencia de Proyectos', categoria: 'maestrias', encaje: 'Profundiza en gerencia de proyectos con enfoque de maestría.' },
-    { programa: 'Maestría en Gestión de la Innovación', categoria: 'maestrias', encaje: 'Afin si te interesa la innovación en organizaciones.' },
-    { programa: 'MBA', categoria: 'maestrias', encaje: 'Relacionado con administración y dirección de empresas.' },
+    { id: 'especializacion-en-gerencia-de-proyectos', encaje: 'Afín si coordinas o quieres coordinar proyectos.' },
+    { id: 'maestria-en-gerencia-de-proyectos', encaje: 'Profundiza en gerencia de proyectos con enfoque de maestría.' },
+    { id: 'maestria-en-gestion-de-la-innovacion', encaje: 'Afín si te interesa la innovación en organizaciones.' },
+    { id: 'maestria-en-administracion', encaje: 'Relacionado con administración y dirección de empresas.' },
   ],
   negocios: [
-    { programa: 'MBA', categoria: 'maestrias', encaje: 'Relacionado con administración y dirección de empresas.' },
-    { programa: 'Maestría en Gerencia Tributaria', categoria: 'maestrias', encaje: 'Afin si te mueves en impuestos y gestión tributaria.' },
-    { programa: 'Logística del Transporte', categoria: 'especializaciones', encaje: 'Relacionada con transporte y cadena de suministro.' },
+    { id: 'maestria-en-finanzas', encaje: 'Afín si trabajas en finanzas corporativas o inversión.' },
+    { id: 'maestria-en-gerencia-tributaria', encaje: 'Afín si te mueves en impuestos y gestión tributaria.' },
+    { id: 'especializacion-en-gestion-de-negocios-internacionales', encaje: 'Relacionada con comercio y negocios internacionales.' },
+    { id: 'especializacion-gestion-logistica-cadena-suministro', encaje: 'Relacionada con logística y cadena de suministro.' },
   ],
   energia: [
-    { programa: 'Gestión Ambiental Sostenible', categoria: 'especializaciones', encaje: 'Afin si te interesa la gestión ambiental.' },
-    { programa: 'Sistemas Energéticos Sostenibles', categoria: 'especializaciones', encaje: 'Relacionada con sistemas de energía.' },
-    { programa: 'Doctorado en Sostenibilidad', categoria: 'doctorados', encaje: 'Opción investigativa si te atrae la sostenibilidad.' },
+    { id: 'especializacion-en-gestion-ambiental-sostenible', encaje: 'Afín si te interesa la gestión ambiental.' },
+    { id: 'especializacion-sistemas-energeticos-sostenibles', encaje: 'Relacionada con sistemas de energía.' },
+    { id: 'doctorado-en-sostenibilidad', encaje: 'Opción investigativa si te atrae la sostenibilidad.' },
   ],
   industria: [
-    { programa: 'Análisis y Diseño Estructural', categoria: 'especializaciones', encaje: 'Afin si trabajas con estructuras y obra.' },
-    { programa: 'Automatización Industrial', categoria: 'especializaciones', encaje: 'Relacionada con automatización y planta industrial.' },
-    { programa: 'Maestría en Ingeniería', categoria: 'maestrias', encaje: 'Opción con enfoque en investigación aplicada en ingeniería.' },
-    { programa: 'Doctorado en Ingeniería', categoria: 'doctorados', encaje: 'Opción investigativa avanzada en ingeniería.' },
+    { id: 'especializacion-en-analisis-y-diseno-estructural', encaje: 'Afín si trabajas con estructuras y obra.' },
+    { id: 'especializacion-en-automatizacion-y-control-de-procesos-industriales', encaje: 'Relacionada con automatización y planta industrial.' },
+    { id: 'maestria-en-industria-4-0-y-automatizacion-industrial', encaje: 'Afín si te interesa la transformación digital de la industria.' },
+    { id: 'maestria-en-ingenieria', encaje: 'Opción con enfoque en investigación aplicada en ingeniería.' },
   ],
   salud_educacion: [
-    { programa: 'Gerencia de Servicios de Salud (virtual)', categoria: 'especializaciones', encaje: 'Afin si trabajas en salud y buscas gestión, en modalidad virtual.' },
-    { programa: 'Educación Mediada por TIC (virtual)', categoria: 'especializaciones', encaje: 'Afin si te interesa enseñar con apoyo de tecnología.' },
-    { programa: 'Maestría en Educación Mediada por TIC (virtual)', categoria: 'maestrias', encaje: 'Profundiza en educación mediada por tecnología.' },
-    { programa: 'Doctorado en Desarrollo Regional y Local', categoria: 'doctorados', encaje: 'Opción investigativa ligada al desarrollo de territorios.' },
+    { id: 'virtual-gerencia-servicios-salud', encaje: 'Afín si trabajas en salud y buscas gestión, en modalidad virtual.' },
+    { id: 'virtual-educacion-mediada-tic', encaje: 'Afín si te interesa enseñar con apoyo de tecnología.' },
+    { id: 'virtual-tic-para-educacion', encaje: 'Profundiza en educación mediada por tecnología.' },
+    { id: 'maestria-en-educacion', encaje: 'Relacionada con la práctica y la investigación educativa.' },
+  ],
+  derecho_sociedad: [
+    { id: 'maestria-en-derecho', encaje: 'Afín si eres abogado y quieres profundizar tu formación jurídica.' },
+    { id: 'especializacion-en-derecho-comercial', encaje: 'Relacionada con derecho de empresas y contratos comerciales.' },
+    { id: 'virtual-contratacion-estatal', encaje: 'Afín si trabajas con contratos públicos, en modalidad virtual.' },
+    { id: 'maestria-en-intervencion-psicosocial', encaje: 'Relacionada con intervención en comunidades y organizaciones.' },
   ],
 };
 
@@ -150,19 +158,13 @@ export function esCategoriaValida(categoria: string): categoria is CategoriaProg
   return (CATEGORIAS as readonly string[]).includes(categoria);
 }
 
-/** URL oficial de la categoría, o null si no es válida. */
-export function categoriaUrl(categoria: string): string | null {
-  if (!esCategoriaValida(categoria)) return null;
-  return CATEGORIA_URLS[categoria];
-}
-
 export function getArea(id: string): AreaInteres | undefined {
   const clave = normalizeTexto(id ?? '');
   return AREAS.find((a) => a.id === clave);
 }
 
 /**
- * Reconoce la selección de área: número de lista ("1"-"6"), id, título
+ * Reconoce la selección de área: número de lista ("1"-"7"), id, título
  * exacto (con o sin tildes/mayúsculas) o palabra clave. Lo demás → null
  * para que el flujo lo explique y re-pregunte.
  */
@@ -185,12 +187,22 @@ export function parseAreaSeleccion(input: string): string | null {
   return null;
 }
 
-/** 2-4 sugerencias reales del área, con su URL oficial; [] si inválida. */
+/** 2-4 sugerencias reales del área, con la URL oficial de cada programa; [] si inválida. */
 export function recomendarPorArea(areaId: string): SugerenciaPrograma[] {
   const clave = normalizeTexto(areaId ?? '');
   const lista = SUGERENCIAS[clave];
   if (!lista) return [];
-  return lista.map((s) => ({ ...s, url: CATEGORIA_URLS[s.categoria] }));
+  return lista.flatMap((s) => {
+    const p = getPrograma(s.id);
+    if (!p) return [];
+    return [{
+      programa: p.nombre,
+      categoria: CATEGORIA_DE_NIVEL[p.nivel] as CategoriaPrograma,
+      encaje: s.encaje,
+      url: p.url,
+      virtual: esVirtual(p),
+    }];
+  });
 }
 
 /** Contexto breve derivado del catálogo, sin confiar en una lista guardada en sesión. */
@@ -202,13 +214,7 @@ export function resumenOrientacion(areaId: string): string | null {
   return `Área explorada: ${area.titulo}. Programas sugeridos: ${programas.join(', ')}.`;
 }
 
-const NOMBRE_CATEGORIA: Record<CategoriaPrograma, string> = {
-  especializaciones: 'Especializaciones',
-  maestrias: 'Maestrías',
-  doctorados: 'Doctorados',
-};
-
-/** Texto de sugerencias con enlaces oficiales; null si el área es inválida. */
+/** Texto de sugerencias con el enlace oficial de cada programa; null si el área es inválida. */
 export function formatearSugerencias(areaId: string): string | null {
   const clave = normalizeTexto(areaId ?? '');
   const area = AREAS.find((a) => a.id === clave);
@@ -216,25 +222,57 @@ export function formatearSugerencias(areaId: string): string | null {
   if (!area || sugerencias.length === 0) return null;
 
   const lineas = sugerencias.map(
-    (s, i) => `${i + 1}. *${s.programa}*\n   ${s.encaje}`,
+    (s, i) => `${i + 1}. *${s.programa}*${s.virtual ? ' _(virtual)_' : ''}\n   ${s.encaje}\n   🔗 ${s.url}`,
   );
 
-  const categoriasVistas: CategoriaPrograma[] = [];
-  for (const s of sugerencias) {
-    if (!categoriasVistas.includes(s.categoria)) categoriasVistas.push(s.categoria);
-  }
-  const enlaces = categoriasVistas.map(
-    (c) => `• ${NOMBRE_CATEGORIA[c]}: ${CATEGORIA_URLS[c]}`,
-  );
-  enlaces.push(`• Posgrados UTB: ${POSGRADOS_URL}`);
+  const enlaces = [`• Todos los posgrados: ${POSGRADOS_URL}`];
+  if (sugerencias.some((s) => s.virtual)) enlaces.push(`• Posgrados virtuales: ${POSGRADOS_VIRTUALES_URL}`);
 
   return (
     `🧭 *${area.titulo}*\n` +
     'Según tu interés, estas opciones reales de posgrado UTB pueden encajarte:\n\n' +
     lineas.join('\n\n') +
-    '\n\n🔗 *Enlaces oficiales:*\n' +
+    '\n\n🔗 *Más opciones:*\n' +
     enlaces.join('\n') +
     '\n\n_La elección depende de tu perfil y del proceso de admisión; ' +
     'verifica requisitos y costos en los enlaces oficiales._'
+  );
+}
+
+const ENCABEZADO_CATEGORIA: Record<CategoriaPrograma, string> = {
+  especializaciones: '📚 *Especializaciones UTB*',
+  maestrias: '🎓 *Maestrías UTB*',
+  doctorados: '🔬 *Doctorados UTB*',
+};
+
+/** Listado completo de una categoría con su valor por semestre, para enviar por WhatsApp. */
+export function formatearListado(categoria: CategoriaPrograma): string {
+  const nivel = NIVEL_DE_CATEGORIA[categoria];
+  const programas = programasPorNivel(nivel);
+  const linea = (p: (typeof programas)[number]) => {
+    const nombre = categoria === 'doctorados' ? p.nombre : nombreCorto(p);
+    const modalidad = !esVirtual(p) && p.modalidad && !/^presencial$/i.test(p.modalidad) ? ` _(${p.modalidad.toLowerCase()})_` : '';
+    const valor = valorCorto(p) ?? 'valor por confirmar';
+    const duracion = categoria === 'maestrias' && p.duracion_semestres ? ` · ${p.duracion_semestres} sem` : '';
+    return `• ${nombre}${modalidad} — ${valor}${duracion}`;
+  };
+
+  const presenciales = programas.filter((p) => !esVirtual(p));
+  const virtuales = programas.filter((p) => esVirtual(p));
+  const bloques = virtuales.length
+    ? [`*Presenciales*\n${presenciales.map(linea).join('\n')}`, `*Virtuales (UTB Virtual)*\n${virtuales.map(linea).join('\n')}`]
+    : [presenciales.map(linea).join('\n')];
+
+  const enlaces = [`Conoce cada programa: ${POSGRADOS_URL}`];
+  if (virtuales.length) enlaces.push(`Posgrados virtuales: ${POSGRADOS_VIRTUALES_URL}`);
+  enlaces.push(`Valores y derechos de inscripción: ${DERECHOS_PECUNIARIOS_URL}`);
+
+  return (
+    `${ENCABEZADO_CATEGORIA[categoria]}\n` +
+    `_Valores de matrícula publicados para ${VIGENCIA_VALORES}; verifica condiciones vigentes antes de inscribirte._\n\n` +
+    bloques.join('\n\n') +
+    (categoria === 'doctorados' ? '\n\n_Consulta los requisitos propios de cada programa._' : '') +
+    '\n\n' +
+    enlaces.join('\n')
   );
 }

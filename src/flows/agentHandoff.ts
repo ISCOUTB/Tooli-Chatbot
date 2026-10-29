@@ -5,6 +5,7 @@ import { getOrCreateContact, createConversation } from '../services/chatwootServ
 import { track } from '../services/metrics';
 import { messaging } from './shared';
 import { parseOriginArea } from './commands';
+import { resumenRecomendacion } from './recomendacionView';
 
 export interface HandoffOptions {
   aiNoResolvio?: boolean;
@@ -54,9 +55,13 @@ export async function iniciarConversacionAsesor(
     area === 'posgrados' ? 'Interesado en Posgrado' :
     'Soporte Admisiones';
 
-  let contexto = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-  contexto += `🆘 Solicitud nueva — ${areaLabel}\n`;
-  contexto += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  // La primera línea es la vista previa de la conversación en la lista de
+  // Chatwoot: le dice al asesor de qué se trata sin tener que abrirla.
+  const asunto =
+    area === 'ti' ? data.plataforma :
+    area === 'posgrados' ? [data.posgradoInteres, data.nombre].filter(Boolean).join(' — ') :
+    data.nivel;
+  let contexto = `🆘 ${areaLabel}${asunto ? ` · ${asunto}` : ''}\n\n`;
   contexto += `📱 WhatsApp: +${from}\n`;
   contexto += `📅 Recibido: ${ahora}\n`;
   contexto += `🕐 Dentro de horario: ${fueraHorario ? '❌ NO (fuera de horario)' : '✅ Sí'}\n`;
@@ -75,6 +80,9 @@ export async function iniciarConversacionAsesor(
     if (data.nivel) contexto += `🏷️ Nivel: ${data.nivel}\n`;
     if (data.etapa) contexto += `📌 Etapa: ${data.etapa}\n`;
     if (data.descripcion) contexto += `📝 Consulta: ${data.descripcion}\n`;
+    // Si viene del flujo de recomendación por pregrado (vía la IA)
+    const recomendacion = resumenRecomendacion(data);
+    if (recomendacion) contexto += `🧭 ${recomendacion}\n`;
   } else {
     contexto += `🎓 Nivel: ${data.nivel}\n`;
     contexto += `📌 Etapa: ${data.etapa}\n`;
@@ -88,7 +96,7 @@ export async function iniciarConversacionAsesor(
     contexto += `   🪪 Cédula: ${data.verifCedula ?? '(no disponible)'}\n`;
   }
 
-  contexto += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+  contexto = contexto.trimEnd();
 
   let privateNote: string | undefined;
   if (opts.aiNoResolvio && data.aiHistory) {
@@ -114,7 +122,7 @@ export async function iniciarConversacionAsesor(
   await messaging.sendText({ to: from, text: '⏳ Conectándote con un asesor…' });
 
   try {
-    const contact = await getOrCreateContact(from, `Usuario ${from.slice(-4)}`);
+    const contact = await getOrCreateContact(from, data.nombre?.trim() || `Usuario ${from.slice(-4)}`);
     const labels: string[] = [];
     if (area === 'posgrados') labels.push('posgrado-prospecto');
     if (fueraHorario) labels.push('fuera-horario');

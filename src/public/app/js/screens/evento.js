@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, descargarCsv, fechaParaCsv, friendlyDate, initialsFor } from '../core/format.js';
+import { avatarTone, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -120,7 +120,7 @@ async function renderEventoPosgrado(main) {
       <div><h1>🔔 Evento Posgrados</h1><div class="subtitle">Prospectos del meetup "Retos del Management Digital" — dales seguimiento e invítalos a lo que sigue</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn btn-secondary" id="verCrmDesdeEvento">Ver CRM</button>
-        <button class="btn btn-secondary" id="exportEventoCsv">${icon('external', 14)} Exportar<span class="hide-sm"> CSV</span></button>
+        <button class="btn btn-secondary" id="exportEventoCsv">${icon('external', 14)} <span>Exportar<span class="hide-sm"> CSV</span></span></button>
         <button class="btn btn-secondary" id="refreshEvento"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
     </div>
@@ -254,7 +254,7 @@ async function renderEventoPosgrado(main) {
             <div class="crm-card-name">${escapeHtml(nombre)}</div>
             ${row[5] ? `<span class="badge" style="background:#7c3aed22;color:#7c3aed;margin-bottom:8px;">${escapeHtml(row[5])}</span>` : ''}
             <div class="crm-card-row">✉️ ${escapeHtml(row[3] || '—')}</div>
-            <div class="crm-card-row">📱 ${escapeHtml(row[1] || '—')}</div>
+            <div class="crm-card-row">📱 ${escapeHtml(formatTelefono(row[1]) || '—')}</div>
             ${!autoriza ? `<div class="crm-card-row" style="color:var(--danger);font-weight:600;">🔒 No autorizó contacto</div>` : ''}
             <div class="crm-card-date">${escapeHtml(friendlyDate(row[0]))}</div>
           </div>
@@ -398,7 +398,7 @@ async function renderEventoPosgrado(main) {
     // otorgar una beca real requiere proceso administrativo humano fuera del panel (no se inventa).
     openProfileSheet({
       avatarBg: avatarTone(nombre || whatsapp), avatarText: initialsFor(whatsapp || nombre, nombre),
-      title: nombre || 'Prospecto', subtitle: correo || (whatsapp ? `+${whatsapp}` : undefined),
+      title: nombre || 'Prospecto', subtitle: correo || (whatsapp ? formatTelefono(whatsapp) : undefined),
       badges: [
         ...(programa ? [{ label: programa, color: '#7c3aed' }] : []),
         { label: `${meta.icon} ${meta.value}`, color: meta.color },
@@ -406,7 +406,7 @@ async function renderEventoPosgrado(main) {
       ],
       rows: [
         ...(correo ? [{ icon: '📧', label: 'Email', value: correo }] : []),
-        ...(whatsapp ? [{ icon: '📱', label: 'WhatsApp', value: `+${whatsapp}` }] : []),
+        ...(whatsapp ? [{ icon: '📱', label: 'WhatsApp', value: formatTelefono(whatsapp) }] : []),
         ...(programa ? [{ icon: '🎓', label: 'Programa de interés', value: programa }] : []),
         ...(interesFin ? [{ icon: '💰', label: 'Interés en financiación', value: interesFin }] : []),
         { icon: '🗓️', label: 'Registrado', value: friendlyDate(fecha) },

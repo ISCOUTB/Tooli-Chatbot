@@ -66,7 +66,26 @@ export type MetricEvent =
   | 'verificacion_completada'
   // Notas
   | 'notas_consultadas'
-  | 'notas_no_encontradas';
+  | 'notas_no_encontradas'
+  // Recomendación de posgrados según el pregrado
+  | 'reco_inicio'
+  | 'reco_relacion_estudiante_utb'
+  | 'reco_relacion_egresado_utb'
+  | 'reco_relacion_externo'
+  | 'reco_pregrado_utb'
+  | 'reco_externo_coincide'
+  | 'reco_externo_sin_coincidencia'
+  | 'reco_resultados'
+  | 'reco_mas_opciones'
+  | 'reco_salida_pregrado'
+  | 'reco_salida_otras_gestiones'
+  | 'reco_ficha'
+  | 'reco_ia'
+  | 'reco_asesor'
+  | 'reco_consentimiento_no'
+  | 'reco_lead_completado'
+  | 'reco_campana_ver'
+  | 'reco_campana_baja';
 
 export interface MetricProps {
   area?: 'ti' | 'admisiones' | 'posgrados';

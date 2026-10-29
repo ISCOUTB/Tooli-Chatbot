@@ -1,6 +1,6 @@
 import { setSession } from '../services/session';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, sendMenuPosgrado, sendMenuPregrado, sendAreaPrompt } from './shared';
+import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPosgrado, sendMenuPregrado, sendAreaPrompt } from './shared';
 import { parseGlobalCommand } from './commands';
 import { iniciarConsultaDeNotas } from './notas';
 import { sendCategoriasMenu } from './programas';
@@ -9,8 +9,12 @@ import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 import { iniciarExploracionPregrado } from './pregradoExplorar';
 import { formatAdmissionGuide } from './admissionGuide';
 
-/** Paso 0 — el usuario todavía no eligió Pregrado o Posgrado. */
-export async function handleMenu(ctx: FlowContext): Promise<void> {
+/**
+ * "Otras gestiones": elegir Pregrado o Posgrado para llegar a sus menús
+ * (notas, turno, recibo, asesor…). Antes era la entrada del bot; ahora la
+ * entrada es el flujo de recomendación (`recomendacion.ts`).
+ */
+export async function handleMenuClasico(ctx: FlowContext): Promise<void> {
   const { from, text } = ctx;
   const input = text.trim();
 
@@ -26,14 +30,35 @@ export async function handleMenu(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  if (parseGlobalCommand(text) === null) {
-    await messaging.sendText({
-      to: from,
-      text: 'No reconocí esa opción 🤔\n\nElige *1* para Pregrado o *2* para Posgrado.',
-    });
+  if (parseGlobalCommand(text) !== null) {
+    await setSession(from, { step: 'menu', data: {} });
+    await sendMenu(from);
+    return;
   }
-  await track('menu_shown');
-  await sendMenu(from);
+
+  await messaging.sendText({
+    to: from,
+    text: 'No reconocí esa opción 🤔\n\nElige *1* para Pregrado o *2* para Posgrado.',
+  });
+  await sendMenuClasico(from);
+}
+
+/** Desde los menús de área: `0`/volver sube a "Otras gestiones"; menu/salir, al inicio. */
+async function salirDeMenuDeArea(from: string, text: string): Promise<boolean> {
+  const input = text.trim();
+  const comando = parseGlobalCommand(text);
+  if (input === '0' || comando === 'volver') {
+    await setSession(from, { step: 'menu_clasico', data: {} });
+    await sendMenuClasico(from);
+    return true;
+  }
+  if (comando === 'menu' || comando === 'salir') {
+    await setSession(from, { step: 'menu', data: {} });
+    await track('menu_shown');
+    await sendMenu(from);
+    return true;
+  }
+  return false;
 }
 
 /** Menú de Posgrado. */
@@ -41,11 +66,7 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
   const { from, text } = ctx;
   const input = text.trim();
 
-  if (input === '0' || parseGlobalCommand(text) !== null) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDeMenuDeArea(from, text)) return;
 
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
@@ -145,11 +166,7 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   const { from, text } = ctx;
   const input = text.trim();
 
-  if (input === '0' || parseGlobalCommand(text) !== null) {
-    await setSession(from, { step: 'menu', data: {} });
-    await sendMenu(from);
-    return;
-  }
+  if (await salirDeMenuDeArea(from, text)) return;
 
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
