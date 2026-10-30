@@ -28,7 +28,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const FICHA_KEY = (phone: string) => `crm:${phone}`;
 const INDEX_KEY = 'crm:index';
@@ -61,6 +61,31 @@ export interface FichaCrm {
   notas: NotaCrm[];
   actualizadoEn: number;
   actualizadoPor?: string;
+}
+
+export function reescribirUsuarioEnFicha(ficha: FichaCrm, viejo: string, nuevo: string): FichaCrm {
+  return {
+    ...ficha,
+    ...(ficha.asignadoA === viejo ? { asignadoA: nuevo } : {}),
+    ...(ficha.actualizadoPor === viejo ? { actualizadoPor: nuevo } : {}),
+    notas: ficha.notas.map((nota) => nota.autor === viejo ? { ...nota, autor: nuevo } : nota),
+  };
+}
+
+export async function renombrarUsuarioEnCrm(viejo: string, nuevo: string): Promise<void> {
+  const phones = await redis.smembers(INDEX_KEY);
+  if (!phones.length) return;
+  const raws = await redis.mget(phones.map(FICHA_KEY));
+  const pipe = redis.pipeline();
+  raws.forEach((raw, index) => {
+    if (!raw) return;
+    try {
+      const ficha = JSON.parse(raw) as FichaCrm;
+      const actualizada = reescribirUsuarioEnFicha(ficha, viejo, nuevo);
+      if (JSON.stringify(actualizada) !== raw) pipe.set(FICHA_KEY(phones[index]), JSON.stringify(actualizada));
+    } catch { /* Una ficha corrupta no debe bloquear las demás. */ }
+  });
+  await pipe.exec();
 }
 
 function fichaVacia(phone: string): FichaCrm {

@@ -5,6 +5,7 @@ import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.j
 import { avatarTone, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { newPasswordError } from '../core/password.js';
+import { normalizarUsuario, sugerirUsuario, validarUsuario } from '../core/usuario.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -28,7 +29,7 @@ async function renderUsuarios(main) {
     <div id="newUserPanel" class="hidden tool-panel" style="margin-bottom: 24px;">
       <h2>Crear nuevo usuario</h2>
       <form id="newUserForm">
-        <div class="field"><label for="nUsername">Usuario</label><input type="text" id="nUsername" autocomplete="off" required></div>
+        <div class="field"><label for="nUsername">Usuario</label><div class="username-input"><span aria-hidden="true">@</span><input type="text" id="nUsername" autocomplete="off" maxlength="30" aria-describedby="nUsernameError" required></div><div class="field-help username-error" id="nUsernameError" role="alert"></div></div>
         <div class="field"><label for="nFullName">Nombre completo</label><input type="text" id="nFullName" required></div>
         <div class="field"><label for="nEmail">Email (opcional)</label><input type="email" id="nEmail"></div>
         <div class="field"><label for="nPassword">Contraseña inicial</label><input type="password" id="nPassword" autocomplete="new-password" minlength="12" maxlength="72" aria-describedby="nPasswordHelp" required><div class="field-help" id="nPasswordHelp">Entre 12 caracteres y 72 bytes. Los acentos y emojis ocupan más de un byte.</div></div>
@@ -47,6 +48,91 @@ async function renderUsuarios(main) {
 
   setPullToRefresh(() => loadUsers());
   let loadSeq = 0;
+  function openEditUser(u) {
+    const focoPrevio = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'profile-sheet-overlay advisor-edit-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'editAdvisorTitle');
+    overlay.innerHTML = `
+      <div class="profile-sheet advisor-edit-dialog">
+        <button type="button" class="profile-sheet-close" aria-label="Cerrar">${icon('x', 16)}</button>
+        <h2 class="advisor-edit-title" id="editAdvisorTitle">Editar asesor</h2>
+        <form id="editAdvisorForm">
+          <div class="field"><label for="eUsername">Usuario</label><div class="username-input"><span aria-hidden="true">@</span><input id="eUsername" type="text" maxlength="30" autocomplete="off" value="${escapeHtml(u.username)}" aria-describedby="eUsernameError eUsernameNotice" required></div><div class="field-help username-error" id="eUsernameError" role="alert"></div><div class="advisor-rename-notice hidden" id="eUsernameNotice">La persona deberá entrar con el usuario nuevo; su contraseña no cambia</div></div>
+          <div class="field"><label for="eFullName">Nombre visible</label><input id="eFullName" type="text" maxlength="200" value="${escapeHtml(u.fullName)}" required></div>
+          <div class="field"><label for="eEmail">Correo</label><input id="eEmail" type="email" maxlength="254" value="${escapeHtml(u.email ?? '')}"></div>
+          <div class="field"><div id="eRoleLabel">Rol</div><div id="eRoleWrap" aria-labelledby="eRoleLabel"></div></div>
+          <div class="field"><div id="eAreaLabel">Área</div><div id="eAreaWrap" aria-labelledby="eAreaLabel"></div></div>
+          <div class="advisor-edit-error" id="editAdvisorError" role="alert" aria-live="polite"></div>
+          <div class="advisor-edit-actions"><button type="button" class="btn btn-ghost" id="cancelEditAdvisor">Cancelar</button><button type="submit" class="btn btn-primary" id="saveEditAdvisor">Guardar</button></div>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+    const usernameInput = overlay.querySelector('#eUsername');
+    const save = overlay.querySelector('#saveEditAdvisor');
+    let role = u.role;
+    let area = u.area ?? 'all';
+    overlay.querySelector('#eRoleWrap').appendChild(buildSegmented([{ value: 'asesor', label: 'Asesor' }, { value: 'admin', label: 'Admin' }], role, value => { role = value; }));
+    overlay.querySelector('#eAreaWrap').appendChild(buildSegmented([{ value: 'all', label: 'Todas' }, { value: 'ti', label: 'TI' }, { value: 'admisiones', label: 'Admisiones' }], area, value => { area = value; }));
+    const validate = () => {
+      const normalized = normalizarUsuario(usernameInput.value);
+      const changed = normalized !== u.username;
+      const error = changed ? validarUsuario(usernameInput.value) : null;
+      overlay.querySelector('#eUsernameError').textContent = error ?? '';
+      overlay.querySelector('#eUsernameNotice').classList.toggle('hidden', !changed);
+      usernameInput.toggleAttribute('aria-invalid', Boolean(error));
+      save.disabled = Boolean(error);
+      return !error;
+    };
+    usernameInput.addEventListener('input', validate);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      overlay.classList.remove('open');
+      document.removeEventListener('keydown', onKey);
+      setTimeout(() => overlay.remove(), 260);
+      const fallback = [...document.querySelectorAll('.advisor-card')].find(card => card.dataset.username === u.username);
+      if (focoPrevio?.isConnected) focoPrevio.focus({ preventScroll: true });
+      else fallback?.focus({ preventScroll: true });
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key !== 'Tab') return;
+      const controls = [...overlay.querySelectorAll('button, input')].filter(el => !el.disabled);
+      const first = controls[0]; const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    overlay.querySelector('.profile-sheet-close').addEventListener('click', close);
+    overlay.querySelector('#cancelEditAdvisor').addEventListener('click', close);
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+    overlay.querySelector('#editAdvisorForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!validate()) return;
+      save.disabled = true;
+      overlay.querySelector('#editAdvisorError').textContent = '';
+      const username = normalizarUsuario(usernameInput.value);
+      try {
+        const response = await api(`/api/auth/users/${encodeURIComponent(u.username)}`, { method: 'PATCH', body: JSON.stringify({ username, fullName: overlay.querySelector('#eFullName').value.trim(), email: overlay.querySelector('#eEmail').value.trim(), role, area }) });
+        if (!response?.ok) {
+          const error = await response?.json().catch(() => ({}));
+          overlay.querySelector('#editAdvisorError').textContent = error?.message || error?.error || 'No se pudo actualizar el asesor';
+          return;
+        }
+        close();
+        toast('Asesor actualizado');
+        if (u.username === sesion.user.username && username !== u.username) window.location.reload();
+        else loadUsers();
+      } catch { overlay.querySelector('#editAdvisorError').textContent = 'Sin conexión con el servidor. Intenta de nuevo.'; }
+      finally { if (save.isConnected) save.disabled = false; }
+    });
+    requestAnimationFrame(() => { overlay.classList.add('open'); usernameInput.focus({ preventScroll: true }); validate(); });
+  }
+
   async function loadUsers() {
     const table = main.querySelector('#usersTable');
     if (!table) return;
@@ -140,6 +226,7 @@ async function renderUsuarios(main) {
           }),
         ],
         actions: [
+          { label: 'Editar asesor', icon: '✏️', primary: true, onClick: () => openEditUser(u) },
           { label: 'Copiar usuario', icon: '🔗', onClick: () => copyToClipboard(u.username, 'Usuario copiado'), closeAfter: false },
           ...(u.username !== sesion.user.username ? [{ label: 'Eliminar usuario', icon: '🗑️', destructive: true, onClick: () => deleteUser(u.username) }] : []),
         ],
@@ -185,6 +272,7 @@ async function renderUsuarios(main) {
       card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAdvisorProfile(u); } });
       const actions = [
         { label: 'Ver perfil', icon: '👤', onClick: () => openAdvisorProfile(u) },
+        { label: 'Editar asesor', icon: '✏️', onClick: () => openEditUser(u) },
         { label: 'Copiar usuario', icon: '🔗', onClick: () => copyToClipboard(username, 'Usuario copiado') },
       ];
       if (u.email) actions.push({ label: 'Copiar email', icon: '📧', onClick: () => copyToClipboard(u.email, 'Email copiado') });
@@ -216,9 +304,25 @@ async function renderUsuarios(main) {
   });
   $('#cancelNewUser').addEventListener('click', () => $('#newUserPanel').classList.add('hidden'));
   $('#nPassword').addEventListener('input', () => $('#nPassword').removeAttribute('aria-invalid'));
+  let usernameEdited = false;
+  const validateNewUsername = () => {
+    const input = $('#nUsername');
+    const error = validarUsuario(input.value);
+    $('#nUsernameError').textContent = error ?? '';
+    input.toggleAttribute('aria-invalid', Boolean(error));
+    $('#createUserBtn').disabled = Boolean(error);
+    return !error;
+  };
+  $('#nUsername').addEventListener('input', () => { usernameEdited = true; validateNewUsername(); });
+  $('#nFullName').addEventListener('input', () => {
+    // Mientras el admin no escriba su propio usuario, se sugiere desde el nombre.
+    if (!usernameEdited) $('#nUsername').value = sugerirUsuario($('#nFullName').value);
+    validateNewUsername();
+  });
 
   $('#newUserForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!validateNewUsername()) { $('#nUsername').focus(); return; }
     const passwordInput = $('#nPassword');
     const policyError = newPasswordError(passwordInput.value);
     if (policyError) {
@@ -234,7 +338,7 @@ async function renderUsuarios(main) {
       const r = await api('/api/auth/users', {
         method: 'POST',
         body: JSON.stringify({
-          username: $('#nUsername').value.trim(),
+          username: normalizarUsuario($('#nUsername').value),
           fullName: $('#nFullName').value.trim(),
           email: $('#nEmail').value.trim() || undefined,
           password: $('#nPassword').value,
@@ -245,11 +349,12 @@ async function renderUsuarios(main) {
       if (!main.querySelector('#newUserPanel')) return;
       if (!r?.ok) {
         const err = await r?.json().catch(() => ({}));
-        $('#newUserAlert').textContent = err?.error || 'No se pudo crear el usuario';
+        $('#newUserAlert').textContent = err?.message || err?.error || 'No se pudo crear el usuario';
         return;
       }
       $('#newUserPanel').classList.add('hidden');
       $('#newUserForm').reset();
+      usernameEdited = false;
       loadUsers();
     } catch {
       if (main.querySelector('#newUserAlert')) $('#newUserAlert').textContent = 'Sin conexión con el servidor. Intenta de nuevo.';

@@ -120,3 +120,16 @@ export async function deleteQuickReply(id: string): Promise<boolean> {
   await guardar(filtrada);
   return true;
 }
+
+export async function renombrarUsuarioEnRespuestasRapidas(viejo: string, nuevo: string): Promise<void> {
+  const raw = await redis.get(KEY);
+  if (!raw) return;
+  const lista = JSON.parse(raw) as QuickReply[];
+  let cambio = false;
+  const actualizada = lista.map((reply) => {
+    if (reply.creadoPor !== viejo) return reply;
+    cambio = true;
+    return { ...reply, creadoPor: nuevo };
+  });
+  if (cambio) await redis.set(KEY, JSON.stringify(actualizada), 'KEEPTTL');
+}

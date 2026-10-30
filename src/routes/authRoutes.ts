@@ -7,6 +7,9 @@ import {
   updatePassword,
   toPublic,
   getUser,
+  updateUser,
+  renameUser,
+  UserServiceError,
 } from '../services/usersService';
 import {
   signSession,
@@ -126,7 +129,7 @@ authRouter.get('/users', requireAuth, requireAdmin, async (_req, res) => {
 authRouter.post('/users', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response) => {
   try {
     const { username, password, fullName, email, role, area } = req.body ?? {};
-    if (!username || !password || !fullName) {
+    if (!password || !fullName) {
       res.status(400).json({ error: 'missing_fields' });
       return;
     }
@@ -134,7 +137,66 @@ authRouter.post('/users', requireAuth, requireAdmin, async (req: AuthedRequest, 
     await logAudit(req.user!.username, 'usuario_creado', username);
     res.json({ user });
   } catch (err: any) {
+    if (err instanceof UserServiceError) {
+      res.status(err.code === 'username_taken' ? 409 : 400).json({ error: err.code, message: err.message });
+      return;
+    }
     res.status(400).json({ error: err?.message ?? 'create_failed' });
+  }
+});
+
+authRouter.patch('/users/:username', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response) => {
+  const viejo = req.params.username;
+  const body = req.body ?? {};
+  if (body.username !== undefined && typeof body.username !== 'string') {
+    res.status(400).json({ error: 'invalid_username', message: 'El usuario debe ser texto' });
+    return;
+  }
+  const self = viejo.toLowerCase() === req.user!.username.toLowerCase();
+  if (self && body.role === 'asesor') {
+    res.status(400).json({ error: 'cannot_demote_self', message: 'No puedes quitarte a ti mismo el rol de administrador' });
+    return;
+  }
+  try {
+    let actual = viejo;
+    let result;
+    if (body.username !== undefined && body.username !== viejo) {
+      const renamed = await renameUser(viejo, body.username);
+      actual = renamed.username;
+      result = renamed;
+    }
+    const cambios = {
+      ...(Object.prototype.hasOwnProperty.call(body, 'fullName') ? { fullName: body.fullName } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, 'email') ? { email: body.email } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, 'role') ? { role: body.role } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, 'area') ? { area: body.area } : {}),
+    };
+    let user = result;
+    if (Object.keys(cambios).length) user = await updateUser(actual, cambios);
+    if (!user) {
+      const stored = await getUser(actual);
+      if (!stored) throw new UserServiceError('not_found', 'El usuario no existe');
+      user = toPublic(stored);
+    }
+    if (self && actual !== viejo) {
+      const current = await getUser(actual);
+      if (current) setSessionCookie(res, signSession({ username: current.username, role: current.role, fullName: current.fullName, sessionVersion: current.sessionVersion }));
+    }
+    const campos = [
+      ...(body.fullName !== undefined ? ['nombre'] : []), ...(body.email !== undefined ? ['correo'] : []),
+      ...(body.role !== undefined ? ['rol'] : []), ...(body.area !== undefined ? ['área'] : []),
+    ];
+    const cambioNombre = viejo === actual ? viejo : `${viejo} → ${actual}`;
+    await logAudit(self ? actual : req.user!.username, 'usuario_actualizado', `${cambioNombre}${campos.length ? ` · ${campos.join(', ')}` : ''}`);
+    res.json({ user });
+  } catch (err) {
+    if (err instanceof UserServiceError) {
+      const status = err.code === 'not_found' ? 404 : err.code === 'username_taken' ? 409 : 400;
+      res.status(status).json({ error: err.code, message: err.message });
+      return;
+    }
+    console.error('[auth] no se pudo actualizar el asesor');
+    res.status(500).json({ error: 'update_failed', message: 'No se pudo actualizar el asesor. Intenta de nuevo.' });
   }
 });
 

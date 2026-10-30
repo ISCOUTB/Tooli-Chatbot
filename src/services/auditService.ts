@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const LOG_TTL = 60 * 60 * 24 * 90; // 90 días
 const LOG_KEY = (username: string) => `audit:${username}`;
@@ -18,6 +18,7 @@ export type AuditAction =
   | 'ia_activada'
   | 'ia_desactivada'
   | 'usuario_creado'
+  | 'usuario_actualizado'
   | 'usuario_eliminado'
   | 'seguimiento_evento_actualizado'
   | 'recordatorio_enviado'
@@ -66,6 +67,41 @@ export async function logAudit(username: string, action: AuditAction, detail?: s
 
 function parseEntries(raw: string[]): AuditEntry[] {
   return raw.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean) as AuditEntry[];
+}
+
+export function reescribirUsuarioEnAuditoria(raw: string[], viejo: string, nuevo: string): string[] {
+  return raw.map((item) => {
+    try {
+      const entry = JSON.parse(item) as AuditEntry;
+      if (entry.username === viejo) entry.username = nuevo;
+      return JSON.stringify(entry);
+    } catch {
+      return item;
+    }
+  });
+}
+
+async function guardarListaConTtl(key: string, entries: string[], ttl: number): Promise<void> {
+  const pipe = redis.pipeline().del(key);
+  if (entries.length) pipe.rpush(key, ...entries);
+  if (ttl > 0) pipe.pexpire(key, ttl);
+  await pipe.exec();
+}
+
+export async function renombrarUsuarioEnAuditoria(viejo: string, nuevo: string): Promise<void> {
+  const oldKey = LOG_KEY(viejo);
+  const newKey = LOG_KEY(nuevo);
+  const [[oldEntries, oldTtl], [globalEntries, globalTtl]] = await Promise.all([
+    Promise.all([redis.lrange(oldKey, 0, -1), redis.pttl(oldKey)]),
+    Promise.all([redis.lrange(GLOBAL_LOG_KEY, 0, -1), redis.pttl(GLOBAL_LOG_KEY)]),
+  ]);
+  if (oldEntries.length) {
+    await guardarListaConTtl(newKey, reescribirUsuarioEnAuditoria(oldEntries, viejo, nuevo), oldTtl);
+    await redis.del(oldKey);
+  }
+  if (globalEntries.length) {
+    await guardarListaConTtl(GLOBAL_LOG_KEY, reescribirUsuarioEnAuditoria(globalEntries, viejo, nuevo), globalTtl);
+  }
 }
 
 export async function getUserAudit(username: string, limit = 50): Promise<AuditEntry[]> {

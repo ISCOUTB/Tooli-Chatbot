@@ -10,6 +10,7 @@ const AUDIT_LABELS = {
   ia_activada: { label: 'Activó la IA', icon: '🤖' },
   ia_desactivada: { label: 'Apagó la IA', icon: '🤖' },
   usuario_creado: { label: 'Creó un usuario', icon: '➕' },
+  usuario_actualizado: { label: 'Editó un asesor', icon: '✏️' },
   usuario_eliminado: { label: 'Eliminó un usuario', icon: '🗑️' },
   seguimiento_evento_actualizado: { label: 'Actualizó seguimiento de un prospecto', icon: '🎯' },
   invitacion_evento_enviada: { label: 'Invitó a próximo evento por WhatsApp', icon: '📨' },
@@ -34,7 +35,7 @@ const AUDIT_AREAS = {
   pregrado: { label: 'Pregrado', color: '#0284c7', actions: ['turno_consultado', 'recibo_descargado'] },
   posgrado: { label: 'Posgrado', color: '#7c3aed', actions: ['seguimiento_evento_actualizado', 'invitacion_evento_enviada'] },
   atencion: { label: 'Atención directa', color: '#16a34a', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada'] },
-  administracion: { label: 'Administración', color: '#d97706', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_eliminado', 'ia_activada', 'ia_desactivada'] },
+  administracion: { label: 'Administración', color: '#d97706', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_actualizado', 'usuario_eliminado', 'ia_activada', 'ia_desactivada'] },
   sistema: { label: 'Sistema', color: '#64748b', actions: ['login'] },
 };
 function areaForAction(action) {
