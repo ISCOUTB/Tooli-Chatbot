@@ -22,7 +22,7 @@ async function renderUsuarios(main) {
 
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>👥 Gestión de usuarios</h1><div class="subtitle">Administra los asesores con acceso al sistema</div></div>
+      <div><h1>${icon('shield', 26)} Asesores</h1><div class="subtitle">Administra los asesores con acceso al sistema</div></div>
       <button class="btn btn-primary" id="newUserBtn">+ Nuevo usuario</button>
     </div>
 

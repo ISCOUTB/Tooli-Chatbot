@@ -4,6 +4,7 @@ import { CRM_ESTADOS, PROGRAMA_COLORS, PROGRAMA_LABELS, areaOf, crmCategoria, cr
 import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
+import { parametrosRuta } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { abrirConversacion } from './conversaciones.js';
@@ -21,10 +22,11 @@ const CRM_CSV_CABECERA = ['Fecha de registro', 'Nombre', 'Correo', 'WhatsApp', '
 
 /** ¿La fila pasa los filtros activos? No muta nada: solo decide. */
 function crmPasaFiltros(row, filtros) {
-  const { segmento = 'todos', etapa = 'todas', soloMios = false, usuario = null, q = '', fichas = {} } = filtros ?? {};
+  const { segmento = 'todos', etapa = 'todas', soloMios = false, sinAsignar = false, usuario = null, q = '', fichas = {} } = filtros ?? {};
   if (segmento !== 'todos' && crmCategoria(row) !== segmento) return false;
   if (etapa !== 'todas' && (fichas[row[3]]?.estado ?? 'nuevo') !== etapa) return false;
   if (soloMios && fichas[row[3]]?.asignadoA !== usuario) return false;
+  if (sinAsignar && fichas[row[3]]?.asignadoA) return false;
   const query = (q ?? '').trim().toLowerCase();
   if (!query) return true;
   return [row[1], row[2], row[4]].some(v => (v ?? '').toLowerCase().includes(query));
@@ -118,7 +120,7 @@ function hacerSegmentadoAccesible(wrap, etiqueta) {
 function exportarCrmCsv() {
   const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
   const pares = filtrarCrmRows(crmRows, {
-    segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+    segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios, sinAsignar: crmSinAsignar,
     usuario: sesion.user?.username, q, fichas: crmFichas,
   });
   const filas = pares.map(({ row }) => row);
@@ -139,15 +141,21 @@ let crmFilter = 'todos';
 let crmFichas = {};
 let crmEtapa = 'todas';
 let crmSoloMios = false;
+let crmSinAsignar = false;
 
 async function renderRegistros(main) {
+  const params = parametrosRuta();
+  const etapaInicial = params.get('etapa');
+  crmEtapa = CRM_ESTADOS.some(item => item.value === etapaInicial) ? etapaInicial : 'todas';
+  crmSoloMios = params.get('mios') === '1';
+  crmSinAsignar = params.get('sinAsignar') === '1';
   let selectMode = false;
   let selected = new Set();
   const canBroadcast = sesion.user?.role === 'admin';
 
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>📝 CRM — Prospectos</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
+      <div><h1>${icon('users', 26)} CRM</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
         ${canBroadcast ? `<button class="btn btn-secondary" id="openCampana">${icon('send', 14)} <span>Campaña<span class="hide-sm"> por pregrado</span></span></button>` : ''}
@@ -162,7 +170,8 @@ async function renderRegistros(main) {
     <div class="crm-etapa-fila" id="crmEtapaFila">
       <span class="crm-etapa-label">Etapa del embudo:</span>
       <div id="crmEtapaWrap"></div>
-      <button type="button" class="crm-mios" id="crmMios" aria-pressed="false">${icon('user', 13)} Solo los míos</button>
+      <button type="button" class="crm-mios ${crmSoloMios ? 'active' : ''}" id="crmMios" aria-pressed="${crmSoloMios}">${icon('user', 13)} Solo los míos</button>
+      <button type="button" class="crm-mios crm-sin-asignar ${crmSinAsignar ? 'active' : ''}" id="crmSinAsignar" aria-pressed="${crmSinAsignar}">${icon('x', 13)} Sin asignar</button>
     </div>
     <p id="crmSegResumen" class="seg-resumen" aria-live="polite"></p>
     <div id="broadcastBar" class="broadcast-bar hidden">
@@ -202,9 +211,26 @@ async function renderRegistros(main) {
   $('#crmMios').addEventListener('click', (e) => {
     haptic(10);
     crmSoloMios = !crmSoloMios;
+    if (crmSoloMios) {
+      crmSinAsignar = false;
+      $('#crmSinAsignar').classList.remove('active');
+      $('#crmSinAsignar').setAttribute('aria-pressed', 'false');
+    }
     const btn = e.currentTarget;
     btn.classList.toggle('active', crmSoloMios);
     btn.setAttribute('aria-pressed', String(crmSoloMios));
+    renderCrmGrid();
+  });
+  $('#crmSinAsignar').addEventListener('click', (e) => {
+    haptic(10);
+    crmSinAsignar = !crmSinAsignar;
+    if (crmSinAsignar) {
+      crmSoloMios = false;
+      $('#crmMios').classList.remove('active');
+      $('#crmMios').setAttribute('aria-pressed', 'false');
+    }
+    e.currentTarget.classList.toggle('active', crmSinAsignar);
+    e.currentTarget.setAttribute('aria-pressed', String(crmSinAsignar));
     renderCrmGrid();
   });
   $('#broadcastAll').addEventListener('click', () => {
@@ -649,7 +675,7 @@ async function renderRegistros(main) {
   function renderCrmGrid() {
     const q = ($('#crmSearch')?.value ?? '').trim().toLowerCase();
     const pares = filtrarCrmRows(crmRows, {
-      segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios,
+        segmento: crmFilter, etapa: crmEtapa, soloMios: crmSoloMios, sinAsignar: crmSinAsignar,
       usuario: sesion.user?.username, q, fichas: crmFichas,
     });
     const resumen = resumirSegmentos(crmRows);
@@ -661,6 +687,7 @@ async function renderRegistros(main) {
       // activos lo dejó vacío: se dice cuál y se ofrece quitarlo.
       const motivos = [];
       if (crmSoloMios) motivos.push('asignados a ti');
+      if (crmSinAsignar) motivos.push('sin asesor asignado');
       if (crmEtapa !== 'todas') motivos.push(`en etapa "${crmEstadoMeta(crmEtapa).label}"`);
       if (crmFilter !== 'todos') motivos.push(`de ${PROGRAMA_LABELS[crmFilter] ?? crmFilter}`);
       if (q) motivos.push(`que coincidan con "${q}"`);
@@ -673,11 +700,14 @@ async function renderRegistros(main) {
         </div>`;
       $('#crmLimpiarFiltros')?.addEventListener('click', () => {
         crmSoloMios = false;
+        crmSinAsignar = false;
         crmEtapa = 'todas';
         crmFilter = 'todos';
         if ($('#crmSearch')) $('#crmSearch').value = '';
         $('#crmMios')?.classList.remove('active');
         $('#crmMios')?.setAttribute('aria-pressed', 'false');
+        $('#crmSinAsignar')?.classList.remove('active');
+        $('#crmSinAsignar')?.setAttribute('aria-pressed', 'false');
         haptic(10);
         loadReg();
       });

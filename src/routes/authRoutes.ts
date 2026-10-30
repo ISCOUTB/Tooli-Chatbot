@@ -115,7 +115,7 @@ authRouter.post('/change-password', requireAuth, async (req: AuthedRequest, res:
   }
   const ok = await verifyPassword(req.user!.username, currentPassword);
   if (!ok) {
-    res.status(401).json({ error: 'wrong_current_password' });
+    res.status(403).json({ error: 'wrong_current_password', message: 'La contraseña actual no es correcta' });
     return;
   }
   await updatePassword(req.user!.username, newPassword);

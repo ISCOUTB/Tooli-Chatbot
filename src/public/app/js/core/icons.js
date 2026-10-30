@@ -35,9 +35,15 @@ const ICONS = {
   user: '<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5"/>',
   book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z"/><path d="M5 19.5A1.5 1.5 0 0 1 6.5 18H19v3H6.5A1.5 1.5 0 0 1 5 19.5Z"/>',
   bolt: '<path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z"/>',
+  headset: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14a2 2 0 0 1 2-2h2v7H6a2 2 0 0 1-2-2Z"/><path d="M20 14a2 2 0 0 0-2-2h-2v7h2a2 2 0 0 0 2-2Z"/><path d="M16 19c0 1.1-.9 2-2 2h-2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  funnel: '<path d="M3 5h18l-7 8v6l-4 2v-8Z"/>',
+  shield: '<path d="M12 3 20 6v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/>',
+  activity: '<path d="M4 19V9M10 19V5M16 19v-7M3 19h18"/><path d="m4 7 6-4 6 7 4-3"/>',
 };
 function icon(name, size = 20) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="icon-svg">${ICONS[name] ?? ''}</svg>`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="icon-svg" aria-hidden="true" focusable="false">${ICONS[name] ?? ''}</svg>`;
 }
 
 export { ICONS, icon };

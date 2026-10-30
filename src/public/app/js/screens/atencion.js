@@ -2,6 +2,7 @@ import { api } from '../core/api.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
+import { parametrosRuta } from '../core/router.js';
 import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarConversacionVisible, pedirPermisoAvisos, permisoAvisos, preferenciasAvisos } from '../core/realtime.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -112,12 +113,15 @@ let eventoTimer = null;
 let idsConEvento = new Set();
 
 async function renderAtencion(main) {
+  const params = parametrosRuta();
+  filtros.estado = ['open', 'pending', 'resolved'].includes(params.get('estado')) ? params.get('estado') : 'open';
+  filtros.asignado = ['mias', 'sin_asignar', 'todas'].includes(params.get('asignado')) ? params.get('asignado') : 'todas';
   abierta = null;
   marcarConversacionVisible(null);
   hiloSeq++;
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>🎧 Atención</h1><div class="subtitle">Conversaciones que el bot pasó a un asesor: responde, asigna y resuelve desde aquí.</div></div>
+      <div><h1>${icon('headset', 26)} Atención</h1><div class="subtitle">Conversaciones que el bot pasó a un asesor: responde, asigna y resuelve desde aquí.</div></div>
       <div class="atn-avisos" id="atnAvisos"></div>
     </div>
     <div class="inbox" id="atnInbox">

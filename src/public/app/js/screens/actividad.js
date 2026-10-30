@@ -16,7 +16,7 @@ async function renderActividad(main) {
 
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>📈 Rendimiento de asesores</h1><div class="subtitle">Actividad real registrada en el panel — últimos días</div></div>
+      <div><h1>${icon('activity', 26)} Actividad de asesores</h1><div class="subtitle">Actividad real registrada en el panel — últimos días</div></div>
       <div id="actRangeWrap"></div>
     </div>
     <div id="actContent">

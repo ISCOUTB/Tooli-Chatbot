@@ -8,7 +8,10 @@ function sheetMarkup({ title, subtitle, groups }) {
   }
   const actions = [];
   groups.forEach(group => {
-    html += '<div class="sheet-group">' + group.map(a => {
+    const title = Array.isArray(group) ? '' : group.title;
+    const groupActions = Array.isArray(group) ? group : group.actions;
+    if (title) html += `<div class="sheet-group-title">${escapeHtml(title)}</div>`;
+    html += '<div class="sheet-group">' + groupActions.map(a => {
       actions.push(a);
       const cls = [a.destructive ? 'destructive' : '', a.cancel ? 'cancel' : ''].filter(Boolean).join(' ');
       return `<button type="button" class="sheet-action ${cls}">${a.icon ? `<span class="sheet-icon" aria-hidden="true">${a.icon}</span>` : ''}${escapeHtml(a.label)}</button>`;

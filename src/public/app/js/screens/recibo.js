@@ -8,7 +8,7 @@ import { contextSheet } from '../ui/sheet.js';
 function renderRecibo(main) {
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>🧾 Descargar recibo de matrícula</h1><div class="subtitle">Tooli ingresa al portal Iceberg con las credenciales del estudiante y descarga el recibo.</div></div>
+      <div><h1>${icon('receipt', 26)} Descargar recibo</h1><div class="subtitle">Tooli ingresa al portal Iceberg con las credenciales del estudiante y descarga el recibo.</div></div>
     </div>
     <div class="tool-panel">
       <form id="reciboForm">

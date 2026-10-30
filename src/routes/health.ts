@@ -7,7 +7,7 @@ export const healthRouter = Router();
 
 const redis = new Redis(config.redis.url, { lazyConnect: true, maxRetriesPerRequest: 1 });
 
-interface CheckResult {
+export interface CheckResult {
   status: 'ok' | 'degraded' | 'down' | 'skipped';
   latencyMs?: number;
   detail?: string;
@@ -101,7 +101,8 @@ healthRouter.get('/', async (_req, res) => {
   res.json({ status: 'ok', message: 'use /health/deep para chequeo completo' });
 });
 
-healthRouter.get('/deep', async (_req, res) => {
+/** El panel Inicio consume exactamente los mismos chequeos que /health/deep. */
+export async function getDeepHealth() {
   const [redisR, metaR, openaiR, chatwootR, sheetsR] = await Promise.all([
     checkRedis(),
     checkMetaCloud(),
@@ -120,11 +121,14 @@ healthRouter.get('/deep', async (_req, res) => {
 
   const downCount = Object.values(checks).filter(c => c.status === 'down').length;
   const overall = downCount === 0 ? 'ok' : downCount >= 2 ? 'down' : 'degraded';
-  const httpStatus = overall === 'down' ? 503 : 200;
-
-  res.status(httpStatus).json({
+  return {
     status: overall,
     timestamp: new Date().toISOString(),
     checks,
-  });
+  };
+}
+
+healthRouter.get('/deep', async (_req, res) => {
+  const resultado = await getDeepHealth();
+  res.status(resultado.status === 'down' ? 503 : 200).json(resultado);
 });

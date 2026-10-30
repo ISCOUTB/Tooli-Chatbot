@@ -99,6 +99,22 @@ const RECORDATORIOS = [
   { id: 'r2', telefono: '573009876543', mensaje: 'Vence tu pago de matrícula', scheduledAt: hoy - 864e5, estado: 'enviado', createdBy: 'admin' },
   { id: 'r3', telefono: '573021110022', mensaje: 'Invitación al evento', scheduledAt: hoy - 2 * 864e5, estado: 'fallido', error: 'Fuera de la ventana de 24h', createdBy: 'ana' },
 ];
+const METRICAS_HOY = {
+  menu_shown: 143, ai_request: 11, agent_handoff: 6, registro_completado: 12,
+  turno_consultado: 31, recibo_descargado: 18, prospecto_completado: 9,
+  notas_consultadas: 22, academico_menu_shown: 27,
+};
+const SALUD_MOCK = {
+  status: 'degraded',
+  timestamp: new Date().toISOString(),
+  checks: {
+    redis: { status: 'ok', latencyMs: 3, timestamp: hoy },
+    meta: { status: 'ok', latencyMs: 210, timestamp: hoy },
+    sheets: { status: 'degraded', latencyMs: 1800, detail: 'Cuota casi agotada', timestamp: hoy },
+    iceberg: { status: 'down', detail: 'El portal no responde', timestamp: hoy },
+    chatwoot: { status: 'ok', latencyMs: 96, timestamp: hoy },
+  },
+};
 
 const j = (res, data) => res.json(data);
 
@@ -113,6 +129,14 @@ app.get('/api/auth/me', (_q, res) => !mockAuthenticated
 app.post('/api/auth/login', (req, res) => {
   if (req.body.password !== 'demo') return res.status(401).json({ error: 'invalid_credentials' });
   mockAuthenticated = true;
+  j(res, { ok: true });
+});
+// Cambiar contraseña: en el mock la actual es 'demo' (la misma del login).
+app.post('/api/auth/change-password', (req, res) => {
+  const { currentPassword, newPassword } = req.body ?? {};
+  if (typeof newPassword !== 'string' || newPassword.length < 12) return res.status(400).json({ error: 'invalid_input' });
+  if (currentPassword !== 'demo') return res.status(403).json({ error: 'wrong_current_password', message: 'La contraseña actual no es correcta' });
+  mockAuthenticated = false; // el servidor real cierra la sesión al cambiarla
   j(res, { ok: true });
 });
 app.post('/api/auth/logout', (_q, res) => { mockAuthenticated = false; j(res, { ok: true }); });
@@ -190,9 +214,7 @@ app.post('/api/tools/bot-users/:phone/reply', (req, res) => {
 app.post('/api/tools/bot-users/:phone/ai-toggle', (req, res) => j(res, { ok: true, aiDisabled: !!req.body.disabled }));
 app.post('/api/tools/bot-users/:phone/:action', (_q, res) => j(res, { ok: true }));
 
-app.get('/api/tools/metrics/today', (_q, res) => j(res, { metrics: {
-  menu_shown: 143, registro_completado: 12, turno_consultado: 31, recibo_descargado: 18,
-  prospecto_completado: 9, notas_consultadas: 22, academico_menu_shown: 27 } }));
+app.get('/api/tools/metrics/today', (_q, res) => j(res, { metrics: METRICAS_HOY }));
 app.get('/api/tools/metrics/range', (req, res) => {
   const days = Number(req.query.days || 7);
   const out = {};
@@ -280,6 +302,49 @@ app.get('/api/tools/atencion/resumen', (_q, res) => {
   const sinAsignar = abiertas.filter(c => !c.asignado).length;
   const misSinLeer = abiertas.filter(c => c.asignado?.id === yoAtencion() && c.noLeidos > 0).length;
   j(res, { sinAsignar, misSinLeer, pendientes: sinAsignar + misSinLeer });
+});
+
+// Inicio ensambla las mismas colecciones del mock para que los filtros lleven
+// a cifras que la persona puede comprobar en las pantallas de detalle.
+app.get('/api/tools/inicio', (_q, res) => {
+  const admin = ROL === 'admin';
+  const username = admin ? mockAdminUsername : 'luis';
+  const abiertas = ATENCION.filter(c => c.estado === 'open');
+  const miId = yoAtencion();
+  const sinAsignar = abiertas.filter(c => !c.asignado);
+  const atencion = process.env.MOCK_ATENCION_OFF ? {
+    estado: 'no_configurado', sinAsignar: 0, misSinLeer: 0, mias: 0, vinculado: false, esperaMasLargaMin: null,
+  } : {
+    estado: 'ok',
+    sinAsignar: sinAsignar.length,
+    misSinLeer: abiertas.filter(c => c.asignado?.id === miId && c.noLeidos > 0).length,
+    mias: abiertas.filter(c => c.asignado?.id === miId).length,
+    vinculado: true,
+    esperaMasLargaMin: sinAsignar.length ? Math.floor((hoy - Math.min(...sinAsignar.map(c => c.mensajes.at(-1)?.ts || hoy))) / 60000) : null,
+    ...(admin ? { porAsesor: AGENTES.map(a => ({ id: a.id, nombre: a.nombre, disponible: a.estado === 'online', abiertas: abiertas.filter(c => c.asignado?.id === a.id).length })) } : {}),
+  };
+  const mios = { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 };
+  let seguimientoSinAsignar = 0;
+  Object.values(FICHAS).forEach(f => {
+    if (f.asignadoA === username) mios[f.estado]++;
+    if (!f.asignadoA && ['contactado', 'interesado'].includes(f.estado)) seguimientoSinAsignar++;
+  });
+  const reminders = admin ? RECORDATORIOS : RECORDATORIOS.filter(r => r.createdBy === username);
+  const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
+  const interacciones = ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado'].reduce((total, clave) => total + METRICAS_HOY[clave], 0);
+  const afectados = Object.entries(SALUD_MOCK.checks).filter(([, check]) => ['down', 'degraded'].includes(check.status)).map(([servicio, check]) => ({
+    servicio,
+    nivel: check.status === 'down' ? 'caido' : 'degradado',
+    mensaje: servicio === 'iceberg' ? 'No se pueden consultar turnos ni descargar recibos' : 'Los registros nuevos del CRM pueden tardar en aparecer',
+    ...(admin && check.detail ? { detalle: check.detail } : {}),
+  }));
+  j(res, {
+    rol: admin ? 'admin' : 'asesor', generadoEn: Date.now(), atencion,
+    seguimiento: process.env.MOCK_INICIO_ERROR ? { estado: 'error', mios: { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 }, sinAsignar: 0 } : { estado: 'ok', mios, sinAsignar: seguimientoSinAsignar },
+    recordatorios: { estado: 'ok', fallidos: reminders.filter(r => r.estado === 'fallido').length, programadosHoy: reminders.filter(r => r.estado === 'programado' && r.scheduledAt >= inicio.getTime() && r.scheduledAt < inicio.getTime() + 864e5).length },
+    hoy: { estado: 'ok', interaccionesBot: interacciones, derivadosAsesor: METRICAS_HOY.agent_handoff, prospectosNuevos: METRICAS_HOY.prospecto_completado, preguntasIa: METRICAS_HOY.ai_request },
+    servicios: { estado: 'ok', afectados },
+  });
 });
 // Solo del mock: simula que la persona escribe (o que llega alguien nuevo).
 // POST /api/mock/atencion/simular { id?: number, texto?: string }
@@ -591,17 +656,7 @@ app.post('/api/tools/recibo', (req, res) => {
   res.set('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF'));
 });
 app.get('/api/auth/chatwoot-sso', (_q, res) => j(res, { url: 'https://chat.example.com/sso' }));
-app.get('/health/deep', (_q, res) => j(res, {
-  status: 'degraded',
-  timestamp: new Date().toISOString(),
-  checks: {
-    redis:    { status: 'ok',       latencyMs: 3,    timestamp: hoy },
-    meta:     { status: 'ok',       latencyMs: 210,  timestamp: hoy },
-    sheets:   { status: 'degraded', latencyMs: 1800, detail: 'Cuota casi agotada', timestamp: hoy },
-    iceberg:  { status: 'down',     detail: 'El portal no responde', timestamp: hoy },
-    chatwoot: { status: 'ok',       latencyMs: 96,   timestamp: hoy },
-  },
-}));
+app.get('/health/deep', (_q, res) => j(res, SALUD_MOCK));
 
 app.use('/app', express.static(path.join(__dirname, '..', 'src', 'public', 'app')));
 app.get('/', (_q, res) => res.redirect('/app/index.html'));

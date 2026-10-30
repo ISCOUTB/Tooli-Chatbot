@@ -1,6 +1,7 @@
 import { api } from '../core/api.js';
 import { $, escapeHtml, haptic, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
+import { parametrosRuta } from '../core/router.js';
 import { estadoVentanaRecordatorio } from '../core/reminder-window.js';
 import { sesion } from '../core/session.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -47,6 +48,8 @@ let remLista = [];
 let remLoadSeq = 0;
 
 async function renderRecordatorios(main) {
+  const estadoInicial = parametrosRuta().get('estado');
+  remFiltro = ['programado', 'enviado', 'fallido', 'todos'].includes(estadoInicial) ? estadoInicial : 'programado';
   // Por defecto, la próxima hora en punto: lo más común es "mándalo mañana a las 8".
   const sugerida = new Date(Date.now() + 60 * 60 * 1000);
   sugerida.setMinutes(0, 0, 0);

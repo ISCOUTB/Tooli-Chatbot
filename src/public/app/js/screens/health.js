@@ -3,6 +3,7 @@ import { $, $$, escapeHtml } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
+import { navigate } from '../core/router.js';
 import { attachTooltip } from '../ui/controls.js';
 
 const HEALTH_LABELS = {
@@ -11,9 +12,10 @@ const HEALTH_LABELS = {
 
 /* ============= ESTADO DEL SISTEMA ============= */
 async function renderHealth(main) {
+  if (sesion.user.role !== 'admin') { navigate('home'); return; }
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>❤️ Estado del sistema</h1><div class="subtitle">Verifica que todos los servicios externos estén respondiendo.</div></div>
+      <div><h1>${icon('pulse', 26)} Estado del sistema</h1><div class="subtitle">Verifica que todos los servicios externos estén respondiendo.</div></div>
       <button class="btn btn-secondary" id="refreshHealth"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
     </div>
     <div id="healthContent">

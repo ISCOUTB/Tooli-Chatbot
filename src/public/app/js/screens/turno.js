@@ -7,7 +7,7 @@ import { contextSheet } from '../ui/sheet.js';
 function renderTurno(main) {
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>📋 Consultar turno de matrícula</h1><div class="subtitle">Busca el turno asignado a un estudiante por su código.</div></div>
+      <div><h1>${icon('clipboard', 26)} Consultar turno</h1><div class="subtitle">Busca el turno asignado a un estudiante por su código.</div></div>
     </div>
     <div class="tool-panel">
       <form id="turnoForm">
