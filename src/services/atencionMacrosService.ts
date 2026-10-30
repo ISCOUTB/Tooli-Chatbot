@@ -151,3 +151,16 @@ export async function eliminarMacro(id: string): Promise<boolean> {
   await redis.set(KEY, JSON.stringify(filtrada));
   return true;
 }
+
+export async function renombrarUsuarioEnMacros(viejo: string, nuevo: string): Promise<void> {
+  const raw = await redis.get(KEY);
+  if (!raw) return;
+  const lista = JSON.parse(raw) as Macro[];
+  let cambio = false;
+  const actualizada = lista.map((macro) => {
+    if (macro.creadoPor !== viejo) return macro;
+    cambio = true;
+    return { ...macro, creadoPor: nuevo };
+  });
+  if (cambio) await redis.set(KEY, JSON.stringify(actualizada), 'KEEPTTL');
+}

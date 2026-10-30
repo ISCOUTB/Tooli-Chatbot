@@ -1019,6 +1019,22 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .advisor-stat { flex: 1; min-width: 0; }
 .advisor-stat-value { font-size: 15px; font-weight: 700; color: var(--utb-blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .advisor-stat-label { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 1px; }
+.username-input { display: flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface, #fff); overflow: hidden; }
+.username-input:focus-within { border-color: var(--utb-blue); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12); }
+.username-input > span { padding-left: 12px; color: var(--text-muted); font-weight: 600; }
+.username-input input { min-width: 0; flex: 1; border: 0; box-shadow: none !important; background: transparent; }
+.username-error { color: var(--danger); min-height: 18px; }
+.advisor-edit-dialog { width: min(520px, 100%); }
+.advisor-edit-title { margin: 0 40px 20px 0; font-size: 20px; }
+.advisor-rename-notice { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-md); background: #fff7ed; color: #9a3412; font-size: 12.5px; line-height: 1.4; }
+.advisor-edit-error { min-height: 22px; color: var(--danger); font-size: 13px; }
+.advisor-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+@media (max-width: 480px) {
+  .advisor-edit-overlay { align-items: flex-end; padding: 0; }
+  .advisor-edit-dialog { width: 100%; max-height: 94vh; border-radius: 22px 22px 0 0; padding: 24px 16px max(18px, env(safe-area-inset-bottom)); }
+  .advisor-edit-actions { position: sticky; bottom: 0; background: var(--surface, #fff); padding-top: 10px; }
+  .advisor-edit-actions .btn { flex: 1; }
+}
 
 /* ===================================================================
    Modal de perfil genérico (asesor / estudiante) — avatar grande,

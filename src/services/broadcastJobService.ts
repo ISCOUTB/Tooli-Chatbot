@@ -142,6 +142,28 @@ export async function getBroadcastJob(id: string, store: BroadcastStore = redis)
   return raw ? parseJob(raw) : null;
 }
 
+export async function renombrarUsuarioEnBroadcasts(viejo: string, nuevo: string): Promise<void> {
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', 'broadcast:job:*', 'COUNT', 100);
+    cursor = next;
+    if (!keys.length) continue;
+    const raws = await redis.mget(keys);
+    const pipe = redis.pipeline();
+    raws.forEach((raw, index) => {
+      if (!raw) return;
+      try {
+        const job = parseJob(raw);
+        if (job.createdBy === viejo) {
+          job.createdBy = nuevo;
+          pipe.set(keys[index], JSON.stringify(job), 'KEEPTTL');
+        }
+      } catch { /* Un trabajo corrupto no debe bloquear los demás. */ }
+    });
+    await pipe.exec();
+  } while (cursor !== '0');
+}
+
 async function claimJob(now: number): Promise<BroadcastJob | null | 'skip'> {
   const token = randomUUID();
   const raw = await redis.eval(

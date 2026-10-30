@@ -69,10 +69,31 @@ const FICHAS = {
     notas: [{ id: 'n1', autor: 'luis', ts: hace(120), texto: 'Pidió info de financiación. Le envié el link.' }] },
 };
 const USUARIOS = [
-  { username: 'admin', fullName: 'Ángel Acero', role: 'admin', area: 'all' },
+  { username: 'ángel acero', fullName: 'Ángel Acero', role: 'admin', area: 'all' },
   { username: 'luis', fullName: 'Luis Pérez', role: 'asesor', area: 'admisiones' },
   { username: 'ana', fullName: 'Ana Díaz', role: 'asesor', area: 'posgrados' },
 ];
+let mockAdminUsername = 'ángel acero';
+const normalizarUsuario = texto => String(texto ?? '').trim().toLowerCase();
+const sugerirUsuario = nombre => normalizarUsuario(nombre).replace(/ñ/g, 'n').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9._]/g, '').slice(0, 30);
+const validarUsuario = username => {
+  const valor = normalizarUsuario(username);
+  if (/[ñáéíóúü]/i.test(valor) || valor.normalize('NFD') !== valor) return `El usuario no puede llevar tildes ni ñ${sugerirUsuario(valor) ? `: usa «${sugerirUsuario(valor)}»` : ''}`;
+  if (/\s/.test(valor)) return 'El usuario no puede llevar espacios';
+  if (valor.length < 3 || valor.length > 30) return 'El usuario debe tener entre 3 y 30 caracteres';
+  if (!/^[a-z0-9._]+$/.test(valor)) return 'El usuario solo puede llevar letras a-z, números, punto y guion bajo';
+  if (valor.startsWith('.') || valor.endsWith('.')) return 'El usuario no puede empezar ni terminar en punto';
+  if (valor.includes('..')) return 'El usuario no puede llevar dos puntos seguidos';
+  if (!/[a-z]/.test(valor)) return 'El usuario debe incluir al menos una letra';
+  return null;
+};
+const validarDatosUsuario = ({ fullName, email, role, area }, requiereNombre) => {
+  if ((requiereNombre || fullName !== undefined) && (typeof fullName !== 'string' || !fullName.trim() || fullName.trim().length > 200)) return 'El nombre visible es obligatorio y no puede superar 200 caracteres';
+  if (email !== undefined && (typeof email !== 'string' || email.length > 254)) return 'El correo no puede superar 254 caracteres';
+  if (role !== undefined && !['admin', 'asesor'].includes(role)) return 'El rol no es válido';
+  if (area !== undefined && !['all', 'ti', 'admisiones'].includes(area)) return 'El área no es válida';
+  return null;
+};
 const RECORDATORIOS = [
   { id: 'r1', telefono: '573001234567', mensaje: 'Recuerda tu cita de asesoría mañana', scheduledAt: hoy + 864e5, estado: 'programado', createdBy: 'luis' },
   { id: 'r2', telefono: '573009876543', mensaje: 'Vence tu pago de matrícula', scheduledAt: hoy - 864e5, estado: 'enviado', createdBy: 'admin' },
@@ -85,7 +106,7 @@ const j = (res, data) => res.json(data);
 app.get('/api/auth/me', (_q, res) => !mockAuthenticated
   ? res.status(401).json({ error: 'no autenticado' })
   : j(res, {
-  user: { username: ROL === 'admin' ? 'admin' : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
+  user: { username: ROL === 'admin' ? mockAdminUsername : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
   urls: { chatwoot: 'https://chat.example.com', grafana: 'https://grafana.example.com' },
   capabilities: { chatwootSso: true, metaWindow: true },
 }));
@@ -97,11 +118,42 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/logout', (_q, res) => { mockAuthenticated = false; j(res, { ok: true }); });
 app.get('/api/auth/users', (_q, res) => j(res, { users: USUARIOS }));
 app.post('/api/auth/users', (req, res) => {
-  const { username, fullName, email, role, area } = req.body;
-  if (USUARIOS.some(u => u.username === username)) return res.status(409).json({ error: 'El usuario ya existe' });
-  const user = { username, fullName, email, role, area };
+  let { username, fullName, email, role, area } = req.body;
+  username = normalizarUsuario(username);
+  const usernameError = validarUsuario(username);
+  if (usernameError) return res.status(400).json({ error: 'invalid_username', message: usernameError });
+  const dataError = validarDatosUsuario({ fullName, email, role, area }, true);
+  if (dataError) return res.status(400).json({ error: 'invalid_data', message: dataError });
+  if (USUARIOS.some(u => u.username === username)) return res.status(409).json({ error: 'username_taken', message: 'El nombre de usuario ya está en uso' });
+  const user = { username, fullName: fullName.trim(), email: email?.trim() || undefined, role: role ?? 'asesor', area: area ?? 'all' };
   USUARIOS.push(user);
   j(res, { ok: true, user });
+});
+app.patch('/api/auth/users/:username', (req, res) => {
+  const viejo = req.params.username;
+  const user = USUARIOS.find(u => u.username === viejo);
+  if (!user) return res.status(404).json({ error: 'not_found', message: 'El usuario no existe' });
+  const self = ROL === 'admin' && viejo === mockAdminUsername;
+  if (self && req.body.role !== undefined && req.body.role !== 'admin') return res.status(400).json({ error: 'cannot_demote_self', message: 'No puedes quitarte a ti mismo el rol de administrador' });
+  const dataError = validarDatosUsuario(req.body, false);
+  if (dataError) return res.status(400).json({ error: 'invalid_data', message: dataError });
+  if (user.role === 'admin' && req.body.role === 'asesor' && USUARIOS.filter(u => u.role === 'admin').length <= 1) return res.status(400).json({ error: 'last_admin', message: 'Debe quedar al menos un administrador' });
+  if (req.body.username !== undefined) {
+    if (typeof req.body.username !== 'string') return res.status(400).json({ error: 'invalid_username', message: 'El usuario debe ser texto' });
+    const nuevo = normalizarUsuario(req.body.username);
+    if (nuevo !== viejo) {
+      const usernameError = validarUsuario(nuevo);
+      if (usernameError) return res.status(400).json({ error: 'invalid_username', message: usernameError });
+      if (USUARIOS.some(u => u.username === nuevo)) return res.status(409).json({ error: 'username_taken', message: 'El nombre de usuario ya está en uso' });
+      user.username = nuevo;
+      if (self) mockAdminUsername = nuevo;
+    }
+  }
+  if (req.body.fullName !== undefined) user.fullName = req.body.fullName.trim();
+  if (req.body.email !== undefined) user.email = req.body.email.trim() || undefined;
+  if (req.body.role !== undefined) user.role = req.body.role;
+  if (req.body.area !== undefined) user.area = req.body.area;
+  j(res, { user });
 });
 app.delete('/api/auth/users/:username', (req, res) => {
   const i = USUARIOS.findIndex(u => u.username === req.params.username);

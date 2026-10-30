@@ -141,7 +141,9 @@ async function visit(page, route) {
     await page.locator('#fichaEstados [data-estado="interesado"]').click();
     await page.locator('#fichaEstados [data-estado="interesado"].active').waitFor();
     await page.locator('#fichaAsignarBtn').click();
-    await page.waitForFunction(() => document.querySelector('#fichaAsignado')?.textContent === 'admin');
+    // El usuario del admin conectado depende del mock: se lee de la sesión.
+    const adminUsername = await page.evaluate(async () => (await (await fetch('/api/auth/me')).json()).user.username);
+    await page.waitForFunction((u) => document.querySelector('#fichaAsignado')?.textContent === u, adminUsername);
     await page.locator('#fichaEtiquetaInput').fill('qa');
     await page.locator('#fichaEtiquetaInput').press('Enter');
     await page.locator('#fichaEtiquetas .crm-etiqueta').filter({ hasText: 'qa' }).waitFor();

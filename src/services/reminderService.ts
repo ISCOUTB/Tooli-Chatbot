@@ -140,6 +140,24 @@ export async function listReminders(opts: { estado?: ReminderEstado; limit?: num
   return items.slice(0, limit);
 }
 
+export async function renombrarUsuarioEnRecordatorios(viejo: string, nuevo: string): Promise<void> {
+  const ids = await redis.zrange(INDEX_KEY, 0, -1);
+  if (!ids.length) return;
+  const raws = await redis.mget(ids.map(ITEM_KEY));
+  const pipe = redis.pipeline();
+  raws.forEach((raw, index) => {
+    if (!raw) return;
+    try {
+      const reminder = JSON.parse(raw) as Reminder;
+      if (reminder.createdBy === viejo) {
+        reminder.createdBy = nuevo;
+        pipe.set(ITEM_KEY(ids[index]), JSON.stringify(reminder), 'KEEPTTL');
+      }
+    } catch { /* Un item corrupto no debe bloquear los demás. */ }
+  });
+  await pipe.exec();
+}
+
 /** Barre una porción del índice en cada tick: los items resueltos expiran,
  * pero sus IDs no deben acumularse indefinidamente en el sorted set. */
 async function cleanupExpiredIndexBatch(): Promise<void> {
