@@ -117,7 +117,7 @@ let becaVista = 'todos'; // 'todos' | 'beca' — filtro rápido de candidatos a 
 async function renderEventoPosgrado(main) {
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>🔔 Evento Posgrados</h1><div class="subtitle">Prospectos del meetup "Retos del Management Digital" — dales seguimiento e invítalos a lo que sigue</div></div>
+      <div><h1>${icon('calendar', 26)} Evento posgrados</h1><div class="subtitle">Prospectos del meetup "Retos del Management Digital" — dales seguimiento e invítalos a lo que sigue</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn btn-secondary" id="verCrmDesdeEvento">Ver CRM</button>
         <button class="btn btn-secondary" id="exportEventoCsv">${icon('external', 14)} <span>Exportar<span class="hide-sm"> CSV</span></span></button>

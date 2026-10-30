@@ -55,7 +55,7 @@ async function renderMetricas(main) {
   destroyMetricsCharts();
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>📊 Métricas del bot</h1><div class="subtitle">Actividad general de Tooli — no solo posgrados</div></div>
+      <div><h1>${icon('chart', 26)} Métricas</h1><div class="subtitle">Actividad general de Tooli — no solo posgrados</div></div>
       <div id="metRangeWrap"></div>
     </div>
     <div id="metricsContent">

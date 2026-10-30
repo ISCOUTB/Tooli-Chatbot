@@ -65,7 +65,7 @@ async function renderConversaciones(main) {
   mainEl = main;
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>💬 Conversaciones</h1><div class="subtitle">Últimos usuarios que han escrito por WhatsApp — historial, sesión y acciones rápidas.</div></div>
+      <div><h1>${icon('message', 26)} Conversaciones</h1><div class="subtitle">Últimos usuarios que han escrito por WhatsApp — historial, sesión y acciones rápidas.</div></div>
     </div>
     <div class="inbox" id="inbox">
       <div class="inbox-list glass" id="inboxList">

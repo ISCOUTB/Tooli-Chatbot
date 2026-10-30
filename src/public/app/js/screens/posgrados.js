@@ -1,5 +1,6 @@
 import { api } from '../core/api.js';
 import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -41,7 +42,7 @@ async function renderPosgrados(main) {
   destroyPgCharts();
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>🎓 Posgrados</h1><div class="subtitle">Métricas de prospectos, registros y programas consultados</div></div>
+      <div><h1>${icon('funnel', 26)} Embudo de posgrados</h1><div class="subtitle">Métricas de prospectos, registros y programas consultados</div></div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <a class="btn btn-secondary" href="${sesion.urls.chatwoot}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">💬 Ver prospectos</a>
         <div id="pgRangeWrap"></div>
