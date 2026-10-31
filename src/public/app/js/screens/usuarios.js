@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import { AUDIT_LABELS } from '../core/audit.js';
 import { crmEstadoMeta } from '../core/crm.js';
-import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
+import { $, $$, copyToClipboard, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
 import { avatarTone, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { newPasswordError } from '../core/password.js';
@@ -254,7 +254,7 @@ async function renderUsuarios(main) {
               </div>
               <div class="crm-card-name">${escapeHtml(u.fullName)}</div>
               <div class="crm-card-row">@${escapeHtml(u.username)} · ${u.area && u.area !== 'all' ? escapeHtml(areaLabel(u.area)) : 'Todas las áreas'}</div>
-              ${u.email ? `<div class="crm-card-row">✉️ ${escapeHtml(u.email)}</div>` : ''}
+              ${u.email ? `<div class="crm-card-row">${emoji('✉️')}<span class="sr-only">Correo: </span> ${escapeHtml(u.email)}</div>` : ''}
               <!-- El área va junto al usuario: como tercera cifra no cabía y quedaba "Admis…". -->
               <div class="advisor-stat-strip">
                 <div class="advisor-stat"><div class="advisor-stat-value">${total}</div><div class="advisor-stat-label">acciones · 7d</div></div>

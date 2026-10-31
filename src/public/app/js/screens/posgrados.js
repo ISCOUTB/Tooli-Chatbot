@@ -1,5 +1,5 @@
 import { api } from '../core/api.js';
-import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { $, emoji, escapeHtml, loadScript } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -45,7 +45,7 @@ async function renderPosgrados(main) {
     <div class="page-header">
       <div><h1>${icon('funnel', 26)} Embudo de posgrados</h1><div class="subtitle">Métricas de prospectos, registros y programas consultados</div></div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <a class="btn btn-secondary" href="${escapeHtml(sesion.urls.chatwoot)}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">💬 Ver prospectos</a>
+        <a class="btn btn-secondary" href="${escapeHtml(sesion.urls.chatwoot)}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">${emoji('💬')} Ver prospectos</a>
         <div id="pgRangeWrap"></div>
       </div>
     </div>
@@ -130,17 +130,17 @@ async function renderPosgrados(main) {
         </div>
 
         <div class="card" style="margin-bottom:16px;">
-          <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Actividad diaria — posgrados</h3>
+          <h2 class="card-title">Actividad diaria — posgrados</h2>
           <div id="pgChartDailyWrap" style="position:relative;height:240px;"><canvas id="pgChartDaily"></canvas></div>
         </div>
 
         <div class="posgrados-split" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
-            <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Programas consultados</h3>
+            <h2 class="card-title">Programas consultados</h2>
             <div id="pgChartProgramasWrap" style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
           </div>
           <div class="card">
-            <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Embudo prospectos</h3>
+            <h2 class="card-title">Embudo prospectos</h2>
             <div id="pgChartFunnelWrap" style="position:relative;height:200px;"><canvas id="pgChartFunnel"></canvas></div>
           </div>
         </div>

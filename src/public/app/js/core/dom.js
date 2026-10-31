@@ -35,6 +35,12 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+/* Los emojis que acompañan texto son decorativos: siguen visibles sin
+   duplicar o entorpecer el nombre que anuncia el lector de pantalla. */
+function emoji(caracter) {
+  return `<span aria-hidden="true">${escapeHtml(caracter)}</span>`;
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const existente = document.querySelector(`script[src="${src}"]`);
@@ -52,4 +58,4 @@ function loadScript(src) {
   });
 }
 
-export { $, $$, haptic, toast, copyToClipboard, escapeHtml, loadScript };
+export { $, $$, haptic, toast, copyToClipboard, emoji, escapeHtml, loadScript };

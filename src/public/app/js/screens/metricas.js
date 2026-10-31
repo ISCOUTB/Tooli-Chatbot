@@ -1,5 +1,5 @@
 import { api } from '../core/api.js';
-import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { $, emoji, escapeHtml, loadScript } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
@@ -64,7 +64,7 @@ async function renderMetricas(main) {
         ${Array.from({ length: 4 }).map(() => `<div class="stat-card"><div class="skeleton skeleton-line" style="width:70px;height:11px;margin-bottom:8px;"></div><div class="skeleton skeleton-line" style="width:50px;height:26px;"></div></div>`).join('')}
       </div>
       <div class="card" style="margin-bottom:16px;"><div class="skeleton" style="height:220px;border-radius:12px;"></div></div>
-      <div class="widget-card"><div class="widget-card-head"><h3>Eventos por tipo</h3></div>
+      <div class="widget-card"><div class="widget-card-head"><h2>Eventos por tipo</h2></div>
         ${Array.from({ length: 6 }).map(() => `<div class="skeleton skeleton-line" style="height:13px;margin:14px 20px;"></div>`).join('')}
       </div>
     </div>
@@ -114,19 +114,19 @@ async function renderMetricas(main) {
         </div>
 
         <div class="card" style="margin-bottom:16px;">
-          <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Tendencia diaria</h3>
+          <h2 class="card-title">Tendencia diaria</h2>
           <div id="metChartDailyWrap" style="position:relative;height:240px;"><canvas id="metChartDaily"></canvas></div>
         </div>
 
         <div class="widget-card">
-          <div class="widget-card-head"><h3>Eventos por tipo</h3></div>
+          <div class="widget-card-head"><h2>Eventos por tipo</h2></div>
           <div class="event-bars">
             ${rows.length === 0 ? `<p style="color:var(--text-muted);text-align:center;padding:24px 0;">Sin actividad registrada en este rango.</p>` : rows.map(([k, v]) => {
               const meta = eventMeta(k);
               const pct = Math.max(4, Math.round(v / maxVal * 100));
               return `
                 <div class="event-bar-row">
-                  <span class="event-bar-icon">${meta.icon}</span>
+                  <span class="event-bar-icon">${emoji(meta.icon)}</span>
                   <div class="event-bar-body">
                     <div class="event-bar-top"><span class="event-bar-label">${escapeHtml(meta.label)}</span><span class="event-bar-value">${escapeHtml(v)}</span></div>
                     <div class="event-bar-track"><div class="event-bar-fill" style="width:${pct}%;background:${meta.color};"></div></div>

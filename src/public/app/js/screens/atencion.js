@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
-import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
+import { $, $$, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
+import { avatarTone, colorTextoLegible, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { parametrosRuta } from '../core/router.js';
 import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarConversacionVisible, pedirPermisoAvisos, permisoAvisos, preferenciasAvisos } from '../core/realtime.js';
@@ -50,6 +50,13 @@ function vistaPrevia(ultimo) {
   if (ultimo.tipo === 'out') return `Asesor: ${texto}`;
   if (ultimo.tipo === 'sistema') return texto;
   return texto;
+}
+
+function vistaPreviaHtml(ultimo) {
+  const texto = vistaPrevia(ultimo);
+  return ultimo?.tipo === 'nota'
+    ? `${emoji('📝')} ${escapeHtml(texto.replace(/^📝\s*/, ''))}`
+    : escapeHtml(texto);
 }
 
 /** Texto del botón de asignación según quién la tiene. */
@@ -137,7 +144,7 @@ async function renderAtencion(main) {
         <div class="inbox-rows" id="atnFilas" aria-busy="true" aria-label="Cargando conversaciones">${filasEsqueleto()}</div>
       </div>
       <div class="inbox-thread glass" id="atnHilo">
-        <div class="inbox-empty"><div style="font-size:40px;">🎧</div>Selecciona una conversación</div>
+        <div class="inbox-empty"><div style="font-size:40px;">${emoji('🎧')}</div>Selecciona una conversación</div>
       </div>
     </div>
   `;
@@ -211,7 +218,7 @@ function pintarAvisos() {
   wrap.innerHTML = `
     <span class="atn-conexion atn-conexion-${conexion}" role="status">${conexion === 'conectado' ? 'En vivo' : conexion === 'reconectando' ? 'Reconectando…' : 'Actualiza cada 20 s'}</span>
     ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" aria-label="${avisoTexto}" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span class="hide-sm">${avisoTexto}</span></button>` : ''}
-    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" title="Tono cuando llega un mensaje">${prefs.sonido ? '🔊' : '🔇'}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
+    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="Tono cuando llega un mensaje">${emoji(prefs.sonido ? '🔊' : '🔇')}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
     ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
   `;
   $('#atnAvisoBtn')?.addEventListener('click', async () => {
@@ -333,7 +340,8 @@ function colorEtiqueta(nombre) {
 
 function htmlEtiqueta(nombre, quitable = false) {
   const seguro = escapeHtml(nombre);
-  return `<span class="atn-chip atn-chip-etiqueta" style="--atn-etiqueta:${colorEtiqueta(nombre)}" title="${seguro}">
+  const color = colorEtiqueta(nombre);
+  return `<span class="atn-chip atn-chip-etiqueta" style="--atn-etiqueta:${color};--atn-etiqueta-texto:${colorTextoLegible(color)}" title="${seguro}">
     ${seguro}${quitable ? `<button type="button" class="atn-etiqueta-quitar" data-etiqueta="${seguro}" aria-label="Quitar etiqueta ${seguro}">×</button>` : ''}
   </span>`;
 }
@@ -361,7 +369,7 @@ function pintarFilas(truncado) {
           <span class="inbox-row-name">${escapeHtml(c.contacto.nombre)}</span>
           <span class="inbox-row-time">${c.actividadTs ? relativeTime(c.actividadTs) : ''}</span>
         </div>
-        <div class="inbox-row-preview">${escapeHtml(vistaPrevia(c.ultimoMensaje))}</div>
+        <div class="inbox-row-preview">${vistaPreviaHtml(c.ultimoMensaje)}</div>
         <div class="atn-row-meta">
           <span class="atn-chip ${c.asignado ? '' : 'atn-chip-alerta'}">${icon('user', 11)} ${escapeHtml(textoAsignacion(c.asignado, equipo.yo))}</span>
           ${c.equipo ? `<span class="atn-chip">${escapeHtml(c.equipo.nombre)}</span>` : ''}
@@ -399,7 +407,7 @@ function cerrarHilo() {
   hiloSeq++;
   $('#atnInbox')?.classList.remove('thread-open');
   const hilo = $('#atnHilo');
-  if (hilo) hilo.innerHTML = '<div class="inbox-empty"><div style="font-size:40px;">🎧</div>Selecciona una conversación</div>';
+  if (hilo) hilo.innerHTML = `<div class="inbox-empty"><div style="font-size:40px;">${emoji('🎧')}</div>Selecciona una conversación</div>`;
   $$('.atn-row').forEach(r => r.classList.remove('activa'));
 }
 
@@ -450,7 +458,7 @@ function htmlMensajes(mensajes, hayAnteriores) {
       ? `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener"><img class="atn-adjunto-img" src="${escapeHtml(a.url)}" alt="Imagen adjunta"></a>`
       : `<a class="atn-adjunto" href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${icon('external', 12)} ${escapeHtml(a.nombre || 'Archivo adjunto')}</a>`).join('');
     if (m.tipo === 'nota') {
-      return `<div class="atn-nota"><div class="atn-nota-autor">📝 Nota privada${m.autor ? ` · ${escapeHtml(m.autor)}` : ''}</div>${formatWhatsApp(escapeHtml(m.texto))}${adjuntos}<span class="bubble-time">${hora}</span></div>`;
+      return `<div class="atn-nota"><div class="atn-nota-autor">${emoji('📝')} Nota privada${m.autor ? ` · ${escapeHtml(m.autor)}` : ''}</div>${formatWhatsApp(escapeHtml(m.texto))}${adjuntos}<span class="bubble-time">${hora}</span></div>`;
     }
     const lado = m.tipo === 'out' ? 'out' : 'in';
     return `
@@ -499,7 +507,7 @@ function pintarCabecera(c) {
     <div class="atn-cabecera-info">
       <div class="atn-cabecera-nombre">${escapeHtml(c.contacto.nombre)}</div>
       <div class="atn-cabecera-sub">${c.contacto.telefono ? formatTelefono(c.contacto.telefono) : ''}
-        <span class="atn-estado" style="color:${est.color};background:${est.color}1a;">${est.label}</span></div>
+        <span class="atn-estado" style="color:${colorTextoLegible(est.color)};background:${est.color}1a;">${est.label}</span></div>
     </div>
     <div class="atn-acciones">
     ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion" id="atnHistorial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
@@ -588,7 +596,7 @@ function pintarHilo(data) {
   pintarCabecera(c);
   cablearAnteriores(c.id, data.mensajes);
 
-  const modo = buildSegmented([{ value: 'responder', label: 'Responder' }, { value: 'nota', label: '📝 Nota privada' }],
+  const modo = buildSegmented([{ value: 'responder', label: 'Responder' }, { value: 'nota', icon: '📝', label: 'Nota privada' }],
     borrador.privado ? 'nota' : 'responder', () => actualizarModo());
   modo.id = 'atnModo';
   $('#atnModoWrap').appendChild(modo);

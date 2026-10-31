@@ -1,4 +1,5 @@
-import { $, escapeHtml, haptic } from '../core/dom.js';
+import { $, emoji, escapeHtml, haptic } from '../core/dom.js';
+import { colorTextoLegible } from '../core/format.js';
 import { icon } from '../core/icons.js';
 
 /* ============= PERFIL (asesor / estudiante) ============= */
@@ -20,12 +21,12 @@ function openProfileSheet({ avatarBg, avatarText, title, subtitle, badges = [], 
         <div class="avatar" style="background:${avatarBg};width:64px;height:64px;font-size:22px;">${escapeHtml(avatarText)}</div>
         <div class="profile-sheet-title">${escapeHtml(title)}</div>
         ${subtitle ? `<div class="profile-sheet-subtitle">${escapeHtml(subtitle)}</div>` : ''}
-        ${badges.length ? `<div class="profile-sheet-badges">${badges.map(b => `<span class="badge" style="background:${b.color}22;color:${b.color};">${escapeHtml(b.label)}</span>`).join('')}</div>` : ''}
+        ${badges.length ? `<div class="profile-sheet-badges">${badges.map(b => `<span class="badge" style="background:${b.color}22;color:${colorTextoLegible(b.color)};">${b.icon ? `${emoji(b.icon)} ` : ''}${escapeHtml(b.label)}</span>`).join('')}</div>` : ''}
       </div>
       ${stats.length ? `<div class="profile-sheet-stats">${stats.map(s => `<div class="profile-sheet-stat"><div class="value">${escapeHtml(String(s.value))}</div><div class="label">${escapeHtml(s.label)}</div></div>`).join('')}</div>` : ''}
-      ${rows.length ? `<div class="profile-sheet-rows">${rows.map(r => `<div class="profile-sheet-row"><span class="profile-sheet-row-icon">${r.icon ?? ''}</span><span class="profile-sheet-row-label">${escapeHtml(r.label)}</span><span class="profile-sheet-row-value">${escapeHtml(String(r.value ?? '—'))}</span></div>`).join('')}</div>` : ''}
+      ${rows.length ? `<div class="profile-sheet-rows">${rows.map(r => `<div class="profile-sheet-row"><span class="profile-sheet-row-icon">${r.icon ? emoji(r.icon) : ''}</span><span class="profile-sheet-row-label">${escapeHtml(r.label)}</span><span class="profile-sheet-row-value">${escapeHtml(String(r.value ?? '—'))}</span></div>`).join('')}</div>` : ''}
       ${extraHtml}
-      ${actions.length ? `<div class="profile-sheet-actions">${actions.map((a, i) => `<button type="button" class="btn ${a.primary ? 'btn-primary' : 'btn-secondary'}" style="${a.destructive ? 'color:var(--danger);border-color:var(--danger);' : ''}" data-pa="${i}">${a.icon ?? ''} ${escapeHtml(a.label)}</button>`).join('')}</div>` : ''}
+      ${actions.length ? `<div class="profile-sheet-actions">${actions.map((a, i) => `<button type="button" class="btn ${a.primary ? 'btn-primary' : 'btn-secondary'}" style="${a.destructive ? 'color:var(--danger);border-color:var(--danger);' : ''}" data-pa="${i}">${a.icon ? emoji(a.icon) : ''} ${escapeHtml(a.label)}</button>`).join('')}</div>` : ''}
     </div>
   `;
   document.body.appendChild(overlay);

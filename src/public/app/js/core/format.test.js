@@ -10,8 +10,48 @@ globalThis.document ??= {
   body: { appendChild() {} },
 };
 
-let F;
-before(async () => { F = await import('./format.js'); });
+let D, F;
+before(async () => {
+  [D, F] = await Promise.all([import('./dom.js'), import('./format.js')]);
+});
+
+function rgb(hex) {
+  return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+}
+
+function ratioContraste(a, b) {
+  const lum = (color) => {
+    const c = color.map(v => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const [alta, baja] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (alta + 0.05) / (baja + 0.05);
+}
+
+describe('colorTextoLegible', () => {
+  it('pasa AA sobre blanco y sobre el fondo pálido del badge', () => {
+    const colores = ['#eab308', '#f59e0b', '#14b8a6', '#0284c7', '#7c3aed', '#94a3b8', '#dc2626', '#16a34a'];
+    for (const color of colores) {
+      const texto = rgb(F.colorTextoLegible(color));
+      const base = rgb(color);
+      assert.ok(ratioContraste(texto, [255, 255, 255]) >= 4.5, `${color} no pasa sobre blanco`);
+      for (const alpha of [0x1f, 0x22]) {
+        const fondo = base.map(c => Math.round(c * alpha / 255 + 255 * (1 - alpha / 255)));
+        assert.ok(ratioContraste(texto, fondo) >= 4.5, `${color} no pasa sobre su fondo pálido`);
+      }
+    }
+  });
+});
+
+describe('emoji', () => {
+  it('oculta el adorno al lector de pantalla y escapa el contenido', () => {
+    assert.equal(D.emoji('✉️'), '<span aria-hidden="true">✉️</span>');
+    assert.equal(D.emoji('<'), '<span aria-hidden="true">&lt;</span>');
+  });
+});
 
 describe('avatarTone', () => {
   it('el mismo dato siempre da el mismo color', () => {

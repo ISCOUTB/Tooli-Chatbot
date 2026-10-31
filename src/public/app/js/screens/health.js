@@ -105,7 +105,7 @@ async function renderHealth(main) {
       content.innerHTML = `
         <div class="widget-card" style="margin-bottom:16px;">
           <div class="widget-card-head">
-            <h3>Estado general</h3>
+            <h2>Estado general</h2>
             <span class="pulse-dot ${data.status}" style="font-weight:700;">${HEALTH_LABELS[data.status] ?? data.status}</span>
           </div>
           <div style="font-size:12.5px;color:var(--text-muted);padding:0 4px;">

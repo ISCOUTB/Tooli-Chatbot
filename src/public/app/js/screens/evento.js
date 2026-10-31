@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
-import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
+import { $, $$, copyToClipboard, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
+import { avatarTone, colorTextoLegible, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -132,7 +132,7 @@ async function renderEventoPosgrado(main) {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
       <span style="font-size:12.5px;font-weight:600;color:var(--text-muted);">Vista rápida:</span>
       <div id="becaVistaWrap"></div>
-      <span style="font-size:11.5px;color:var(--text-muted);">Filtra candidatos a beca para ofrecerles financiación</span>
+      <span style="font-size:12px;color:var(--text-muted);">Filtra candidatos a beca para ofrecerles financiación</span>
     </div>
     <p id="eventoResumen" class="seg-resumen" aria-live="polite"></p>
     <div id="eventoContent">
@@ -161,7 +161,7 @@ async function renderEventoPosgrado(main) {
     wrap.appendChild(buildSegmented(
       [
         { value: 'todos', label: `Todos (${eventoRows.length})` },
-        { value: 'beca',  label: `💰 Candidatos a beca (${becaCount})` },
+        { value: 'beca', icon: '💰', label: `Candidatos a beca (${becaCount})` },
       ],
       becaVista, (v) => { becaVista = v; renderEventoGrid(); },
     ));
@@ -257,13 +257,13 @@ async function renderEventoPosgrado(main) {
           <div class="crm-card" data-longpress data-row="${row.__i}" tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}">
             <div class="advisor-card-top">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[1] || nombre, nombre)}</div>
-              <span class="badge" style="background:${meta.color}22;color:${meta.color};">${meta.icon} ${escapeHtml(meta.value)}</span>
+              <span class="badge" style="background:${meta.color}22;color:${colorTextoLegible(meta.color)};">${emoji(meta.icon)} ${escapeHtml(meta.value)}</span>
             </div>
             <div class="crm-card-name">${escapeHtml(nombre)}</div>
-            ${row[5] ? `<span class="badge" style="background:#7c3aed22;color:#7c3aed;margin-bottom:8px;">${escapeHtml(row[5])}</span>` : ''}
-            <div class="crm-card-row">✉️ ${escapeHtml(row[3] || '—')}</div>
-            <div class="crm-card-row">📱 ${escapeHtml(formatTelefono(row[1]) || '—')}</div>
-            ${!autoriza ? `<div class="crm-card-row" style="color:var(--danger);font-weight:600;">🔒 No autorizó contacto</div>` : ''}
+            ${row[5] ? `<span class="badge" style="background:#7c3aed22;color:${colorTextoLegible('#7c3aed')};margin-bottom:8px;">${escapeHtml(row[5])}</span>` : ''}
+            <div class="crm-card-row">${emoji('✉️')}<span class="sr-only">Correo: </span> ${escapeHtml(row[3] || '—')}</div>
+            <div class="crm-card-row">${emoji('📱')}<span class="sr-only">WhatsApp: </span> ${escapeHtml(formatTelefono(row[1]) || '—')}</div>
+            ${!autoriza ? `<div class="crm-card-row" style="color:var(--danger);font-weight:600;">${emoji('🔒')} No autorizó contacto</div>` : ''}
             <div class="crm-card-date">${escapeHtml(friendlyDate(row[0]))}</div>
           </div>
         `; }).join('')}
@@ -409,8 +409,8 @@ async function renderEventoPosgrado(main) {
       title: nombre || 'Prospecto', subtitle: correo || (whatsapp ? formatTelefono(whatsapp) : undefined),
       badges: [
         ...(programa ? [{ label: programa, color: '#7c3aed' }] : []),
-        { label: `${meta.icon} ${meta.value}`, color: meta.color },
-        ...(!autoriza ? [{ label: '🔒 No autorizó contacto', color: '#dc2626' }] : []),
+        { label: meta.value, icon: meta.icon, color: meta.color },
+        ...(!autoriza ? [{ label: 'No autorizó contacto', icon: '🔒', color: '#dc2626' }] : []),
       ],
       rows: [
         ...(correo ? [{ icon: '📧', label: 'Email', value: correo }] : []),

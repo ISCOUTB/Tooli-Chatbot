@@ -13,13 +13,13 @@ function renderRecibo(main) {
     <div class="tool-panel">
       <form id="reciboForm">
         <div class="field">
-          <label>Código estudiantil</label>
+          <label for="rCodigo">Código estudiantil</label>
           <input type="text" id="rCodigo" placeholder="T00012345" required>
         </div>
         <div class="field">
-          <label>Cédula</label>
-          <input type="text" id="rCedula" placeholder="1001234567" required>
-          <div class="field-help">Solo dígitos, sin puntos ni guiones</div>
+          <label for="rCedula">Cédula</label>
+          <input type="text" id="rCedula" placeholder="1001234567" aria-describedby="rCedulaHelp" required>
+          <div class="field-help" id="rCedulaHelp">Solo dígitos, sin puntos ni guiones</div>
         </div>
         <button type="submit" class="btn btn-primary" id="reciboBtn">Descargar PDF</button>
       </form>
