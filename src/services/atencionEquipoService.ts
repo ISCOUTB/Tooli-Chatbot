@@ -3,6 +3,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { publicarAtencion, suscribirAtencion } from './atencionEventos';
+import type { ConversacionAtencion, PersonaRef } from './chatwootAtencion';
 import type { PublicUser } from './usersService';
 
 // Importar las funciones puras desde una prueba no debe abrir un socket.
@@ -116,6 +117,9 @@ export async function guardarConfigAtencion(input: unknown): Promise<ConfigAtenc
   const nueva = validarConfigAtencion(input);
   await redis.set(CONFIG_KEY, JSON.stringify(nueva));
   configCache = { config: nueva, vence: Date.now() + CACHE_MS };
+  // Activar la asignación, subir el máximo o ampliar el horario puede dejar
+  // conversaciones en espera listas para repartir.
+  programarReparto();
   return nueva;
 }
 
@@ -202,47 +206,158 @@ export function elegirAsesor(
     .sort((a, b) => a.abiertas - b.abiertas || a.ultimaAsignacion - b.ultimaAsignacion || a.username.localeCompare(b.username))[0] ?? null;
 }
 
-let cancelarAsignacion: (() => void) | null = null;
-let colaAsignacion = Promise.resolve();
+/* ===== Cola de espera =====
+   Una conversación sin asesor espera hasta que alguien pueda recibirla: no
+   solo se reparte al llegar, sino también cuando alguien se conecta, pasa a
+   Disponible o libera un cupo. */
 
-/** Se registra una sola vez; cada evento queda en cola para no sobreasignar por carreras. */
+type AreaAtencion = 'ti' | 'admisiones';
+
+export interface EquiposAtencion {
+  ti: number;
+  admisiones: number;
+}
+
+export interface ConversacionEnEspera {
+  id: number;
+  area: AreaAtencion;
+}
+
+export interface AsignacionPlaneada {
+  conversacionId: number;
+  area: AreaAtencion;
+  username: string;
+  chatwootUserId: number;
+}
+
+export function equiposDeAtencion(): EquiposAtencion {
+  return { ti: Number(config.chatwoot.teamTiId), admisiones: Number(config.chatwoot.teamAdmisionesId) };
+}
+
+export function areaDeEquipo(equipo: PersonaRef | null, equipos: EquiposAtencion): AreaAtencion | null {
+  if (!equipo) return null;
+  return equipo.id === equipos.ti ? 'ti' : equipo.id === equipos.admisiones ? 'admisiones' : null;
+}
+
+/**
+ * Las abiertas sin asesor de un equipo que atiende el panel, de la más antigua
+ * a la más nueva. Chatwoot numera las conversaciones al crearlas, así que el id
+ * da el orden de llegada aunque la lista venga por última actividad.
+ */
+export function conversacionesEnEspera(abiertas: ConversacionAtencion[], equipos: EquiposAtencion): ConversacionEnEspera[] {
+  return abiertas
+    .filter((conversacion) => !conversacion.asignado)
+    .map((conversacion) => ({ id: conversacion.id, area: areaDeEquipo(conversacion.equipo, equipos) }))
+    .filter((conversacion): conversacion is ConversacionEnEspera => conversacion.area !== null)
+    .sort((a, b) => a.id - b.id);
+}
+
+/**
+ * Reparte con la misma regla que `elegirAsesor`, sumando cada asignación a la
+ * carga del elegido para que la siguiente vaya a quien quede con menos. Una
+ * conversación sin candidato de su área no frena a las de la otra área.
+ */
+export function planificarReparto(
+  enEspera: ConversacionEnEspera[],
+  asesores: AsesorElegible[],
+  maxAbiertas: number,
+): AsignacionPlaneada[] {
+  const carga = asesores.map((asesor) => ({ ...asesor }));
+  // Lo que se asigna en esta vuelta cuenta como más reciente que cualquier
+  // asignación anterior, para que el desempate siga rotando.
+  let reciente = Math.max(0, ...asesores.map((asesor) => asesor.ultimaAsignacion));
+  const plan: AsignacionPlaneada[] = [];
+  for (const conversacion of [...enEspera].sort((a, b) => a.id - b.id)) {
+    const elegido = elegirAsesor(carga, conversacion.area, maxAbiertas);
+    if (!elegido) continue;
+    elegido.abiertas += 1;
+    elegido.ultimaAsignacion = ++reciente;
+    plan.push({ conversacionId: conversacion.id, area: conversacion.area, username: elegido.username, chatwootUserId: elegido.chatwootUserId });
+  }
+  return plan;
+}
+
+const AGRUPAR_MS = 1_500;
+const BARRIDO_MS = 60_000;
+
+let cancelarAsignacion: (() => void) | null = null;
+let repartoProgramado: NodeJS.Timeout | null = null;
+let repartiendo = false;
+let otraVuelta = false;
+let avisoPropio = false;
+
+/** Se registra una sola vez, al arrancar el servidor (src/index.ts). */
 export function iniciarAsignacionAutomatica(): void {
   if (cancelarAsignacion) return;
   cancelarAsignacion = suscribirAtencion((evento) => {
-    if (evento.tipo !== 'nueva') return;
-    colaAsignacion = colaAsignacion.then(() => asignarNueva(evento.conversacionId)).catch(() => {
-      // El error de Chatwoot podría traer datos de la conversación: el log solo
-      // deja el motivo operativo y la conversación permanece sin asignar.
-      console.error('[atencionEquipo] falló la consulta o asignación automática');
-    });
+    // Un mensaje no cambia quién puede recibir; todo lo demás sí: una
+    // conversación nueva, una conexión o cambio de estado, o un cupo liberado
+    // al resolver, dejar pendiente, reasignar o quitar el asesor.
+    if (avisoPropio || evento.tipo === 'mensaje') return;
+    programarReparto();
   });
+  // Respaldo de lo que no llega como aviso: el inicio del horario, un cambio
+  // hecho directamente en Chatwoot o un aviso que falló.
+  setInterval(programarReparto, BARRIDO_MS).unref();
 }
 
-async function asignarNueva(conversacionId: number): Promise<void> {
-  const configuracion = await obtenerConfigAtencionCacheada();
-  if (!configuracion.asignacionAutomatica || !dentroDeHorario(configuracion.horario, new Date())) return;
+/* Agrupa los avisos seguidos en una sola vuelta: una recarga del panel
+   desconecta y reconecta, y al resolver avisan el panel y el webhook. */
+function programarReparto(): void {
+  if (!cancelarAsignacion || repartoProgramado) return;
+  repartoProgramado = setTimeout(() => {
+    repartoProgramado = null;
+    void ejecutarReparto();
+  }, AGRUPAR_MS);
+  repartoProgramado.unref();
+}
 
-  const [{ obtenerConversacion, listarConversaciones, asignar }, { listUsers }] = await Promise.all([
-    import('./chatwootAtencion'), import('./usersService'),
-  ]);
-  const [{ conversacion }, { conversaciones }, usuarios] = await Promise.all([
-    obtenerConversacion(conversacionId), listarConversaciones('open'), listUsers(),
-  ]);
-  if (conversacion.asignado) return;
-  const tiId = Number(config.chatwoot.teamTiId);
-  const admisionesId = Number(config.chatwoot.teamAdmisionesId);
-  const area = conversacion.equipo?.id === tiId ? 'ti'
-    : conversacion.equipo?.id === admisionesId ? 'admisiones' : null;
-  if (!area) {
-    console.info('[atencionEquipo] conversación nueva sin equipo compatible; queda sin asignar');
+/* Un solo proceso atiende todo (ver atencionEventos.ts), así que basta una
+   bandera para que dos vueltas no repartan lo mismo. Lo que se pida durante
+   una vuelta se atiende en otra al terminar. */
+async function ejecutarReparto(): Promise<void> {
+  if (repartiendo) {
+    otraVuelta = true;
     return;
   }
+  repartiendo = true;
+  try {
+    await repartirEnEspera();
+  } catch {
+    // El error de Chatwoot podría traer datos de la conversación: el log solo
+    // deja el motivo operativo y el siguiente barrido lo vuelve a intentar.
+    console.error('[atencionEquipo] falló el reparto de conversaciones en espera');
+  } finally {
+    repartiendo = false;
+    if (otraVuelta) {
+      otraVuelta = false;
+      programarReparto();
+    }
+  }
+}
 
+async function repartirEnEspera(): Promise<void> {
+  const configuracion = await obtenerConfigAtencionCacheada();
+  // Fuera de horario nada se reparte: lo que espera va al primer asesor
+  // disponible cuando empiece el horario (lo detecta el barrido).
+  if (!configuracion.asignacionAutomatica || !dentroDeHorario(configuracion.horario, new Date())) return;
+
+  const { listUsers } = await import('./usersService');
   // Admins incluidos: también atienden, y quien no quiera recibir se marca
   // Ocupado o Ausente (es lo que muestra la ventana Equipo para todos).
-  const vinculados = usuarios.filter((usuario) => usuario.chatwootUserId);
+  const vinculados = (await listUsers()).filter((usuario) => usuario.chatwootUserId);
   const estados = await Promise.all(vinculados.map((usuario) => obtenerEstadoAsesor(usuario.username)));
-  const ultimas = vinculados.length ? await redis.hmget(ULTIMA_ASIGNACION_KEY, ...vinculados.map((usuario) => usuario.username.toLowerCase())) : [];
+  // Sin nadie que pueda recibir no se consulta Chatwoot: así el barrido no
+  // cuesta nada mientras el equipo no está conectado.
+  if (!vinculados.some((usuario, i) => estados[i] === 'disponible' && estaConectado(usuario.username))) return;
+
+  const { listarConversaciones, conversacionDelInbox, mapConversacion, asignar } = await import('./chatwootAtencion');
+  const { conversaciones } = await listarConversaciones('open');
+  const equipos = equiposDeAtencion();
+  const enEspera = conversacionesEnEspera(conversaciones, equipos);
+  if (!enEspera.length) return;
+
+  const ultimas = await redis.hmget(ULTIMA_ASIGNACION_KEY, ...vinculados.map((usuario) => usuario.username.toLowerCase()));
   const candidatos: AsesorElegible[] = vinculados.map((usuario, i) => ({
     username: usuario.username,
     chatwootUserId: usuario.chatwootUserId!,
@@ -252,12 +367,37 @@ async function asignarNueva(conversacionId: number): Promise<void> {
     abiertas: conversaciones.filter((item) => item.asignado?.id === usuario.chatwootUserId).length,
     ultimaAsignacion: Number(ultimas[i]) || 0,
   }));
-  const elegido = elegirAsesor(candidatos, area, configuracion.maxAbiertasPorAsesor);
-  if (!elegido) {
-    console.info('[atencionEquipo] no hay asesores disponibles para asignación automática');
-    return;
+
+  let asignadas = 0;
+  for (const paso of planificarReparto(enEspera, candidatos, configuracion.maxAbiertasPorAsesor)) {
+    try {
+      // La lista ya tiene unos segundos: si el asesor dejó de estar disponible
+      // o alguien tomó, cerró o movió la conversación a mano, no se toca y la
+      // siguiente vuelta (que ese mismo cambio pide) decide con datos frescos.
+      if (!estaConectado(paso.username) || await obtenerEstadoAsesor(paso.username) !== 'disponible') continue;
+      const actual = mapConversacion(await conversacionDelInbox(paso.conversacionId));
+      if (actual.asignado || actual.estado !== 'open' || areaDeEquipo(actual.equipo, equipos) !== paso.area) continue;
+      await asignar(paso.conversacionId, { asesorId: paso.chatwootUserId });
+      asignadas++;
+      // publicarAtencion avisa en el acto: con la bandera puesta, el oyente de
+      // arriba no programa otra vuelta por lo que esta misma acaba de asignar.
+      avisoPropio = true;
+      try {
+        publicarAtencion({ tipo: 'asignacion', conversacionId: paso.conversacionId });
+      } finally {
+        avisoPropio = false;
+      }
+      await redis.hset(ULTIMA_ASIGNACION_KEY, paso.username.toLowerCase(), Date.now());
+    } catch {
+      console.error('[atencionEquipo] falló un paso de la asignación automática; el barrido lo vuelve a revisar');
+    }
   }
-  await asignar(conversacionId, { asesorId: elegido.chatwootUserId });
-  await redis.hset(ULTIMA_ASIGNACION_KEY, elegido.username.toLowerCase(), Date.now());
-  publicarAtencion({ tipo: 'asignacion', conversacionId });
+  if (asignadas) console.info(`[atencionEquipo] asignación automática: ${asignadas} conversación(es) en espera asignada(s)`);
+}
+
+/** Cuántas conversaciones esperan asesor, para la ventana Equipo. */
+export async function contarEnEspera(): Promise<number> {
+  const { listarConversaciones } = await import('./chatwootAtencion');
+  const { conversaciones } = await listarConversaciones('open');
+  return conversacionesEnEspera(conversaciones, equiposDeAtencion()).length;
 }
