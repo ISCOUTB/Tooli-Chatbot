@@ -903,7 +903,7 @@ function abrirGestionEquipo() {
       const estado = persona.conectado ? persona.estado : 'desconectado';
       return `<div class="atn-equipo-persona">
         <span class="atn-presencia-punto atn-presencia-${escapeHtml(estado)}" aria-hidden="true"></span>
-        <span><strong>${escapeHtml(persona.nombre)}</strong><small>${escapeHtml(persona.area || 'Sin área')} · ${textoEstadoPresencia(estado)}</small>${persona.chatwootVinculado ? '' : '<em>No tiene cuenta de Atención vinculada; no puede recibir asignaciones.</em>'}</span>
+        <span><strong>${escapeHtml(persona.nombre)}</strong><small>${escapeHtml(persona.area || 'Sin área')} · ${textoEstadoPresencia(estado)}</small>${persona.chatwootVinculado ? '' : '<em>No tiene cuenta de Atención vinculada; no puede recibir asignaciones. Vincúlala en Asesores.</em>'}</span>
       </div>`;
     }).join('') || '<div class="inbox-empty-sub">No hay integrantes en el equipo.</div>';
   };
