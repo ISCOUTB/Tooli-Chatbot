@@ -21,12 +21,14 @@ describe('configuración del equipo de atención', () => {
     const config = validarConfigAtencion({
       asignacionAutomatica: true,
       encuestaSatisfaccion: true,
+      avisosCorreo: true,
       maxAbiertasPorAsesor: 12,
       horario: { activo: true, dias: [5, 1, 3], desde: '09:15', hasta: '17:45' },
     });
     assert.deepEqual(config, {
       asignacionAutomatica: true,
       encuestaSatisfaccion: true,
+      avisosCorreo: true,
       maxAbiertasPorAsesor: 12,
       horario: { activo: true, dias: [1, 3, 5], desde: '09:15', hasta: '17:45' },
     });
@@ -39,6 +41,12 @@ describe('configuración del equipo de atención', () => {
     assert.throws(() => validarConfigAtencion({ ...base, horario: { ...base.horario, dias: [1, 7] } }), AtencionConfigError);
     assert.throws(() => validarConfigAtencion({ ...base, horario: { ...base.horario, desde: '8:00' } }), AtencionConfigError);
     assert.throws(() => validarConfigAtencion({ ...base, horario: { ...base.horario, desde: '18:00', hasta: '18:00' } }), AtencionConfigError);
+  });
+
+  it('deja los avisos por correo apagados si el campo no viene y rechaza un valor inválido', () => {
+    const { avisosCorreo: _, ...sinAvisos } = structuredClone(CONFIG_ATENCION_DEFAULT);
+    assert.equal(validarConfigAtencion(sinAvisos).avisosCorreo, false);
+    assert.throws(() => validarConfigAtencion({ ...sinAvisos, avisosCorreo: 'sí' }), AtencionConfigError);
   });
 });
 

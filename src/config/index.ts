@@ -55,6 +55,7 @@ const schema = z.object({
   ADMIN_PASSWORD: z.string().default('admin'),
   PUBLIC_CHATWOOT_URL: z.string().default('http://localhost:3001'),
   PUBLIC_GRAFANA_URL: z.string().default('http://localhost:3002'),
+  PUBLIC_PANEL_URL: z.string().default('https://tooli-utb.duckdns.org'),
   APP_BASE_URL: z.string().default('https://tooli-stand.duckdns.org'),
   // ── Verificación por correo (OTP) — Resend ───────────────────────────────────
   // API key de https://resend.com. MAIL_FROM debe ser de un dominio verificado
@@ -136,6 +137,7 @@ export const config = {
   publicUrls: {
     chatwoot: env.PUBLIC_CHATWOOT_URL,
     grafana: env.PUBLIC_GRAFANA_URL,
+    panel: env.PUBLIC_PANEL_URL,
   },
   appBaseUrl: env.APP_BASE_URL,
   mail: {

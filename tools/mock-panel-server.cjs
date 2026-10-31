@@ -278,6 +278,7 @@ let CONFIG_ATENCION = {
   asignacionAutomatica: true,
   maxAbiertasPorAsesor: 8,
   encuestaSatisfaccion: false,
+  avisosCorreo: false,
   horario: { activo: true, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '17:00' },
 };
 const EQUIPOS = [{ id: 10, nombre: 'Admisiones' }, { id: 11, nombre: 'Soporte TI' }];
@@ -371,7 +372,7 @@ app.post('/api/tools/atencion/presencia', (req, res) => {
   j(res, { ok: true, estado: req.body.estado });
 });
 const configAtencionValida = config => {
-  if (!config || typeof config.asignacionAutomatica !== 'boolean' || typeof config.encuestaSatisfaccion !== 'boolean' || !Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) return false;
+  if (!config || typeof config.asignacionAutomatica !== 'boolean' || typeof config.encuestaSatisfaccion !== 'boolean' || typeof config.avisosCorreo !== 'boolean' || !Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) return false;
   const horario = config.horario;
   if (!horario || typeof horario.activo !== 'boolean' || !Array.isArray(horario.dias) || horario.dias.some(d => !Number.isInteger(d) || d < 0 || d > 6)) return false;
   if (horario.activo && !horario.dias.length) return false;

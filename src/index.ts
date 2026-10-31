@@ -17,6 +17,7 @@ import { securityHeaders, bodySizeLimit, errorHandler, notFoundHandler } from '.
 import { checkRateLimit } from './services/rateLimit';
 import { validateJwtSecret } from './middleware/auth';
 import { iniciarAsignacionAutomatica } from './services/atencionEquipoService';
+import { iniciarAvisosCorreo } from './services/atencionAvisosService';
 import { iniciarRegistroHitos } from './services/atencionInformesService';
 
 const app = express();
@@ -82,6 +83,7 @@ app.use(errorHandler);
   await seedDefaultAdmin();
   iniciarRegistroHitos();
   iniciarAsignacionAutomatica();
+  iniciarAvisosCorreo();
   // Dispara los recordatorios programados que ya vencieron (ver reminderService.ts).
   startReminderWorker();
   startBroadcastWorker();
