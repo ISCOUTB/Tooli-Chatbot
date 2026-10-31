@@ -9,6 +9,7 @@ import {
   getUser,
   updateUser,
   renameUser,
+  vincularCuentaAtencion,
   UserServiceError,
 } from '../services/usersService';
 import {
@@ -20,7 +21,7 @@ import {
   AuthedRequest,
 } from '../middleware/auth';
 import { config } from '../config';
-import { getChatwootSsoUrl, isChatwootSsoEnabled } from '../services/chatwootSsoService';
+import { AtencionVinculoError, getChatwootSsoUrl, isChatwootSsoEnabled } from '../services/chatwootSsoService';
 import { logAudit } from '../services/auditService';
 import { checkRateLimit } from '../services/rateLimit';
 import { describeExternalError } from '../services/logSafe';
@@ -197,6 +198,27 @@ authRouter.patch('/users/:username', requireAuth, requireAdmin, async (req: Auth
     }
     console.error('[auth] no se pudo actualizar el asesor');
     res.status(500).json({ error: 'update_failed', message: 'No se pudo actualizar el asesor. Intenta de nuevo.' });
+  }
+});
+
+authRouter.post('/users/:username/atencion', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response) => {
+  const username = req.params.username;
+  try {
+    const result = await vincularCuentaAtencion(username);
+    await logAudit(req.user!.username, 'usuario_vinculado_atencion', username);
+    res.json(result);
+  } catch (err: unknown) {
+    if (err instanceof UserServiceError) {
+      const status = err.code === 'not_found' ? 404 : err.code === 'username_taken' ? 409 : 400;
+      res.status(status).json({ error: err.code, message: err.message });
+      return;
+    }
+    if (err instanceof AtencionVinculoError) {
+      res.status(err.codigo === 'no_configurado' ? 503 : 409).json({ error: err.codigo, message: err.message });
+      return;
+    }
+    console.error('[auth] no se pudo vincular la cuenta de Atención:', describeExternalError(err));
+    res.status(502).json({ error: 'chatwoot_error', message: 'No se pudo hablar con el sistema de atención. Intenta de nuevo.' });
   }
 });
 

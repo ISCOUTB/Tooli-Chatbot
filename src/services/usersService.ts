@@ -2,7 +2,8 @@ import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 import { config } from '../config';
-import { createChatwootUser, deleteChatwootUser, isChatwootSsoEnabled } from './chatwootSsoService';
+import { createChatwootUser, deleteChatwootUser, equiposPorArea, isChatwootSsoEnabled, vincularAgenteAtencion } from './chatwootSsoService';
+import { describeError, describeId } from './logSafe';
 import { isAcceptableNewPassword, MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from './passwordPolicy';
 import { normalizarUsuario, validarUsuario } from './usernamePolicy';
 import { renombrarUsuarioEnAuditoria } from './auditService';
@@ -136,15 +137,7 @@ export async function createUser(input: {
   // Si Chatwoot SSO está configurado y el usuario tiene email, crear cuenta en Chatwoot también
   if (input.email && isChatwootSsoEnabled()) {
     try {
-      const teamIds: number[] = [];
-      if (user.area === 'ti' || user.area === 'all') {
-        const id = parseInt(config.chatwoot.teamTiId);
-        if (id) teamIds.push(id);
-      }
-      if (user.area === 'admisiones' || user.area === 'all') {
-        const id = parseInt(config.chatwoot.teamAdmisionesId);
-        if (id) teamIds.push(id);
-      }
+      const teamIds = equiposPorArea(user.area, config.chatwoot.teamTiId, config.chatwoot.teamAdmisionesId);
       const cw = await createChatwootUser({
         email: input.email,
         name: input.fullName,
@@ -153,10 +146,9 @@ export async function createUser(input: {
         teamIds,
       });
       user.chatwootUserId = cw.userId;
-      console.log(`[users] usuario ${username} creado en Chatwoot con id ${cw.userId}`);
-    } catch (err: any) {
-      const detail = err?.response?.data ?? err?.message;
-      console.warn(`[users] no se pudo crear ${username} en Chatwoot:`, JSON.stringify(detail));
+      console.log(`[users] usuario creado en Chatwoot con id ${describeId(cw.userId)}`);
+    } catch (err: unknown) {
+      console.warn('[users] no se pudo crear el usuario en Chatwoot:', describeError(err));
     }
   }
 
@@ -166,9 +158,9 @@ export async function createUser(input: {
 }
 
 /**
- * Edita nombre visible, correo, rol y área. No toca la contraseña ni las
- * sesiones, ni la cuenta de Chatwoot (que ya no se edita: está vinculada por
- * chatwootUserId, no por estos datos).
+ * Edita nombre visible, correo, rol y área. No toca la contraseña, las sesiones
+ * ni el vínculo actual con Chatwoot. La vinculación se hace en una acción
+ * separada y guarda únicamente chatwootUserId.
  */
 export async function updateUser(username: string, cambios: Partial<EditableUserFields>): Promise<PublicUser> {
   const user = await getUser(username);
@@ -229,11 +221,30 @@ export async function renameUser(viejo: string, nuevo: string): Promise<PublicUs
   return toPublic(renamed);
 }
 
-export async function setChatwootUserId(username: string, chatwootUserId: number): Promise<void> {
+export async function vincularCuentaAtencion(username: string): Promise<{ user: PublicUser; creado: boolean }> {
   const user = await getUser(username);
-  if (!user) throw new Error('Usuario no encontrado');
-  user.chatwootUserId = chatwootUserId;
-  await redis.set(KEY(username), JSON.stringify(user));
+  if (!user) throw new UserServiceError('not_found', 'El usuario no existe');
+  if (user.chatwootUserId) return { user: toPublic(user), creado: false };
+  if (!user.email) throw new UserServiceError('invalid_data', 'Agrega un correo al asesor para vincularlo a Atención');
+
+  const vinculo = await vincularAgenteAtencion({
+    email: user.email,
+    name: user.fullName,
+    role: user.role === 'admin' ? 'administrator' : 'agent',
+    teamIds: equiposPorArea(user.area, config.chatwoot.teamTiId, config.chatwoot.teamAdmisionesId),
+  });
+  const actual = await getUser(username);
+  if (!actual) throw new UserServiceError('not_found', 'El usuario no existe');
+  if (actual.chatwootUserId) return { user: toPublic(actual), creado: false };
+  const usadoPor = (await listUsers()).find((otro) =>
+    otro.username !== actual.username && otro.chatwootUserId === vinculo.userId
+  );
+  if (usadoPor) {
+    throw new UserServiceError('invalid_data', `Esa cuenta de Atención ya está vinculada a @${usadoPor.username}`);
+  }
+  actual.chatwootUserId = vinculo.userId;
+  await redis.set(KEY(actual.username), JSON.stringify(actual));
+  return { user: toPublic(actual), creado: vinculo.creado };
 }
 
 export async function deleteUser(username: string): Promise<void> {

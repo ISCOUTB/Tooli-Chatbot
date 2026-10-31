@@ -84,8 +84,8 @@ const FICHAS = {
     notas: [{ id: 'n1', autor: 'luis', ts: hace(120), texto: 'Pidió info de financiación. Le envié el link.' }] },
 };
 const USUARIOS = [
-  { username: 'ángel acero', fullName: 'Ángel Acero', role: 'admin', area: 'all' },
-  { username: 'luis', fullName: 'Luis Pérez', role: 'asesor', area: 'admisiones' },
+  { username: 'ángel acero', fullName: 'Ángel Acero', role: 'admin', area: 'all', chatwootUserId: 1 },
+  { username: 'luis', fullName: 'Luis Pérez', role: 'asesor', area: 'admisiones', chatwootUserId: 2 },
   { username: 'ana', fullName: 'Ana Díaz', role: 'asesor', area: 'posgrados' },
 ];
 let mockAdminUsername = 'ángel acero';
@@ -253,9 +253,27 @@ const AGENTES = [
 const PRESENCIAS = [
   { agenteId: 1, conectado: true, estado: 'disponible', chatwootVinculado: true },
   { agenteId: 2, conectado: true, estado: 'ocupado', chatwootVinculado: true },
-  { agenteId: 3, conectado: false, estado: 'ausente', chatwootVinculado: true },
+  { agenteId: 3, conectado: false, estado: 'ausente', chatwootVinculado: false },
   { agenteId: 4, conectado: true, estado: 'disponible', chatwootVinculado: false },
 ];
+app.post('/api/auth/users/:username/atencion', (req, res) => {
+  const user = USUARIOS.find(u => u.username === req.params.username);
+  if (!user) return res.status(404).json({ error: 'not_found', message: 'El usuario no existe' });
+  if (!user.email) return res.status(400).json({ error: 'invalid_data', message: 'Agrega un correo al asesor para vincularlo a Atención' });
+  if (user.chatwootUserId) return j(res, { user, creado: false });
+
+  let agente = AGENTES.find(a => a.username === user.username);
+  if (!agente) {
+    const id = Math.max(0, ...AGENTES.map(a => a.id)) + 1;
+    agente = { id, username: user.username, nombre: user.fullName, area: user.area, estado: 'offline' };
+    AGENTES.push(agente);
+  }
+  user.chatwootUserId = agente.id;
+  const presencia = PRESENCIAS.find(p => p.agenteId === agente.id);
+  if (presencia) presencia.chatwootVinculado = true;
+  else PRESENCIAS.push({ agenteId: agente.id, conectado: false, estado: 'ausente', chatwootVinculado: true });
+  j(res, { user, creado: true });
+});
 let CONFIG_ATENCION = {
   asignacionAutomatica: true,
   maxAbiertasPorAsesor: 8,

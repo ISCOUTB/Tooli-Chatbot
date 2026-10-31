@@ -19,6 +19,7 @@ export type AuditAction =
   | 'ia_desactivada'
   | 'usuario_creado'
   | 'usuario_actualizado'
+  | 'usuario_vinculado_atencion'
   | 'usuario_eliminado'
   | 'seguimiento_evento_actualizado'
   | 'recordatorio_enviado'

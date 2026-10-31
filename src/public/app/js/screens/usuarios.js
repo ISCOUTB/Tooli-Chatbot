@@ -48,7 +48,8 @@ async function renderUsuarios(main) {
 
   setPullToRefresh(() => loadUsers());
   let loadSeq = 0;
-  function openEditUser(u) {
+  const vinculacionesEnCurso = new Set();
+  function openEditUser(u, opciones = {}) {
     const focoPrevio = document.activeElement;
     const overlay = document.createElement('div');
     overlay.className = 'profile-sheet-overlay advisor-edit-overlay';
@@ -63,6 +64,7 @@ async function renderUsuarios(main) {
           <div class="field"><label for="eUsername">Usuario</label><div class="username-input"><span aria-hidden="true">@</span><input id="eUsername" type="text" maxlength="30" autocomplete="off" value="${escapeHtml(u.username)}" aria-describedby="eUsernameError eUsernameNotice" required></div><div class="field-help username-error" id="eUsernameError" role="alert"></div><div class="advisor-rename-notice hidden" id="eUsernameNotice">La persona deberá entrar con el usuario nuevo; su contraseña no cambia</div></div>
           <div class="field"><label for="eFullName">Nombre visible</label><input id="eFullName" type="text" maxlength="200" value="${escapeHtml(u.fullName)}" required></div>
           <div class="field"><label for="eEmail">Correo</label><input id="eEmail" type="email" maxlength="254" value="${escapeHtml(u.email ?? '')}"></div>
+          <div class="advisor-rename-notice${opciones.avisoCorreo ? '' : ' hidden'}" id="eAtencionNotice" role="status">Agrega un correo y guarda; luego usa Vincular a Atención.</div>
           <div class="field"><div id="eRoleLabel">Rol</div><div id="eRoleWrap" aria-labelledby="eRoleLabel"></div></div>
           <div class="field"><div id="eAreaLabel">Área</div><div id="eAreaWrap" aria-labelledby="eAreaLabel"></div></div>
           <div class="advisor-edit-error" id="editAdvisorError" role="alert" aria-live="polite"></div>
@@ -130,7 +132,11 @@ async function renderUsuarios(main) {
       } catch { overlay.querySelector('#editAdvisorError').textContent = 'Sin conexión con el servidor. Intenta de nuevo.'; }
       finally { if (save.isConnected) save.disabled = false; }
     });
-    requestAnimationFrame(() => { overlay.classList.add('open'); usernameInput.focus({ preventScroll: true }); validate(); });
+    requestAnimationFrame(() => {
+      overlay.classList.add('open');
+      (opciones.enfocarCorreo ? overlay.querySelector('#eEmail') : usernameInput).focus({ preventScroll: true });
+      validate();
+    });
   }
 
   async function loadUsers() {
@@ -197,6 +203,26 @@ async function renderUsuarios(main) {
       });
     };
 
+    const vincularAtencion = async (u) => {
+      if (!u.email) {
+        openEditUser(u, { enfocarCorreo: true, avisoCorreo: true });
+        return;
+      }
+      if (vinculacionesEnCurso.has(u.username)) return;
+      vinculacionesEnCurso.add(u.username);
+      try {
+        const response = await api(`/api/auth/users/${encodeURIComponent(u.username)}/atencion`, { method: 'POST' });
+        const data = await response?.json().catch(() => ({}));
+        if (!response?.ok) throw new Error(data?.message || 'No se pudo vincular la cuenta de Atención');
+        toast(data.creado ? 'Cuenta de Atención creada y vinculada' : 'Cuenta de Atención vinculada');
+        loadUsers();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : 'No se pudo vincular la cuenta de Atención');
+      } finally {
+        vinculacionesEnCurso.delete(u.username);
+      }
+    };
+
     const openAdvisorProfile = (u) => {
       const counts = auditSummary[u.username] ?? {};
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -215,6 +241,7 @@ async function renderUsuarios(main) {
         ],
         rows: [
           ...(u.email ? [{ icon: '📧', label: 'Email', value: u.email }] : []),
+          { icon: '🎧', label: 'Atención', value: u.chatwootUserId ? 'Vinculada' : 'Sin vincular' },
           ...actionKeys.map(k => {
             const fallback = k === 'recordatorio_enviado' ? { label: 'Recordatorio enviado', icon: '⏰' } : null;
             return { icon: AUDIT_LABELS[k]?.icon ?? fallback?.icon ?? '📊', label: AUDIT_LABELS[k]?.label ?? fallback?.label ?? k, value: counts[k] };
@@ -227,6 +254,7 @@ async function renderUsuarios(main) {
         ],
         actions: [
           { label: 'Editar asesor', icon: '✏️', primary: true, onClick: () => openEditUser(u) },
+          ...(!u.chatwootUserId ? [{ label: 'Vincular a Atención', icon: '🎧', onClick: () => vincularAtencion(u) }] : []),
           { label: 'Copiar usuario', icon: '🔗', onClick: () => copyToClipboard(u.username, 'Usuario copiado'), closeAfter: false },
           ...(u.username !== sesion.user.username ? [{ label: 'Eliminar usuario', icon: '🗑️', destructive: true, onClick: () => deleteUser(u.username) }] : []),
         ],
@@ -255,6 +283,7 @@ async function renderUsuarios(main) {
               <div class="crm-card-name">${escapeHtml(u.fullName)}</div>
               <div class="crm-card-row">@${escapeHtml(u.username)} · ${u.area && u.area !== 'all' ? escapeHtml(areaLabel(u.area)) : 'Todas las áreas'}</div>
               ${u.email ? `<div class="crm-card-row">${emoji('✉️')}<span class="sr-only">Correo: </span> ${escapeHtml(u.email)}</div>` : ''}
+              ${!u.chatwootUserId ? `<div class="crm-card-row">${emoji('🎧')} Sin cuenta de Atención</div>` : ''}
               <!-- El área va junto al usuario: como tercera cifra no cabía y quedaba "Admis…". -->
               <div class="advisor-stat-strip">
                 <div class="advisor-stat"><div class="advisor-stat-value">${total}</div><div class="advisor-stat-label">acciones · 7d</div></div>
@@ -275,6 +304,7 @@ async function renderUsuarios(main) {
         { label: 'Editar asesor', icon: '✏️', onClick: () => openEditUser(u) },
         { label: 'Copiar usuario', icon: '🔗', onClick: () => copyToClipboard(username, 'Usuario copiado') },
       ];
+      if (!u.chatwootUserId) actions.push({ label: 'Vincular a Atención', icon: '🎧', onClick: () => vincularAtencion(u) });
       if (u.email) actions.push({ label: 'Copiar email', icon: '📧', onClick: () => copyToClipboard(u.email, 'Email copiado') });
       if (username !== sesion.user.username) actions.push({ label: 'Eliminar usuario', icon: '🗑️', destructive: true, onClick: () => deleteUser(username) });
       contextSheet(card, { title: u.fullName, subtitle: username, actions });
