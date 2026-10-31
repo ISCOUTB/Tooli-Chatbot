@@ -22,6 +22,12 @@ const ESTADOS = {
   pending: { label: 'Pendiente', plural: 'Pendientes', color: '#d97706' },
   resolved: { label: 'Resuelta', plural: 'Resueltas', color: '#64748b' },
 };
+const ESTADOS_PRESENCIA = {
+  disponible: { label: 'Disponible', color: '#16a34a' },
+  ocupado: { label: 'Ocupado', color: '#d97706' },
+  ausente: { label: 'Ausente', color: '#64748b' },
+  desconectado: { label: 'Desconectado', color: '#94a3b8' },
+};
 // Con la conexión en vivo los cambios llegan solos; el sondeo queda de respaldo
 // para cuando se cae (cada 20 s) y como red de seguridad (cada 90 s).
 const SONDEO_MS = 20_000;
@@ -38,6 +44,34 @@ const TIPOS_ADJUNTO = new Set([
 
 function etiquetaEstado(estado) {
   return ESTADOS[estado] ?? { label: estado, plural: estado, color: '#64748b' };
+}
+
+function textoEstadoPresencia(estado) {
+  return ESTADOS_PRESENCIA[estado]?.label ?? 'Desconocido';
+}
+
+function armarConfigAtencion(valores) {
+  return {
+    asignacionAutomatica: valores.asignacionAutomatica === true || valores.asignacionAutomatica === 'true',
+    maxAbiertasPorAsesor: Number(valores.maxAbiertasPorAsesor),
+    horario: {
+      activo: valores.horarioActivo === true || valores.horarioActivo === 'true',
+      dias: [...(valores.dias ?? [])].map(Number).sort((a, b) => a - b),
+      desde: String(valores.desde ?? ''),
+      hasta: String(valores.hasta ?? ''),
+    },
+  };
+}
+
+function validarConfigAtencion(config) {
+  if (!Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) {
+    return 'El máximo de conversaciones debe estar entre 1 y 50.';
+  }
+  if (config.horario.activo && !config.horario.dias.length) return 'Selecciona al menos un día de atención.';
+  if (!/^\d{2}:\d{2}$/.test(config.horario.desde) || !/^\d{2}:\d{2}$/.test(config.horario.hasta) || config.horario.desde >= config.horario.hasta) {
+    return 'La hora «desde» debe ser anterior a la hora «hasta».';
+  }
+  return null;
 }
 
 /** Lo que se ve bajo el nombre en la lista: quién habló último y qué dijo. */
@@ -118,6 +152,9 @@ let ultimaCargaLista = 0;
 let ultimaCargaHilo = 0;
 let eventoTimer = null;
 let idsConEvento = new Set();
+let miPresencia = null;
+let actualizandoPresencia = false;
+let refrescarEquipoAbierto = null;
 
 async function renderAtencion(main) {
   const params = parametrosRuta();
@@ -162,6 +199,7 @@ async function renderAtencion(main) {
   }, SONDEO_MS);
   escucharEnVivo();
   pintarAvisos();
+  cargarPresenciaPropia();
 
   if (!equipoCargado) await cargarEquipo();
   pintarFiltroEquipo();
@@ -175,6 +213,11 @@ function escucharEnVivo() {
   const enPantalla = () => !!$('#atnInbox');
   const alEvento = (e) => {
     if (!enPantalla()) { window.removeEventListener('tooli:atencion', alEvento); return; }
+    if (e.detail?.tipo === 'presencia') {
+      cargarPresenciaPropia();
+      refrescarEquipoAbierto?.();
+      return;
+    }
     // Varios eventos seguidos (el panel y el webhook avisan del mismo
     // mensaje) se resuelven con una sola recarga.
     idsConEvento.add(e.detail?.conversacionId);
@@ -217,10 +260,19 @@ function pintarAvisos() {
     : permiso === 'denied' ? 'Avisos bloqueados' : permiso === 'default' ? 'Activar avisos' : '';
   wrap.innerHTML = `
     <span class="atn-conexion atn-conexion-${conexion}" role="status">${conexion === 'conectado' ? 'En vivo' : conexion === 'reconectando' ? 'Reconectando…' : 'Actualiza cada 20 s'}</span>
+    <label class="atn-mi-estado" title="Con Disponible puedes recibir conversaciones automáticamente">
+      <span class="atn-presencia-punto atn-presencia-${escapeHtml(miPresencia?.estado ?? 'desconectado')}" aria-hidden="true"></span>
+      <span class="ini-sr-only">Mi estado</span>
+      <select class="atn-select" id="atnMiEstado" aria-label="Mi estado" ${actualizandoPresencia ? 'disabled' : ''}>
+        ${['disponible', 'ocupado', 'ausente'].map(estado => `<option value="${estado}" ${miPresencia?.estado === estado ? 'selected' : ''}>${textoEstadoPresencia(estado)}</option>`).join('')}
+      </select>
+    </label>
+    <span class="atn-estado-ayuda">${conexion === 'conectado' ? 'Disponible recibe asignaciones automáticas.' : 'La sesión en vivo no está conectada.'}</span>
     ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" aria-label="${avisoTexto}" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span class="hide-sm">${avisoTexto}</span></button>` : ''}
     <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="Tono cuando llega un mensaje">${emoji(prefs.sonido ? '🔊' : '🔇')}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
-    ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
+    ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionEquipo" aria-label="Gestionar equipo">${icon('users', 14)}<span class="hide-sm">Equipo</span></button><button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
   `;
+  $('#atnMiEstado').addEventListener('change', cambiarMiPresencia);
   $('#atnAvisoBtn')?.addEventListener('click', async () => {
     if (permiso === 'default') {
       const r = await pedirPermisoAvisos();
@@ -237,6 +289,36 @@ function pintarAvisos() {
     pintarAvisos();
   });
   $('#atnGestionMacros')?.addEventListener('click', abrirGestionMacros);
+  $('#atnGestionEquipo')?.addEventListener('click', abrirGestionEquipo);
+}
+
+async function cargarPresenciaPropia() {
+  try {
+    const r = await api('/api/tools/atencion/presencia');
+    if (!r?.ok) return;
+    miPresencia = (await r.json()).yo;
+    pintarAvisos();
+  } catch { /* la conexión general ya comunica que los datos pueden estar desactualizados */ }
+}
+
+async function cambiarMiPresencia(e) {
+  const nuevo = e.target.value;
+  const anterior = miPresencia?.estado;
+  actualizandoPresencia = true;
+  pintarAvisos();
+  try {
+    const r = await api('/api/tools/atencion/presencia', { method: 'POST', body: JSON.stringify({ estado: nuevo }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.message);
+    miPresencia = { ...(miPresencia ?? {}), estado: data.estado };
+    toast(`Tu estado ahora es ${textoEstadoPresencia(data.estado)}`);
+  } catch {
+    miPresencia = { ...(miPresencia ?? {}), estado: anterior };
+    toast('No se pudo guardar tu estado');
+  } finally {
+    actualizandoPresencia = false;
+    pintarAvisos();
+  }
 }
 
 function filasEsqueleto() {
@@ -769,6 +851,138 @@ function confirmarMacro(c, macro) {
   });
 }
 
+function abrirGestionEquipo() {
+  const opener = $('#atnGestionEquipo');
+  const overlay = document.createElement('div');
+  overlay.className = 'sheet-backdrop atn-modal-backdrop';
+  overlay.innerHTML = `
+    <div class="action-sheet atn-equipo-modal" role="dialog" aria-modal="true" aria-labelledby="atnEquipoTitulo">
+      <div class="atn-macro-cuerpo">
+        <div class="atn-equipo-titulo"><div><div class="sheet-title" id="atnEquipoTitulo">Gestión del equipo</div><p class="field-help">Presencia, asignación automática y horario de atención.</p></div><button type="button" class="btn btn-ghost" id="atnEquipoCerrar" aria-label="Cerrar">×</button></div>
+        <div id="atnEquipoError" class="atn-macro-error" role="alert"></div>
+        <div id="atnEquipoContenido" aria-live="polite">Cargando…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let cerrada = false;
+  let asignacionAutomatica = false;
+  let horarioActivo = false;
+  const cerrar = () => {
+    if (cerrada) return;
+    cerrada = true;
+    refrescarEquipoAbierto = null;
+    document.removeEventListener('keydown', alTeclado);
+    overlay.classList.remove('open');
+    setTimeout(() => overlay.remove(), 260);
+    const destino = $('#atnGestionEquipo') ?? opener;
+    if (destino?.isConnected) destino.focus({ preventScroll: true });
+  };
+  const alTeclado = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); cerrar(); return; }
+    if (e.key !== 'Tab') return;
+    const controles = Array.from(overlay.querySelectorAll('input, button')).filter(el => !el.disabled);
+    if (!controles.length) return;
+    if (e.shiftKey && document.activeElement === controles[0]) { e.preventDefault(); controles.at(-1).focus(); }
+    else if (!e.shiftKey && document.activeElement === controles.at(-1)) { e.preventDefault(); controles[0].focus(); }
+  };
+  document.addEventListener('keydown', alTeclado);
+  overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(); });
+  $('#atnEquipoCerrar').addEventListener('click', cerrar);
+  requestAnimationFrame(() => { overlay.classList.add('open'); $('#atnEquipoCerrar')?.focus({ preventScroll: true }); });
+
+  const pintarLista = (integrantes) => {
+    const listaEl = $('#atnEquipoLista');
+    if (!listaEl) return;
+    listaEl.innerHTML = integrantes.map(persona => {
+      const estado = persona.conectado ? persona.estado : 'desconectado';
+      return `<div class="atn-equipo-persona">
+        <span class="atn-presencia-punto atn-presencia-${escapeHtml(estado)}" aria-hidden="true"></span>
+        <span><strong>${escapeHtml(persona.nombre)}</strong><small>${escapeHtml(persona.area || 'Sin área')} · ${textoEstadoPresencia(estado)}</small>${persona.chatwootVinculado ? '' : '<em>No tiene cuenta de Atención vinculada; no puede recibir asignaciones.</em>'}</span>
+      </div>`;
+    }).join('') || '<div class="inbox-empty-sub">No hay integrantes en el equipo.</div>';
+  };
+
+  const cargarPresenciasModal = async () => {
+    try {
+      const r = await api('/api/tools/atencion/presencia');
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.message);
+      miPresencia = data.yo;
+      pintarLista(data.equipo ?? []);
+    } catch (err) {
+      const errorEl = $('#atnEquipoError');
+      if (errorEl) errorEl.textContent = err.message || 'No se pudo actualizar el equipo.';
+    }
+  };
+  refrescarEquipoAbierto = cargarPresenciasModal;
+
+  const cargar = async () => {
+    const errorEl = $('#atnEquipoError');
+    try {
+      const [rPresencia, rConfig] = await Promise.all([
+        api('/api/tools/atencion/presencia'), api('/api/tools/atencion/config'),
+      ]);
+      const presencia = await rPresencia.json().catch(() => ({}));
+      const configData = await rConfig.json().catch(() => ({}));
+      if (cerrada) return;
+      if (!rPresencia.ok || !rConfig.ok) throw new Error(configData.message || presencia.message || 'No se pudo cargar la gestión del equipo.');
+      const config = configData.config;
+      asignacionAutomatica = config.asignacionAutomatica;
+      horarioActivo = config.horario.activo;
+      miPresencia = presencia.yo;
+      $('#atnEquipoContenido').innerHTML = `
+        <section class="atn-equipo-seccion"><h3>Equipo</h3><div id="atnEquipoLista" class="atn-equipo-lista"></div></section>
+        <form id="atnEquipoForm" class="atn-equipo-form">
+          <section class="atn-equipo-seccion"><h3>Asignación automática</h3><div id="atnAutoWrap"></div>
+            <label>Máximo de conversaciones abiertas por asesor<input id="atnMaxAbiertas" type="number" min="1" max="50" required value="${escapeHtml(config.maxAbiertasPorAsesor)}"></label>
+            <p class="field-help">Las conversaciones nuevas se asignan a quien esté Disponible y tenga menos abiertas.</p>
+          </section>
+          <section class="atn-equipo-seccion"><h3>Horario de atención</h3><div id="atnHorarioWrap"></div>
+            <div class="atn-dias" aria-label="Días de atención">${[['L', 1, 'Lunes'], ['M', 2, 'Martes'], ['X', 3, 'Miércoles'], ['J', 4, 'Jueves'], ['V', 5, 'Viernes'], ['S', 6, 'Sábado'], ['D', 0, 'Domingo']].map(([dia, valor, nombre]) => `<button type="button" class="atn-dia${config.horario.dias.includes(valor) ? ' activo' : ''}" data-dia="${valor}" aria-label="${nombre}" aria-pressed="${config.horario.dias.includes(valor)}">${dia}</button>`).join('')}</div>
+            <div class="atn-horas"><label>Desde<input id="atnHorarioDesde" type="time" required value="${escapeHtml(config.horario.desde)}"></label><label>Hasta<input id="atnHorarioHasta" type="time" required value="${escapeHtml(config.horario.hasta)}"></label></div>
+            <p class="field-help">Fuera de horario el bot avisa que responderemos en el próximo horario.</p>
+          </section>
+          <div class="atn-modal-acciones"><button type="button" class="btn btn-secondary" id="atnEquipoCancelar">Cerrar</button><button type="submit" class="btn btn-primary" id="atnEquipoGuardar">Guardar</button></div>
+        </form>`;
+      pintarLista(presencia.equipo ?? []);
+      $('#atnAutoWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(asignacionAutomatica), v => { asignacionAutomatica = v === 'true'; }));
+      $('#atnHorarioWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(horarioActivo), v => { horarioActivo = v === 'true'; }));
+      $$('.atn-dia', overlay).forEach(btn => btn.addEventListener('click', () => {
+        const activo = btn.getAttribute('aria-pressed') !== 'true';
+        btn.setAttribute('aria-pressed', String(activo));
+        btn.classList.toggle('activo', activo);
+      }));
+      $('#atnEquipoCancelar').addEventListener('click', cerrar);
+      $('#atnEquipoForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const configNueva = armarConfigAtencion({
+          asignacionAutomatica, maxAbiertasPorAsesor: $('#atnMaxAbiertas').value,
+          horarioActivo, dias: $$('.atn-dia[aria-pressed="true"]', overlay).map(btn => btn.dataset.dia),
+          desde: $('#atnHorarioDesde').value, hasta: $('#atnHorarioHasta').value,
+        });
+        const error = validarConfigAtencion(configNueva);
+        if (error) { errorEl.textContent = error; return; }
+        const guardar = $('#atnEquipoGuardar');
+        guardar.disabled = true;
+        errorEl.textContent = '';
+        try {
+          const r = await api('/api/tools/atencion/config', { method: 'PUT', body: JSON.stringify({ config: configNueva }) });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) { errorEl.textContent = data.message || 'No se pudo guardar la configuración.'; return; }
+          toast('Configuración del equipo guardada');
+        } catch { errorEl.textContent = 'Sin conexión: no se pudo guardar la configuración.'; }
+        finally { guardar.disabled = false; }
+      });
+    } catch (err) {
+      const contenido = $('#atnEquipoContenido');
+      if (contenido) contenido.innerHTML = '';
+      if (errorEl?.isConnected) errorEl.textContent = err.message;
+    }
+  };
+  cargar();
+}
+
 function abrirGestionMacros() {
   const opener = $('#atnGestionMacros');
   const overlay = document.createElement('div');
@@ -901,4 +1115,5 @@ async function asignarConv(id, cambios) {
 export {
   renderAtencion, etiquetaEstado, vistaPrevia, textoAsignacion,
   resumenMacro, construirAccionesMacro, validarArchivo, formatoTamano,
+  textoEstadoPresencia, validarConfigAtencion, armarConfigAtencion,
 };

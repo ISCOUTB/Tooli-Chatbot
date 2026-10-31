@@ -243,19 +243,3 @@ export async function getConversationStats(): Promise<ChatwootStats> {
     return zero;
   }
 }
-
-/**
- * Verifica si la fecha actual está dentro del horario de atención
- * Lunes a viernes, 8:00 AM – 8:00 PM hora de Bogotá (UTC-5).
- */
-export function isWithinBusinessHours(now: Date = new Date()): boolean {
-  const bogotaStr = now.toLocaleString('en-US', {
-    timeZone: 'America/Bogota',
-    hour12: false,
-  });
-  const bogota = new Date(bogotaStr);
-  const day = bogota.getDay(); // 0=Dom, 6=Sáb
-  if (day === 0 || day === 6) return false;
-  const hour = bogota.getHours();
-  return hour >= 8 && hour < 20;
-}

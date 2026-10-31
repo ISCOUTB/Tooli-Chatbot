@@ -24,6 +24,14 @@ describe('formatoMetrica', () => {
   });
 });
 
+describe('estadoAsesor', () => {
+  it('da texto y color semántico a cada presencia', () => {
+    assert.deepEqual(H.estadoAsesor('ocupado'), { texto: 'Ocupado', clase: 'is-ocupado' });
+    assert.deepEqual(H.estadoAsesor('ausente'), { texto: 'Ausente', clase: 'is-ausente' });
+    assert.equal(H.estadoAsesor('desconocido').texto, 'Desconectado');
+  });
+});
+
 describe('bloquesVisibles', () => {
   it('muestra los bloques propios de cada rol y solo avisa servicios al asesor cuando hace falta', () => {
     assert.deepEqual(H.bloquesVisibles('admin', {}), ['pendiente', 'carga', 'servicios', 'hoy']);

@@ -49,7 +49,10 @@
 .ini-advisor > span:nth-child(2) { display: flex; flex-direction: column; }
 .ini-advisor b { font-size: .85rem; }
 .ini-availability { width: 9px; height: 9px; border-radius: 50%; background: #7a8494; }
-.ini-availability.is-online { background: var(--success); }
+.ini-availability.is-disponible { background: #16a34a; }
+.ini-availability.is-ocupado { background: #d97706; }
+.ini-availability.is-ausente { background: #64748b; }
+.ini-availability.is-desconectado { background: #94a3b8; }
 .ini-link { min-height: 44px; margin: 8px 0 -8px; padding: 8px 0; border: 0; background: transparent; color: var(--utb-blue); font: inherit; font-weight: 700; cursor: pointer; }
 .ini-technical-ok { display: flex; gap: 8px; align-items: center; min-height: 44px; }
 /* Un servicio afectado por línea: el detalle técnico va debajo, más chico. */

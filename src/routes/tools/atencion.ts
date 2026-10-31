@@ -8,7 +8,7 @@ import { Router, Response } from 'express';
 import { AuthedRequest, requireAdmin } from '../../middleware/auth';
 import { config } from '../../config';
 import { logAudit } from '../../services/auditService';
-import { getUser } from '../../services/usersService';
+import { getUser, listUsers } from '../../services/usersService';
 import { describeError } from '../../services/logSafe';
 import {
   ConversacionNoEncontrada,
@@ -43,6 +43,16 @@ const ESTADO_HECHO: Record<EstadoAtencion, string> = {
   resolved: 'Conversación resuelta',
 };
 import { formatoSse, publicarAtencion, suscribirAtencion } from '../../services/atencionEventos';
+import {
+  AtencionConfigError,
+  cambiarEstadoAsesor,
+  estaConectado,
+  guardarConfigAtencion,
+  obtenerConfigAtencion,
+  obtenerEstadoAsesor,
+  registrarConexion,
+  registrarDesconexion,
+} from '../../services/atencionEquipoService';
 import {
   AtencionMacroError,
   buscarMacro,
@@ -80,7 +90,7 @@ function responderValidacion(res: Response, err: unknown): boolean {
     res.status(err.status).json({ error: err.codigo, message: err.message });
     return true;
   }
-  if (err instanceof ValidacionEtiquetasError || err instanceof AtencionMacroError) {
+  if (err instanceof ValidacionEtiquetasError || err instanceof AtencionMacroError || err instanceof AtencionConfigError) {
     res.status(400).json({ error: 'validation_error', message: err.message });
     return true;
   }
@@ -111,11 +121,71 @@ atencionRouter.get('/atencion/eventos', (req: AuthedRequest, res: Response) => {
   res.flushHeaders();
   res.write('retry: 5000\n\n');
   const cancelar = suscribirAtencion((evento) => res.write(formatoSse(evento)));
+  registrarConexion(req.user!.username);
   const latido = setInterval(() => res.write(': latido\n\n'), LATIDO_MS);
-  req.on('close', () => {
+  let cerrada = false;
+  res.on('close', () => {
+    if (cerrada) return;
+    cerrada = true;
     clearInterval(latido);
     cancelar();
+    registrarDesconexion(req.user!.username);
   });
+});
+
+/* ===== Equipo y configuración ===== */
+
+atencionRouter.get('/atencion/presencia', async (req: AuthedRequest, res: Response) => {
+  try {
+    const usuarios = (await listUsers()).filter((usuario) => usuario.role === 'asesor');
+    const estados = await Promise.all(usuarios.map((usuario) => obtenerEstadoAsesor(usuario.username)));
+    const miEstado = await obtenerEstadoAsesor(req.user!.username);
+    res.json({
+      yo: { estado: miEstado, conectado: estaConectado(req.user!.username) },
+      equipo: usuarios.map((usuario, i) => {
+        const conectado = estaConectado(usuario.username);
+        const estado = estados[i];
+        return {
+          username: usuario.username,
+          nombre: usuario.fullName,
+          area: usuario.area ?? 'all',
+          conectado,
+          estado,
+          disponible: conectado && estado === 'disponible',
+          chatwootVinculado: !!usuario.chatwootUserId,
+        };
+      }),
+    });
+  } catch (err) {
+    responderError(res, err, 'presencia');
+  }
+});
+
+atencionRouter.post('/atencion/presencia', async (req: AuthedRequest, res: Response) => {
+  try {
+    const estado = await cambiarEstadoAsesor(req.user!.username, req.body?.estado);
+    res.json({ ok: true, estado });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'actualizar presencia');
+  }
+});
+
+atencionRouter.get('/atencion/config', requireAdmin, async (_req: AuthedRequest, res: Response) => {
+  try {
+    res.json({ config: await obtenerConfigAtencion() });
+  } catch (err) {
+    responderError(res, err, 'consultar configuración');
+  }
+});
+
+atencionRouter.put('/atencion/config', requireAdmin, async (req: AuthedRequest, res: Response) => {
+  try {
+    const nueva = await guardarConfigAtencion(req.body?.config);
+    await logAudit(req.user!.username, 'atencion_config_actualizada');
+    res.json({ config: nueva });
+  } catch (err) {
+    if (!responderValidacion(res, err)) responderError(res, err, 'actualizar configuración');
+  }
 });
 
 /** Lo que pide atención del asesor: sin asignar y las suyas con mensajes sin leer. */

@@ -1,5 +1,6 @@
 import { setSession } from '../services/session';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
+import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
 import { config } from '../config';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
@@ -120,6 +121,7 @@ export interface DatosAsesorPosgrado {
  */
 export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesorPosgrado): Promise<void> {
   const { nombre, email, programa } = datos;
+  const fueraHorario = !await dentroDeHorarioAsync();
 
   await messaging.sendText({ to: from, text: '⏳ Conectándote con un asesor de posgrados…' });
 
@@ -154,7 +156,7 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
         programa_interes: programa,
         email_prospecto: email,
       },
-      labels: ['posgrado-prospecto', ...(datos.etiquetas ?? [])],
+      labels: ['posgrado-prospecto', ...(fueraHorario ? ['fuera-horario'] : []), ...(datos.etiquetas ?? [])],
       priority: 'medium',
     });
 
@@ -171,11 +173,9 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
 
     await messaging.sendText({
       to: from,
-      text:
-        `✅ *Listo, ${nombre}!*\n\n` +
-        'Un asesor de Posgrados te responderá en breve.\n\n' +
-        'Cualquier mensaje que escribas le llegará directamente.\n' +
-        'Para terminar la conversación, escribe *salir*.',
+      text: fueraHorario
+        ? `✅ *Listo, ${nombre}!*\n\nTu solicitud quedó registrada. Un asesor de Posgrados te responderá en el próximo horario de atención: *${await textoProximaAtencion()}*.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`
+        : `✅ *Listo, ${nombre}!*\n\nUn asesor de Posgrados te responderá en breve.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`,
     });
   } catch {
     console.error('[prospecto] no se pudo crear conversación Chatwoot');

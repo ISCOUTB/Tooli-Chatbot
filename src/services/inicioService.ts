@@ -15,7 +15,13 @@ export interface AtencionInicio {
   /** Sin usuario de Chatwoot vinculado no hay "mías": el panel lo explica. */
   vinculado: boolean;
   esperaMasLargaMin: number | null;
-  porAsesor?: { id: number; nombre: string; disponible: boolean; abiertas: number }[];
+  porAsesor?: {
+    id: number;
+    nombre: string;
+    disponible: boolean;
+    estado: 'disponible' | 'ocupado' | 'ausente' | 'desconectado';
+    abiertas: number;
+  }[];
 }
 
 export interface InicioRespuesta {
@@ -123,37 +129,45 @@ let saludCache: { en: number; checks: Promise<Record<string, CheckResult>> } | n
 export async function obtenerInicio(username: string, rol: UserRole): Promise<InicioRespuesta> {
   // Las fuentes se cargan aquí para que las funciones puras no abran conexiones
   // a Redis al importarse desde sus pruebas.
-  const [atencionSvc, crmSvc, metricsSvc, reminderSvc, usersSvc, healthSvc] = await Promise.all([
-    import('./chatwootAtencion'), import('./crmService'), import('./metrics'),
-    import('./reminderService'), import('./usersService'), import('../routes/health'),
+  const [atencionSvc, equipoSvc, crmSvc, metricsSvc, reminderSvc, usersSvc, healthSvc] = await Promise.all([
+    import('./chatwootAtencion'), import('./atencionEquipoService'), import('./crmService'),
+    import('./metrics'), import('./reminderService'), import('./usersService'), import('../routes/health'),
   ]);
-  const { chatwootConfigurado, equipoAtencion, listarConversaciones } = atencionSvc;
+  const { chatwootConfigurado, listarConversaciones } = atencionSvc;
+  const { estaConectado, obtenerEstadoAsesor } = equipoSvc;
   const { getFichas } = crmSvc;
   const { getMetrics } = metricsSvc;
   const { listReminders } = reminderSvc;
-  const { getUser } = usersSvc;
+  const { getUser, listUsers } = usersSvc;
   const { getDeepHealth } = healthSvc;
   const atencionP = (async (): Promise<AtencionInicio> => {
     if (!chatwootConfigurado()) {
       return { estado: 'no_configurado', sinAsignar: 0, misSinLeer: 0, mias: 0, vinculado: false, esperaMasLargaMin: null };
     }
-    const [{ conversaciones }, usuario, equipo] = await Promise.all([
+    const [{ conversaciones }, usuario, usuariosEquipo] = await Promise.all([
       listarConversaciones('open'),
       getUser(username),
-      rol === 'admin' ? equipoAtencion() : Promise.resolve(null),
+      rol === 'admin' ? listUsers() : Promise.resolve(null),
     ]);
     const miId = usuario?.chatwootUserId;
     const sinAsignar = conversaciones.filter((c) => !c.asignado).length;
     const mias = miId ? conversaciones.filter((c) => c.asignado?.id === miId).length : 0;
     const misSinLeer = miId ? conversaciones.filter((c) => c.asignado?.id === miId && c.noLeidos > 0).length : 0;
     const bloque: AtencionInicio = { estado: 'ok', sinAsignar, misSinLeer, mias, vinculado: !!miId, esperaMasLargaMin: esperaMasLargaMin(conversaciones) };
-    if (equipo) {
-      bloque.porAsesor = equipo.agentes.map((agente) => ({
-        id: Number(agente.id),
-        nombre: String(agente.nombre),
-        disponible: agente.estado === 'online' || agente.estado === 'available',
-        abiertas: conversaciones.filter((c) => c.asignado?.id === Number(agente.id)).length,
-      }));
+    if (usuariosEquipo) {
+      const vinculados = usuariosEquipo.filter((item) => item.chatwootUserId);
+      const estados = await Promise.all(vinculados.map((item) => obtenerEstadoAsesor(item.username)));
+      bloque.porAsesor = vinculados.map((item, i) => {
+        const conectado = estaConectado(item.username);
+        const estado = conectado ? estados[i] : 'desconectado';
+        return {
+          id: item.chatwootUserId!,
+          nombre: item.fullName,
+          disponible: conectado && estados[i] === 'disponible',
+          estado,
+          abiertas: conversaciones.filter((c) => c.asignado?.id === item.chatwootUserId).length,
+        };
+      });
     }
     return bloque;
   })();

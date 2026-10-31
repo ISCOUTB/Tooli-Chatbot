@@ -1,6 +1,7 @@
 import { setSession } from '../services/session';
 import { guardarRegistroProspecto } from '../services/registroService';
 import { getOrCreateContact, createConversation } from '../services/chatwootService';
+import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
 import { config } from '../config';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPregrado } from './shared';
@@ -301,6 +302,7 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
 
   const nombre = data.nombre ?? 'Prospecto';
   const email = data.email ?? '';
+  const fueraHorario = !await dentroDeHorarioAsync();
 
   await track('prospecto_pregrado_completado');
   await messaging.sendText({ to: from, text: '⏳ Conectándote con un asesor de pregrado…' });
@@ -335,7 +337,7 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
         programa_interes: carrera,
         email_prospecto: email,
       },
-      labels: ['pregrado-prospecto'],
+      labels: ['pregrado-prospecto', ...(fueraHorario ? ['fuera-horario'] : [])],
       priority: 'medium',
     });
 
@@ -352,11 +354,9 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
 
     await messaging.sendText({
       to: from,
-      text:
-        `✅ *Listo, ${nombre}!*\n\n` +
-        'Un asesor de Pregrado te responderá en breve.\n\n' +
-        'Cualquier mensaje que escribas le llegará directamente.\n' +
-        'Para terminar la conversación, escribe *salir*.',
+      text: fueraHorario
+        ? `✅ *Listo, ${nombre}!*\n\nTu solicitud quedó registrada. Un asesor de Pregrado te responderá en el próximo horario de atención: *${await textoProximaAtencion()}*.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`
+        : `✅ *Listo, ${nombre}!*\n\nUn asesor de Pregrado te responderá en breve.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`,
     });
   } catch {
     console.error('[pregrado-prospecto] no se pudo crear conversación Chatwoot');

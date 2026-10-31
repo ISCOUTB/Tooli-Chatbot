@@ -33,6 +33,16 @@ function formatoMetrica(valor) {
   return valor === null || valor === undefined || !Number.isFinite(Number(valor)) ? '—' : Number(valor).toLocaleString('es-CO');
 }
 
+function estadoAsesor(estado) {
+  const estados = {
+    disponible: { texto: 'Disponible', clase: 'is-disponible' },
+    ocupado: { texto: 'Ocupado', clase: 'is-ocupado' },
+    ausente: { texto: 'Ausente', clase: 'is-ausente' },
+    desconectado: { texto: 'Desconectado', clase: 'is-desconectado' },
+  };
+  return estados[estado] ?? estados.desconectado;
+}
+
 function bloquesVisibles(rol, datos) {
   if (rol === 'admin') return ['pendiente', 'carga', 'servicios', 'hoy'];
   const bloques = ['atencion', 'seguimiento'];
@@ -119,7 +129,10 @@ function cargaAdmin(atencion) {
   else if (atencion.estado === 'no_configurado') contenido = '<div class="ini-state">Atención no está configurada.</div>';
   else {
     const asesores = atencion.porAsesor ?? [];
-    contenido = asesores.length ? `<div class="ini-advisors">${asesores.map((asesor) => `<div class="ini-advisor"><span class="ini-availability ${asesor.disponible ? 'is-online' : ''}" aria-label="${asesor.disponible ? 'Disponible' : 'No disponible'}"></span><span><strong>${escapeHtml(asesor.nombre)}</strong><small>${asesor.disponible ? 'Disponible' : 'No disponible'}</small></span><b>${escapeHtml(asesor.abiertas)} ${plural(asesor.abiertas, 'abierta', 'abiertas')}</b></div>`).join('')}</div>` : '<div class="ini-empty ini-empty-small">No hay asesores en el equipo.</div>';
+    contenido = asesores.length ? `<div class="ini-advisors">${asesores.map((asesor) => {
+      const estado = estadoAsesor(asesor.estado);
+      return `<div class="ini-advisor"><span class="ini-availability ${estado.clase}" aria-label="${estado.texto}"></span><span><strong>${escapeHtml(asesor.nombre)}</strong><small>${estado.texto}</small></span><b>${escapeHtml(asesor.abiertas)} ${plural(asesor.abiertas, 'abierta', 'abiertas')}</b></div>`;
+    }).join('')}</div>` : '<div class="ini-empty ini-empty-small">No hay asesores en el equipo.</div>';
   }
   contenido += '<button type="button" class="ini-link" data-ini-action="actividad">Ver Actividad de asesores</button>';
   return tarjeta('ini-carga-title', 'Carga por asesor', contenido);
@@ -211,4 +224,4 @@ async function renderHome(main) {
   await cargar();
 }
 
-export { bloquesVisibles, formatoMetrica, renderHome, textoEspera };
+export { bloquesVisibles, estadoAsesor, formatoMetrica, renderHome, textoEspera };

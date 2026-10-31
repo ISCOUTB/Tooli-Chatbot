@@ -161,6 +161,9 @@ function iniciarTiempoReal() {
     let evento;
     try { evento = JSON.parse(e.data); } catch { return; }
     window.dispatchEvent(new CustomEvent('tooli:atencion', { detail: evento }));
+    // La presencia mantiene el equipo al día, pero no representa actividad de
+    // una conversación: no altera la insignia ni genera sonido o avisos.
+    if (evento.tipo === 'presencia') return;
     programarResumen();
     if (evento.entrante) avisar(evento);
   });

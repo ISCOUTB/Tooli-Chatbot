@@ -37,7 +37,8 @@ export type AuditAction =
   | 'atencion_etiquetas'
   | 'atencion_adjunto'
   | 'atencion_macro'
-  | 'atencion_macro_creada';
+  | 'atencion_macro_creada'
+  | 'atencion_config_actualizada';
 
 export interface AuditEntry {
   ts: number;
