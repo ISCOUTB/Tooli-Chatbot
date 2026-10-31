@@ -1,4 +1,4 @@
-import { $, haptic } from '../core/dom.js';
+import { $, emoji, escapeHtml, haptic } from '../core/dom.js';
 
 function attachTooltip(el, text) {
   if (!text) return;
@@ -26,7 +26,8 @@ function buildSegmented(options, activeValue, onChange) {
   const buttons = options.map(opt => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = opt.label;
+    if (opt.icon) btn.innerHTML = `${emoji(opt.icon)} ${escapeHtml(opt.label)}`;
+    else btn.textContent = opt.label;
     btn.dataset.value = opt.value;
     btn.addEventListener('click', () => {
       if (btn.classList.contains('active')) return;
@@ -71,6 +72,10 @@ function buildSegmented(options, activeValue, onChange) {
 
 /* Contador animado (ease-out cúbico) para los números de las stat cards */
 function countUp(el, to, duration = 650) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = to;
+    return;
+  }
   const from = 0;
   const t0 = performance.now();
   function frame(now) {

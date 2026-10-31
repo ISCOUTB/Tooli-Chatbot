@@ -1,6 +1,43 @@
 import { $, haptic } from './dom.js';
 
-const AVATAR_TONES = ['#0284c7', '#7c3aed', '#059669', '#d97706', '#db2777', '#0d9488'];
+// Las iniciales son texto pequeño blanco: todos los tonos deben conservar
+// contraste AA, incluso en los avatares compactos de la bandeja.
+const AVATAR_TONES = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#be185d', '#0f766e'];
+
+function rgbDesdeHex(hex) {
+  const valor = String(hex).trim().replace(/^#/, '');
+  if (!/^[\da-f]{6}$/i.test(valor)) return null;
+  return [0, 2, 4].map(i => parseInt(valor.slice(i, i + 2), 16));
+}
+
+function luminancia(rgb) {
+  const canales = rgb.map(c => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * canales[0] + 0.7152 * canales[1] + 0.0722 * canales[2];
+}
+
+function contraste(a, b) {
+  const [clara, oscura] = [luminancia(a), luminancia(b)].sort((x, y) => y - x);
+  return (clara + 0.05) / (oscura + 0.05);
+}
+
+/* Conserva el matiz de una etiqueta, pero oscurece su texto hasta que pase AA
+   tanto sobre blanco como sobre los fondos pálidos usados por los badges. */
+function colorTextoLegible(hex) {
+  const base = rgbDesdeHex(hex);
+  if (!base) return '#1f2937';
+  const blanco = [255, 255, 255];
+  const fondos = [0x1f, 0x22].map(alpha => base.map(c => Math.round(c * alpha / 255 + 255 * (1 - alpha / 255))));
+  let factor = 1;
+  let candidato = base;
+  while ([blanco, ...fondos].some(fondo => contraste(candidato, fondo) < 4.5) && factor > 0) {
+    factor -= 0.01;
+    candidato = base.map(c => Math.max(0, Math.round(c * factor)));
+  }
+  return `#${candidato.map(c => c.toString(16).padStart(2, '0')).join('')}`;
+}
 function avatarTone(seed) {
   let h = 0;
   for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -87,4 +124,4 @@ function fechaParaCsv(raw) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export { AVATAR_TONES, avatarTone, initialsFor, relativeTime, friendlyDate, formatTelefono, formatWhatsApp, csvEscape, descargarCsv, fechaParaCsv };
+export { AVATAR_TONES, avatarTone, colorTextoLegible, initialsFor, relativeTime, friendlyDate, formatTelefono, formatWhatsApp, csvEscape, descargarCsv, fechaParaCsv };

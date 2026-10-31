@@ -1,6 +1,6 @@
 import { api } from '../core/api.js';
 import { AUDIT_AREAS, AUDIT_LABELS, areaForAction } from '../core/audit.js';
-import { $, escapeHtml, loadScript } from '../core/dom.js';
+import { $, emoji, escapeHtml, loadScript } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -59,7 +59,7 @@ async function renderActividad(main) {
       if (!advisors.length) {
         content.innerHTML = `
           <div class="card" style="text-align:center;padding:44px 20px;">
-            <div style="font-size:32px;margin-bottom:8px;">📊</div>
+            <div style="font-size:32px;margin-bottom:8px;">${emoji('📊')}</div>
             <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Sin actividad aún</div>
             <div style="font-size:13px;color:var(--text-muted);">No hay acciones registradas en este rango. Probá con otro período.</div>
           </div>`;
@@ -87,7 +87,7 @@ async function renderActividad(main) {
         <div class="stats-grid stagger-in" style="margin-bottom:16px;">
           ${advisors.slice(0, 3).map((a, i) => `
             <div class="stat-card">
-              <div class="label">${MEDALS[i]} ${escapeHtml(fullNameOf[a.username] ?? a.username)}</div>
+              <div class="label">${emoji(MEDALS[i])} ${escapeHtml(fullNameOf[a.username] ?? a.username)}</div>
               <div class="value">${escapeHtml(a.total)}</div>
               <div style="font-size:12px;color:var(--text-muted);">acciones registradas</div>
             </div>
@@ -95,7 +95,7 @@ async function renderActividad(main) {
         </div>
 
         <div class="card" style="margin-bottom:16px;">
-          <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Carga de trabajo por área</h3>
+          <h2 class="card-title">Carga de trabajo por área</h2>
           ${areaRows.map(a => {
             const pct = Math.round(a.count / grandTotal * 100);
             return `
@@ -111,24 +111,25 @@ async function renderActividad(main) {
         </div>
 
         <div class="card" style="margin-bottom:16px;">
-          <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Total de acciones por asesor</h3>
+          <h2 class="card-title">Total de acciones por asesor</h2>
           <div id="actChartWrap" style="position:relative;height:${escapeHtml(Math.max(140, advisors.length * 42))}px;"><canvas id="actChartCanvas"></canvas></div>
         </div>
 
         <div class="widget-card">
-          <div class="widget-card-head"><h3>Detalle por tipo de acción</h3></div>
+          <div class="widget-card-head"><h2>Detalle por tipo de acción</h2></div>
           <div style="overflow-x:auto;">
             <table>
               <thead><tr><th>Asesor</th>${actionKeys.map(k => {
                 const fb = k === 'recordatorio_enviado' ? { label: 'Recordatorio enviado', icon: '⏰' } : null;
-                return `<th style="text-align:center;">${AUDIT_LABELS[k]?.icon ?? fb?.icon ?? ''} ${escapeHtml(AUDIT_LABELS[k]?.label ?? fb?.label ?? k)}</th>`;
+                const icono = AUDIT_LABELS[k]?.icon ?? fb?.icon;
+                return `<th style="text-align:center;">${icono ? emoji(icono) : ''} ${escapeHtml(AUDIT_LABELS[k]?.label ?? fb?.label ?? k)}</th>`;
               }).join('')}<th style="text-align:right;">Total</th></tr></thead>
               <tbody class="stagger-in">
                 ${advisors.map(a => `<tr><td><strong>${escapeHtml(fullNameOf[a.username] ?? a.username)}</strong></td>${actionKeys.map(k => `<td style="text-align:center;">${escapeHtml(a.counts[k] ?? '—')}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--utb-blue);">${escapeHtml(a.total)}</td></tr>`).join('')}
               </tbody>
             </table>
           </div>
-          ${actionKeys.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding-top:8px;opacity:.8;">← Deslizá para ver todas las columnas →</div>` : ''}
+          ${actionKeys.length > 3 ? `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding-top:8px;opacity:.8;">← Deslizá para ver todas las columnas →</div>` : ''}
         </div>
       `;
 

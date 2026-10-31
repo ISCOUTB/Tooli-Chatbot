@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import { FLOW_CATEGORIES, crmEstadoMeta, describirPaso, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
-import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
+import { $, $$, copyToClipboard, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
+import { avatarTone, colorTextoLegible, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
@@ -85,7 +85,7 @@ async function renderConversaciones(main) {
         </div>
       </div>
       <div class="inbox-thread glass" id="inboxThread">
-        <div class="inbox-empty"><div style="font-size:40px;">💬</div>Selecciona una conversación</div>
+        <div class="inbox-empty"><div style="font-size:40px;">${emoji('💬')}</div>Selecciona una conversación</div>
       </div>
     </div>
   `;
@@ -122,7 +122,7 @@ async function renderConversaciones(main) {
     if (!phones.length) {
       rows.innerHTML = `
         <div class="inbox-empty" style="height:auto;padding:44px 20px;flex-direction:column;text-align:center;gap:6px;">
-          <div class="inbox-empty-icon">💬</div>
+          <div class="inbox-empty-icon">${emoji('💬')}</div>
           <div class="inbox-empty-title">Aún no hay conversaciones</div>
           <div class="inbox-empty-sub">Cuando alguien escriba por WhatsApp aparecerá aquí.</div>
         </div>`;
@@ -227,7 +227,7 @@ function renderInboxRows(filter) {
     const hasSearch = !!filter;
     rowsEl.innerHTML = `
       <div class="inbox-empty" style="height:auto;padding:44px 20px;flex-direction:column;text-align:center;gap:6px;">
-        <div class="inbox-empty-icon">${hasSearch ? '🔍' : '💬'}</div>
+        <div class="inbox-empty-icon">${emoji(hasSearch ? '🔍' : '💬')}</div>
         <div class="inbox-empty-title">${hasSearch ? 'Sin resultados' : 'Nada por aquí'}</div>
         <div class="inbox-empty-sub">${hasSearch ? 'Busca por nombre, número o por lo que dice el último mensaje.' : 'No hay conversaciones en esta categoría.'}</div>
         ${hasSearch ? '<button type="button" class="btn btn-ghost" id="inboxLimpiar" style="margin-top:8px;font-size:13px;">Limpiar búsqueda</button>' : ''}
@@ -246,8 +246,8 @@ function renderInboxRows(filter) {
   rowsEl.innerHTML = list.map(c => `
     <div class="swipe-row" data-phone="${c.phone}">
       <div class="swipe-actions">
-        <button class="sw-primary" data-swipe-reset>🔄<span>Resetear</span></button>
-        <button class="sw-danger" data-swipe-ban>⛔<span>${c.banned ? 'Desbanear' : 'Banear'}</span></button>
+        <button class="sw-primary" data-swipe-reset>${emoji('🔄')}<span>Resetear</span></button>
+        <button class="sw-danger" data-swipe-ban>${emoji('⛔')}<span>${c.banned ? 'Desbanear' : 'Banear'}</span></button>
       </div>
       <div class="swipe-content">
         <button type="button" class="inbox-row" data-open="${c.phone}">
@@ -258,8 +258,8 @@ function renderInboxRows(filter) {
               ${c.last ? `<span class="inbox-row-time">${relativeTime(c.last.ts)}</span>` : ''}
             </div>
             <div class="inbox-row-preview">
-              ${c.cat ? `<span class="flow-badge" style="background:${c.cat.color}1a;color:${c.cat.color};">${c.cat.label}</span>` : ''}
-              ${c.banned ? '⛔ Baneado' : (c.last ? escapeHtml(c.last.text) : 'Sin mensajes registrados')}
+              ${c.cat ? `<span class="flow-badge" style="background:${c.cat.color}1a;color:${colorTextoLegible(c.cat.color)};">${c.cat.label}</span>` : ''}
+              ${c.banned ? `${emoji('⛔')} Baneado` : (c.last ? escapeHtml(c.last.text) : 'Sin mensajes registrados')}
             </div>
           </div>
           <span class="swipe-hint" aria-hidden="true">${icon('chevronLeft', 14)}</span>
@@ -452,7 +452,7 @@ async function openThread(phone, opener) {
         <div class="avatar" style="background:${avatarTone(phone)};width:36px;height:36px;font-size:13px;">${initialsFor(phone, nombre)}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;font-size:14px;">${nombre ? escapeHtml(nombre) : formatTelefono(phone)}</div>
-          <div class="pulse-dot ${info.banned ? 'down' : 'ok'}" style="font-size:11px;">${info.banned ? 'Baneado' : 'Activo'}</div>
+          <div class="pulse-dot ${info.banned ? 'down' : 'ok'}" style="font-size:12px;">${info.banned ? 'Baneado' : 'Activo'}</div>
         </div>
         <label class="ai-toggle" title="Si la apagas, Tooli deja de responder con IA y escala directo a un asesor">
           <span class="ai-toggle-label">🤖 IA</span>
@@ -470,7 +470,7 @@ async function openThread(phone, opener) {
         const ultima = ficha.notas?.[0];
         return `
           <div class="thread-crm">
-            <span class="badge" style="background:${em.color}1f;color:${em.color};">${em.icon} ${em.label}</span>
+            <span class="badge" style="background:${em.color}1f;color:${colorTextoLegible(em.color)};">${emoji(em.icon)} ${em.label}</span>
             ${ficha.asignadoA ? `<span class="thread-crm-item">${icon('user', 12)} ${escapeHtml(ficha.asignadoA)}</span>` : ''}
             ${ficha.etiquetas?.length ? ficha.etiquetas.slice(0, 3).map(e => `<span class="thread-crm-tag">${escapeHtml(e)}</span>`).join('') : ''}
             ${ultima ? `<span class="thread-crm-nota" title="${escapeHtml(ultima.texto)}">${icon('note', 12)} ${escapeHtml(ultima.texto)}</span>` : ''}

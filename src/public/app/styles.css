@@ -7,15 +7,15 @@
   --utb-blue-dark: #001f5c;
   --utb-blue-light: #1e73be;
   --utb-accent: #5eead4;
-  --utb-accent-dark: #14b8a6;
+  --utb-accent-dark: #0f766e;
   --bg: #f2f4f8;
   --surface: #ffffff;
   --border: #e5e9f0;
   --text: #1f2937;
-  --text-muted: #6b7280;
-  --danger: #ff3b30;
-  --success: #16a34a;
-  --warning: #f59e0b;
+  --text-muted: #596273;
+  --danger: #c5221f;
+  --success: #15803d;
+  --warning: #92400e;
   --shadow-sm: 0 1px 3px rgba(0, 48, 135, 0.06);
   --shadow-md: 0 4px 16px rgba(0, 48, 135, 0.09);
   --shadow-lg: 0 12px 32px rgba(0, 48, 135, 0.14);
@@ -368,7 +368,8 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
   background: var(--surface); border-radius: var(--radius-md); padding: 24px;
   box-shadow: var(--shadow-sm); border: 1px solid var(--border);
 }
-.card h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.card h2, .card h3 { font-size: 16px; line-height: 1.35; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.card .card-title { margin-bottom: 16px; }
 .card .desc { color: var(--text-muted); font-size: 14px; margin-bottom: 16px; }
 
 /* Hero shortcut tiles (Chatwoot, Grafana) — profundidad real estilo iOS:
@@ -481,7 +482,7 @@ th { background: #f9fafb; font-weight: 600; color: var(--text-muted); font-size:
 tr:last-child td { border: none; }
 tbody tr { transition: background 0.15s ease, transform 0.15s var(--ease-spring); }
 tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); }
-.badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(0, 48, 135, 0.1); color: var(--utb-blue); }
+.badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; background: rgba(0, 48, 135, 0.1); color: var(--utb-blue); }
 .badge.admin { background: rgba(94, 234, 212, 0.3); color: var(--utb-accent-dark); }
 .badge.asesor { background: rgba(0, 48, 135, 0.1); color: var(--utb-blue); }
 
@@ -827,7 +828,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 /* Widget "Card" simple con header — usado en el nuevo Inicio y en Actividad */
 .widget-card { background: white; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); padding: 16px; }
 .widget-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 0 4px; }
-.widget-card-head h3 { font-size: 14.5px; font-weight: 700; }
+.widget-card-head h2, .widget-card-head h3 { font-size: 16px; line-height: 1.35; font-weight: 600; color: var(--text); }
 .widget-card-head a, .widget-card-head .widget-link { font-size: 12px; font-weight: 600; color: var(--utb-blue); display: inline-flex; align-items: center; gap: 3px; cursor: pointer; background: none; border: none; font-family: inherit; }
 .widget-empty { color: var(--text-muted); font-size: 13px; padding: 10px 6px; display: flex; align-items: center; gap: 8px; }
 
@@ -934,7 +935,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .pulse-dot.ok { color: var(--success); }
 .pulse-dot.degraded { color: var(--warning); }
 .pulse-dot.down { color: var(--danger); }
-.pulse-dot.skipped { color: #94a3b8; }
+.pulse-dot.skipped { color: #596273; }
 .pulse-dot.skipped::before { animation: none; }
 @keyframes pulse-ring {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
@@ -1437,7 +1438,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 .crm-estado-chip.active {
   background: color-mix(in srgb, var(--chip) 14%, transparent);
   border-color: var(--chip);
-  color: var(--chip);
+  color: var(--chip-texto, var(--utb-blue));
   box-shadow: 0 3px 10px color-mix(in srgb, var(--chip) 26%, transparent);
 }
 .crm-asignado {
@@ -1613,8 +1614,10 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   align-items: center;
   gap: 7px;
   margin: 0 0 14px;
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text);
 }
 .rem-label {
   display: block;
@@ -2114,9 +2117,9 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   background: rgba(118, 118, 128, 0.12); padding: 2px 7px; border-radius: 999px; max-width: 100%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.atn-chip-alerta { color: #b45309; background: #fef3c7; }
+.atn-chip-alerta { color: #92400e; background: #fef3c7; }
 .atn-chip-etiqueta {
-  color: var(--atn-etiqueta); border: 1px solid color-mix(in srgb, var(--atn-etiqueta) 38%, transparent);
+  color: var(--atn-etiqueta-texto, var(--text)); border: 1px solid color-mix(in srgb, var(--atn-etiqueta) 38%, transparent);
   background: color-mix(in srgb, var(--atn-etiqueta) 10%, var(--surface));
 }
 .atn-etiqueta-quitar {
@@ -2227,3 +2230,37 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-conexion-conectado::before { background: var(--success); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
 .atn-conexion-reconectando { color: var(--warning); }
 .atn-conexion-reconectando::before { background: var(--warning); }
+
+/* Acabado accesible: horas, chips y pistas conservan legibilidad sin alterar
+   la jerarquía de los títulos ni el tamaño del contenido principal. */
+.nav-section-title, .sidebar .user-block .role, .tool-card .tool-hint,
+.sheet-group-title, .tab-bar a, .inbox-row-time, .flow-badge, .thread-meta,
+.bubble-time, .inbox-list .swipe-row .swipe-actions button, .crm-card-date,
+.quick-row .quick-badge, .activity-row .activity-time, .wa-statusbar-icons,
+.wa-header-name div:last-child, .wa-bubble-meta, .wa-ticks, .advisor-stat-label,
+.profile-sheet-stat .label, .health-latency, .turno-hint, .broadcast-hint,
+.composer-hint, .crm-etiqueta, .crm-etiqueta-input, .crm-nota-meta,
+.crm-card-notas, .thread-crm,
+.disclosure-value, .rem-help, .rem-nota-honesta, .rem-card-cuando,
+.rem-card-meta, .rem-card-error, .funnel-label, .seg-resumen, .caps-warn,
+.rem-ventana, .atn-chip, .atn-no-leidos, .atn-truncado, .atn-estado,
+.atn-cabecera-sub, .atn-etiqueta-agregar, .atn-autor, .atn-nota-autor,
+.nav-insignia, .tab-icon .nav-insignia { font-size: 12px; }
+
+/* Los grises anteriores quedaban por debajo de AA sobre blanco o gris pálido. */
+.tab-bar a, .wa-empty, .wa-composer-input { color: var(--text-muted); }
+
+/* En escritorio un control compacto nunca baja de 24 px; en celular el blanco
+   táctil sube a 44 px sin agrandar las mismas piezas en pantallas amplias. */
+.crm-estado-chip, .crm-mini-btn, .crm-etiqueta button,
+.atn-etiqueta-quitar, .atn-etiqueta-agregar { min-height: 24px; }
+@media (max-width: 720px) {
+  .btn, .segmented button, .chip, .crm-estado-chip, .crm-mini-btn,
+  .crm-etiqueta button, .atn-etiqueta-quitar, .atn-etiqueta-agregar,
+  .atn-composer-tool, .atn-archivo-chip button, .hint-retry, .atn-select {
+    min-height: 44px;
+  }
+  .btn, .atn-etiqueta-quitar, .crm-etiqueta button, .atn-composer-tool,
+  .atn-archivo-chip button { min-width: 44px; }
+  .atn-composer-tool { width: 44px; }
+}

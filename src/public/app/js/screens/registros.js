@@ -1,8 +1,8 @@
 import { api } from '../core/api.js';
 import { MAX_DESTINATARIOS_CAMPANA, RELACIONES_CAMPANA, parseListaCampana } from '../core/campana.js';
 import { CRM_ESTADOS, PROGRAMA_COLORS, PROGRAMA_LABELS, areaOf, crmCategoria, crmEstadoMeta, fichaHtml, flowCategory, wireFicha } from '../core/crm.js';
-import { $, $$, copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
-import { avatarTone, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
+import { $, $$, copyToClipboard, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
+import { avatarTone, colorTextoLegible, descargarCsv, fechaParaCsv, formatTelefono, friendlyDate, initialsFor } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { parametrosRuta } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
@@ -515,8 +515,8 @@ async function renderRegistros(main) {
         return;
       }
       listEl.innerHTML = templates.map((t, i) => `
-        <button type="button" class="quick-row bc-template-row" data-idx="${i}" style="border:1px solid ${chosen && chosen.name === t.name && chosen.language === t.language ? 'var(--utb-blue)' : 'var(--border)'};background:${chosen && chosen.name === t.name && chosen.language === t.language ? 'rgba(0,48,135,0.06)' : 'transparent'};">
-          <span class="quick-icon" style="background:${chosen && chosen.name === t.name && chosen.language === t.language ? 'var(--utb-blue)' : 'rgba(0,48,135,0.08)'};color:${chosen && chosen.name === t.name && chosen.language === t.language ? 'white' : 'var(--utb-blue)'};">${chosen && chosen.name === t.name && chosen.language === t.language ? '✓' : '📄'}</span>
+        <button type="button" class="quick-row bc-template-row" data-idx="${i}" aria-pressed="${chosen && chosen.name === t.name && chosen.language === t.language}" style="border:1px solid ${chosen && chosen.name === t.name && chosen.language === t.language ? 'var(--utb-blue)' : 'var(--border)'};background:${chosen && chosen.name === t.name && chosen.language === t.language ? 'rgba(0,48,135,0.06)' : 'transparent'};">
+          <span class="quick-icon" style="background:${chosen && chosen.name === t.name && chosen.language === t.language ? 'var(--utb-blue)' : 'rgba(0,48,135,0.08)'};color:${chosen && chosen.name === t.name && chosen.language === t.language ? 'white' : 'var(--utb-blue)'};">${emoji(chosen && chosen.name === t.name && chosen.language === t.language ? '✓' : '📄')}</span>
           <span class="quick-body"><div class="quick-title">${escapeHtml(t.name)}</div><div class="quick-sub">${escapeHtml(t.language)} · ${escapeHtml(t.category)}${t.components && t.components.length ? ` · ${t.components.length} componentes` : ''}</div></span>
           <span class="quick-chevron">${icon('chevronRight', 14)}</span>
         </button>
@@ -524,7 +524,7 @@ async function renderRegistros(main) {
       if (chosen) infoEl.textContent = `Seleccionado: ${chosen.name} (${chosen.language})`;
       else infoEl.textContent = 'Toca un template para seleccionarlo';
       confirmBtn.disabled = !chosen;
-      confirmBtn.textContent = chosen ? `📨 Enviar "${chosen.name}" a ${total}` : '📨 Enviar';
+      confirmBtn.innerHTML = chosen ? `${emoji('📨')} Enviar "${escapeHtml(chosen.name)}" a ${total}` : `${emoji('📨')} Enviar`;
       listEl.querySelectorAll('.bc-template-row').forEach(btn => btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.idx);
         chosen = templates[idx];
@@ -644,7 +644,7 @@ async function renderRegistros(main) {
     wrap.appendChild(buildSegmented(
       [
         { value: 'todas', label: 'Todas' },
-        ...CRM_ESTADOS.filter(e => etapaCounts[e.value]).map(e => ({ value: e.value, label: `${e.icon} ${e.label} (${etapaCounts[e.value]})` })),
+        ...CRM_ESTADOS.filter(e => etapaCounts[e.value]).map(e => ({ value: e.value, icon: e.icon, label: `${e.label} (${etapaCounts[e.value]})` })),
       ],
       etapaCounts[crmEtapa] ? crmEtapa : 'todas',
       (v) => { crmEtapa = v; renderCrmGrid(); },
@@ -797,10 +797,10 @@ async function renderRegistros(main) {
           return `
           <div class="crm-card ${selectMode ? 'select-mode' : ''} ${isSelected ? 'crm-card-selected' : ''}" data-longpress data-row="${idx}" ${selectMode ? '' : `tabindex="0" role="button" aria-label="Ver perfil de ${escapeHtml(nombre)}"`} style="position:relative;">
             ${selectMode ? `<button type="button" class="crm-check ${isSelected ? 'checked' : ''}" data-check="${idx}" aria-label="Seleccionar">${isSelected ? icon('check', 12) : ''}</button>` : ''}
-            ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:#dc2626;font-size:10px;">Sin WhatsApp</span>` : ''}
+            ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:${colorTextoLegible('#dc2626')};font-size:12px;">Sin WhatsApp</span>` : ''}
             <div class="advisor-card-top" style="${selectMode ? 'margin-top:6px;' : ''}">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[3] || nombre, nombre)}</div>
-              <span class="badge" style="background:${areaOf(row) === 'Pregrado' ? '#0284c722' : '#7c3aed22'};color:${areaOf(row) === 'Pregrado' ? '#0284c7' : '#7c3aed'};">${areaOf(row)}</span>
+              <span class="badge" style="background:${areaOf(row) === 'Pregrado' ? '#0284c722' : '#7c3aed22'};color:${colorTextoLegible(areaOf(row) === 'Pregrado' ? '#0284c7' : '#7c3aed')};">${areaOf(row)}</span>
             </div>
             <div class="crm-card-name">${escapeHtml(nombre)}</div>
             ${(() => {
@@ -808,14 +808,14 @@ async function renderRegistros(main) {
               if (!f) return '';
               const em = crmEstadoMeta(f.estado);
               return `<div class="crm-card-ficha">
-                <span class="badge" style="background:${em.color}1f;color:${em.color};">${em.icon} ${em.label}</span>
+                <span class="badge" style="background:${em.color}1f;color:${colorTextoLegible(em.color)};">${emoji(em.icon)} ${em.label}</span>
                 ${f.asignadoA ? `<span class="crm-card-asignado" title="Asesor responsable">${icon('user', 11)}${escapeHtml(f.asignadoA)}</span>` : ''}
                 ${f.notas?.length ? `<span class="crm-card-notas" title="${f.notas.length} nota(s) del equipo">${icon('note', 11)}${f.notas.length}</span>` : ''}
               </div>`;
             })()}
-            ${row[4] ? `<span class="badge" style="background:${PROGRAMA_COLORS[cat]}22;color:${PROGRAMA_COLORS[cat]};margin-bottom:8px;">${escapeHtml(row[4])}</span>` : ''}
-            <div class="crm-card-row">✉️ ${escapeHtml(row[2] || '—')}</div>
-            <div class="crm-card-row">📱 ${escapeHtml(formatTelefono(row[3]) || '—')}</div>
+            ${row[4] ? `<span class="badge" style="background:${PROGRAMA_COLORS[cat]}22;color:${colorTextoLegible(PROGRAMA_COLORS[cat])};margin-bottom:8px;">${escapeHtml(row[4])}</span>` : ''}
+            <div class="crm-card-row">${emoji('✉️')}<span class="sr-only">Correo: </span> ${escapeHtml(row[2] || '—')}</div>
+            <div class="crm-card-row">${emoji('📱')}<span class="sr-only">WhatsApp: </span> ${escapeHtml(formatTelefono(row[3]) || '—')}</div>
             <div class="crm-card-date">${escapeHtml(friendlyDate(row[0]))}</div>
           </div>
         `; }).join('')}

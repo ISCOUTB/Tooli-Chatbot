@@ -1,5 +1,6 @@
 import { api } from '../core/api.js';
-import { $, escapeHtml, haptic, toast } from '../core/dom.js';
+import { $, emoji, escapeHtml, haptic, toast } from '../core/dom.js';
+import { colorTextoLegible } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { parametrosRuta } from '../core/router.js';
 import { estadoVentanaRecordatorio } from '../core/reminder-window.js';
@@ -63,7 +64,7 @@ async function renderRecordatorios(main) {
 
     <div class="rem-layout">
       <form class="card rem-form" id="remForm">
-        <h3 class="rem-form-title">${icon('plus', 16)} Programar uno nuevo</h3>
+        <h2 class="rem-form-title">${icon('plus', 16)} Programar uno nuevo</h2>
         <label class="rem-label" for="remTel">WhatsApp del destinatario</label>
         <input type="tel" id="remTel" class="rem-input" placeholder="573001234567" autocomplete="tel" required>
         <div class="rem-help">Incluye indicativo de país; se aceptan +, espacios y guiones.</div>
@@ -309,7 +310,7 @@ function pintarRecordatorios() {
     return `
       <div class="card rem-card" data-rem="${escapeHtml(rem.id)}">
         <div class="rem-card-top">
-          <span class="badge" style="background:${meta.color}1f;color:${meta.color};">${meta.icon} ${meta.label}</span>
+          <span class="badge" style="background:${meta.color}1f;color:${colorTextoLegible(meta.color)};">${emoji(meta.icon)} ${meta.label}</span>
           <span class="rem-card-cuando" title="${escapeHtml(new Date(rem.scheduledAt).toLocaleString('es-CO'))}">
             ${icon('clock', 12)} ${tiempoRelativoFuturo(rem.scheduledAt)}
           </span>

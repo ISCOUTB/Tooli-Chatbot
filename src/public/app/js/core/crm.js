@@ -1,6 +1,6 @@
 import { api } from './api.js';
-import { $, escapeHtml, haptic, toast } from './dom.js';
-import { relativeTime } from './format.js';
+import { $, emoji, escapeHtml, haptic, toast } from './dom.js';
+import { colorTextoLegible, relativeTime } from './format.js';
 import { icon } from './icons.js';
 import { sesion } from './session.js';
 
@@ -106,14 +106,14 @@ function fichaHtml(ficha) {
     <div class="crm-ficha">
       <details class="disclosure" open>
         <summary><span class="disclosure-title">${icon('tag', 15)} Seguimiento</span>
-          <span class="disclosure-value" id="fichaEstadoActual" style="color:${meta.color};">${meta.icon} ${meta.label}</span>
+          <span class="disclosure-value" id="fichaEstadoActual" style="color:${colorTextoLegible(meta.color)};">${emoji(meta.icon)} ${meta.label}</span>
           ${icon('chevronRight', 16)}
         </summary>
         <div class="disclosure-body">
           <div class="crm-estado-chips" id="fichaEstados">
             ${CRM_ESTADOS.map(e => `
               <button type="button" class="crm-estado-chip ${f.estado === e.value ? 'active' : ''}" data-estado="${e.value}"
-                style="--chip:${e.color};">${e.icon} ${e.label}</button>`).join('')}
+                style="--chip:${e.color};--chip-texto:${colorTextoLegible(e.color)};">${emoji(e.icon)} ${e.label}</button>`).join('')}
           </div>
           <div class="crm-asignado">
             <span class="crm-asignado-label">${icon('user', 14)} Asesor responsable</span>
@@ -179,8 +179,8 @@ function wireFicha(sheet, phone, ficha, onChange) {
     $$$('#fichaEstados').querySelectorAll('.crm-estado-chip').forEach(b => b.classList.toggle('active', b === btn));
     const meta = crmEstadoMeta(estado);
     const actual = $$$('#fichaEstadoActual');
-    actual.textContent = `${meta.icon} ${meta.label}`;
-    actual.style.color = meta.color;
+    actual.innerHTML = `${emoji(meta.icon)} ${meta.label}`;
+    actual.style.color = colorTextoLegible(meta.color);
     toast(`Marcado como ${meta.label.toLowerCase()}`);
   });
 
