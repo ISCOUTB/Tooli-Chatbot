@@ -13,18 +13,29 @@
 
 import { EventEmitter } from 'node:events';
 
-export type TipoEventoAtencion = 'mensaje' | 'nueva' | 'estado' | 'asignacion';
+export type TipoEventoAtencion = 'mensaje' | 'nueva' | 'estado' | 'asignacion' | 'presencia';
 
-export interface EventoAtencion {
+interface EventoBase {
   tipo: TipoEventoAtencion;
+  ts: number;
+}
+
+export interface EventoConversacion extends EventoBase {
+  tipo: Exclude<TipoEventoAtencion, 'presencia'>;
   conversacionId: number;
   /** true cuando escribió la persona: es lo único que amerita un aviso. */
   entrante?: boolean;
   nombre?: string;
   /** Vista previa corta para el aviso del navegador. */
   texto?: string;
-  ts: number;
 }
+
+export interface EventoPresencia extends EventoBase {
+  tipo: 'presencia';
+}
+
+export type EventoAtencion = EventoConversacion | EventoPresencia;
+type EventoPublicable = Omit<EventoConversacion, 'ts'> | Omit<EventoPresencia, 'ts'>;
 
 const bus = new EventEmitter();
 // Un oyente por panel abierto: no es una fuga, es el número de asesores.
@@ -32,9 +43,9 @@ bus.setMaxListeners(0);
 
 const MAX_VISTA_PREVIA = 120;
 
-export function publicarAtencion(evento: Omit<EventoAtencion, 'ts'>): void {
-  if (!Number.isSafeInteger(evento.conversacionId) || evento.conversacionId <= 0) return;
-  const texto = evento.texto?.replace(/\s+/g, ' ').trim();
+export function publicarAtencion(evento: EventoPublicable): void {
+  if (evento.tipo !== 'presencia' && (!Number.isSafeInteger(evento.conversacionId) || evento.conversacionId <= 0)) return;
+  const texto = evento.tipo === 'presencia' ? undefined : evento.texto?.replace(/\s+/g, ' ').trim();
   bus.emit('evento', {
     ...evento,
     ...(texto ? { texto: texto.length > MAX_VISTA_PREVIA ? `${texto.slice(0, MAX_VISTA_PREVIA - 1)}…` : texto } : {}),

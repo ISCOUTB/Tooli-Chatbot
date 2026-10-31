@@ -245,10 +245,22 @@ app.get('/api/tools/metrics/range', (req, res) => {
 // ── Atención: conversaciones con asesor (en producción viven en Chatwoot) ──
 // MOCK_ATENCION_OFF=1 simula un servidor sin Chatwoot configurado.
 const AGENTES = [
-  { id: 1, nombre: 'Ángel Acero', estado: 'online' },
-  { id: 2, nombre: 'Luis Pérez', estado: 'online' },
-  { id: 3, nombre: 'Ana Díaz', estado: 'offline' },
+  { id: 1, username: 'ángel acero', nombre: 'Ángel Acero', area: 'Administración', estado: 'online' },
+  { id: 2, username: 'luis', nombre: 'Luis Pérez', area: 'Admisiones', estado: 'online' },
+  { id: 3, username: 'ana', nombre: 'Ana Díaz', area: 'Posgrados', estado: 'offline' },
+  { id: 4, username: 'sofia', nombre: 'Sofía Gómez', area: 'Admisiones', estado: 'online' },
 ];
+const PRESENCIAS = [
+  { agenteId: 1, conectado: true, estado: 'disponible', chatwootVinculado: true },
+  { agenteId: 2, conectado: true, estado: 'ocupado', chatwootVinculado: true },
+  { agenteId: 3, conectado: false, estado: 'ausente', chatwootVinculado: true },
+  { agenteId: 4, conectado: true, estado: 'disponible', chatwootVinculado: false },
+];
+let CONFIG_ATENCION = {
+  asignacionAutomatica: true,
+  maxAbiertasPorAsesor: 8,
+  horario: { activo: true, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '17:00' },
+};
 const EQUIPOS = [{ id: 10, nombre: 'Admisiones' }, { id: 11, nombre: 'Soporte TI' }];
 const ETIQUETAS_CUENTA = [
   { nombre: 'posgrado-prospecto', color: '#7c3aed', descripcion: 'Interés en posgrados' },
@@ -305,12 +317,56 @@ const emitirAtencion = (evento) => {
   const linea = `event: atencion\ndata: ${JSON.stringify({ ...evento, ts: Date.now() })}\n\n`;
   clientesSse.forEach(res => res.write(linea));
 };
+const presenciaActual = () => PRESENCIAS.find(p => p.agenteId === yoAtencion());
+const equipoPresencia = () => PRESENCIAS.map(p => {
+  const agente = AGENTES.find(a => a.id === p.agenteId);
+  const conectado = p.agenteId === 1 && ROL === 'admin' ? clientesSse.size > 0 || p.conectado : p.conectado;
+  return {
+    username: agente.id === 1 ? mockAdminUsername : agente.username,
+    nombre: agente.nombre, area: agente.area, conectado, estado: p.estado,
+    disponible: conectado && p.estado === 'disponible' && p.chatwootVinculado,
+    chatwootVinculado: p.chatwootVinculado,
+  };
+});
 app.get('/api/tools/atencion/eventos', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders();
   res.write('retry: 5000\n\n');
   clientesSse.add(res);
-  req.on('close', () => clientesSse.delete(res));
+  presenciaActual().conectado = true;
+  emitirAtencion({ tipo: 'presencia' });
+  req.on('close', () => {
+    clientesSse.delete(res);
+    if (!clientesSse.size) presenciaActual().conectado = false;
+    emitirAtencion({ tipo: 'presencia' });
+  });
+});
+app.get('/api/tools/atencion/presencia', (_q, res) => {
+  const actual = presenciaActual();
+  j(res, { yo: { estado: actual.estado, conectado: actual.conectado }, equipo: equipoPresencia() });
+});
+app.post('/api/tools/atencion/presencia', (req, res) => {
+  if (!['disponible', 'ocupado', 'ausente'].includes(req.body.estado)) return res.status(400).json({ message: 'El estado de presencia no es válido.' });
+  presenciaActual().estado = req.body.estado;
+  emitirAtencion({ tipo: 'presencia' });
+  j(res, { ok: true, estado: req.body.estado });
+});
+const configAtencionValida = config => {
+  if (!config || typeof config.asignacionAutomatica !== 'boolean' || !Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) return false;
+  const horario = config.horario;
+  if (!horario || typeof horario.activo !== 'boolean' || !Array.isArray(horario.dias) || horario.dias.some(d => !Number.isInteger(d) || d < 0 || d > 6)) return false;
+  if (horario.activo && !horario.dias.length) return false;
+  const horaValida = valor => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(valor);
+  return horaValida(horario.desde) && horaValida(horario.hasta) && horario.desde < horario.hasta;
+};
+app.get('/api/tools/atencion/config', (_q, res) => ROL === 'admin'
+  ? j(res, { config: CONFIG_ATENCION })
+  : res.status(403).json({ message: 'Solo un administrador puede consultar esta configuración.' }));
+app.put('/api/tools/atencion/config', (req, res) => {
+  if (ROL !== 'admin') return res.status(403).json({ message: 'Solo un administrador puede guardar esta configuración.' });
+  if (!configAtencionValida(req.body.config)) return res.status(400).json({ message: 'Revisa el máximo, los días y las horas de atención.' });
+  CONFIG_ATENCION = { ...req.body.config, horario: { ...req.body.config.horario, dias: [...new Set(req.body.config.horario.dias)].sort((a, b) => a - b) } };
+  j(res, { config: CONFIG_ATENCION });
 });
 app.get('/api/tools/atencion/resumen', (_q, res) => {
   const abiertas = ATENCION.filter(c => c.estado === 'open');
@@ -336,7 +392,10 @@ app.get('/api/tools/inicio', (_q, res) => {
     mias: abiertas.filter(c => c.asignado?.id === miId).length,
     vinculado: true,
     esperaMasLargaMin: sinAsignar.length ? Math.floor((hoy - Math.min(...sinAsignar.map(c => c.mensajes.at(-1)?.ts || hoy))) / 60000) : null,
-    ...(admin ? { porAsesor: AGENTES.map(a => ({ id: a.id, nombre: a.nombre, disponible: a.estado === 'online', abiertas: abiertas.filter(c => c.asignado?.id === a.id).length })) } : {}),
+    ...(admin ? { porAsesor: equipoPresencia().map((p) => {
+      const agente = AGENTES.find(a => (a.id === 1 ? mockAdminUsername : a.username) === p.username);
+      return { id: agente.id, nombre: p.nombre, disponible: p.disponible, estado: p.conectado ? p.estado : 'desconectado', abiertas: abiertas.filter(c => c.asignado?.id === agente.id).length };
+    }) } : {}),
   };
   const mios = { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 };
   let seguimientoSinAsignar = 0;
@@ -362,8 +421,27 @@ app.get('/api/tools/inicio', (_q, res) => {
   });
 });
 // Solo del mock: simula que la persona escribe (o que llega alguien nuevo).
-// POST /api/mock/atencion/simular { id?: number, texto?: string }
+// POST /api/mock/atencion/simular { nueva?: boolean, id?: number, texto?: string }
 app.post('/api/mock/atencion/simular', (req, res) => {
+  if (req.body.nueva === true) {
+    const abiertas = ATENCION.filter(c => c.estado === 'open');
+    const elegibles = PRESENCIAS.filter(p => p.conectado && p.estado === 'disponible' && p.chatwootVinculado)
+      .map(p => ({ agente: AGENTES.find(a => a.id === p.agenteId), abiertas: abiertas.filter(c => c.asignado?.id === p.agenteId).length }))
+      .filter(item => item.abiertas < CONFIG_ATENCION.maxAbiertasPorAsesor)
+      .sort((a, b) => a.abiertas - b.abiertas || a.agente.id - b.agente.id);
+    const elegido = CONFIG_ATENCION.asignacionAutomatica ? elegibles[0]?.agente : null;
+    const id = Math.max(...ATENCION.map(item => item.id)) + 1;
+    const texto = req.body.texto || 'Hola, necesito hablar con un asesor.';
+    const nueva = {
+      id, estado: 'open', contacto: { nombre: `Persona demo ${id}`, telefono: `57300${String(id).padStart(7, '0')}` },
+      asignado: elegido ? { id: elegido.id, nombre: elegido.nombre } : null,
+      equipo: { id: 10, nombre: 'Admisiones' }, etiquetas: [], prioridad: null, noLeidos: 1,
+      mensajes: [{ id: Date.now(), tipo: 'in', texto, ts: Date.now(), autor: null, adjuntos: [] }],
+    };
+    ATENCION.push(nueva);
+    emitirAtencion({ tipo: 'nueva', conversacionId: id, entrante: true, nombre: nueva.contacto.nombre, texto });
+    return j(res, { ok: true, id, asignado: nueva.asignado });
+  }
   const c = ATENCION.find(x => x.id === Number(req.body.id)) ?? ATENCION.find(x => x.estado === 'open');
   const texto = req.body.texto || '¿Siguen ahí? Tengo otra pregunta.';
   c.mensajes.push({ id: Date.now(), tipo: 'in', texto, ts: Date.now(), autor: null, adjuntos: [] });

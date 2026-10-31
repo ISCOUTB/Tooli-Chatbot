@@ -57,6 +57,31 @@ describe('etiquetaEstado', () => {
   });
 });
 
+describe('configuración del equipo', () => {
+  it('traduce los estados de presencia', () => {
+    assert.equal(A.textoEstadoPresencia('disponible'), 'Disponible');
+    assert.equal(A.textoEstadoPresencia('desconectado'), 'Desconectado');
+  });
+
+  it('arma el contrato desde valores de formulario', () => {
+    assert.deepEqual(A.armarConfigAtencion({
+      asignacionAutomatica: 'true', maxAbiertasPorAsesor: '8', horarioActivo: false,
+      dias: ['5', '1', '3'], desde: '08:00', hasta: '17:00',
+    }), {
+      asignacionAutomatica: true, maxAbiertasPorAsesor: 8,
+      horario: { activo: false, dias: [1, 3, 5], desde: '08:00', hasta: '17:00' },
+    });
+  });
+
+  it('valida máximo, días y orden de horas', () => {
+    const base = { asignacionAutomatica: true, maxAbiertasPorAsesor: 8, horario: { activo: true, dias: [1], desde: '08:00', hasta: '17:00' } };
+    assert.equal(A.validarConfigAtencion(base), null);
+    assert.match(A.validarConfigAtencion({ ...base, maxAbiertasPorAsesor: 51 }), /1 y 50/);
+    assert.match(A.validarConfigAtencion({ ...base, horario: { ...base.horario, dias: [] } }), /día/);
+    assert.match(A.validarConfigAtencion({ ...base, horario: { ...base.horario, desde: '18:00' } }), /anterior/);
+  });
+});
+
 describe('resumenMacro', () => {
   it('resume las acciones en el orden que entiende el asesor', () => {
     assert.equal(A.resumenMacro({ acciones: { nota: 'n', mensaje: 'm', etiquetas: ['beca'], estado: 'resolved' } }), 'Nota · Mensaje · Etiqueta beca · Resuelve');

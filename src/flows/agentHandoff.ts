@@ -6,6 +6,7 @@ import { track } from '../services/metrics';
 import { messaging } from './shared';
 import { parseOriginArea } from './commands';
 import { resumenRecomendacion } from './recomendacionView';
+import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
 
 export interface HandoffOptions {
   aiNoResolvio?: boolean;
@@ -37,7 +38,9 @@ export async function iniciarConversacionAsesor(
   data: Record<string, string>,
   opts: HandoffOptions = {}
 ): Promise<void> {
-  const fueraHorario = data.outsideHours === 'true';
+  // `outsideHours` sigue mandando para los flujos que ya detectaron el cierre;
+  // la configuración del panel cubre todos los demás puntos de entrada.
+  const fueraHorario = data.outsideHours === 'true' || !await dentroDeHorarioAsync();
   const area = data.area;
   const teamId =
     area === 'ti'
@@ -168,7 +171,7 @@ export async function iniciarConversacionAsesor(
       await messaging.sendText({
         to: from,
         text:
-          '✅ Tu mensaje quedó registrado. Un asesor te responderá *el próximo día hábil*.\n\n' +
+          `✅ Tu mensaje quedó registrado. Un asesor te responderá en el próximo horario de atención: *${await textoProximaAtencion()}*.\n\n` +
           'Si quieres cancelar, escribe *salir*.',
       });
     } else {
