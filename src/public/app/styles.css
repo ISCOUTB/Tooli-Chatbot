@@ -130,6 +130,16 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 .alert-error { background: #fff1f0; color: var(--danger); border: 1px solid #ffd4d0; }
 .alert-success { background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0; }
 .alert-info { background: #eff6ff; color: var(--utb-blue); border: 1px solid #bfdbfe; }
+.alert-warning { background: #fff9eb; color: #805500; border: 1px solid #f1d58c; }
+.estado-mensaje { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.estado-mensaje .btn { flex: 0 0 auto; }
+.estado-grafica { height: 100%; display: grid; place-items: center; }
+.estado-grafica .estado-mensaje { width: 100%; margin: 0; }
+
+@media (max-width: 374px) {
+  .estado-mensaje { align-items: stretch; flex-direction: column; }
+  .estado-mensaje .btn { width: 100%; }
+}
 
 @keyframes sheet-pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
@@ -1880,7 +1890,9 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
               color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
 .crm-sin-asignar { margin-left: 0; }
+.crm-mios:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
 .crm-mios:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); border-color: var(--utb-blue-light); }
+.crm-mios:disabled:hover { transform: none; box-shadow: none; border-color: var(--border); }
 .crm-mios:active { transform: scale(0.96); }
 .crm-mios.active {
   background: rgba(0, 48, 135, 0.1);
