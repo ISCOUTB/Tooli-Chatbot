@@ -46,6 +46,7 @@ import { formatoSse, publicarAtencion, suscribirAtencion } from '../../services/
 import {
   AtencionConfigError,
   cambiarEstadoAsesor,
+  contarEnEspera,
   estaConectado,
   guardarConfigAtencion,
   obtenerConfigAtencion,
@@ -191,6 +192,15 @@ atencionRouter.put('/atencion/config', requireAdmin, async (req: AuthedRequest, 
     res.json({ config: nueva });
   } catch (err) {
     if (!responderValidacion(res, err)) responderError(res, err, 'actualizar configuración');
+  }
+});
+
+/** Lo que la asignación automática todavía no pudo repartir, para la ventana Equipo. */
+atencionRouter.get('/atencion/en-espera', requireAdmin, async (_req: AuthedRequest, res: Response) => {
+  try {
+    res.json({ enEspera: await contarEnEspera() });
+  } catch (err) {
+    responderError(res, err, 'conversaciones en espera');
   }
 });
 

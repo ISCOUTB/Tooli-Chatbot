@@ -369,6 +369,10 @@ app.put('/api/tools/atencion/config', (req, res) => {
   CONFIG_ATENCION = { ...req.body.config, horario: { ...req.body.config.horario, dias: [...new Set(req.body.config.horario.dias)].sort((a, b) => a - b) } };
   j(res, { config: CONFIG_ATENCION });
 });
+// En espera: abiertas sin asesor de Admisiones (10) o Soporte TI (11).
+app.get('/api/tools/atencion/en-espera', (_q, res) => ROL === 'admin'
+  ? j(res, { enEspera: ATENCION.filter(c => c.estado === 'open' && !c.asignado && [10, 11].includes(c.equipo?.id)).length })
+  : res.status(403).json({ message: 'Solo un administrador puede consultar las conversaciones en espera.' }));
 const repartirInforme = (total, pesos) => {
   const partes = pesos.map(peso => Math.floor(total * peso));
   let faltan = total - partes.reduce((suma, valor) => suma + valor, 0);

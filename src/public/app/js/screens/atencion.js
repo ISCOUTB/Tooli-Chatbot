@@ -156,6 +156,7 @@ let idsConEvento = new Set();
 let miPresencia = null;
 let actualizandoPresencia = false;
 let refrescarEquipoAbierto = null;
+let refrescarEsperaAbierta = null;
 
 async function renderAtencion(main) {
   const params = parametrosRuta();
@@ -228,6 +229,7 @@ function escucharEnVivo() {
       idsConEvento = new Set();
       cargarLista({ silencioso: true });
       if (abierta && ids.has(abierta)) cargarHilo(abierta, { silencioso: true });
+      refrescarEsperaAbierta?.();
     }, ESPERA_EVENTO_MS);
   };
   const alConexion = () => {
@@ -874,6 +876,7 @@ function abrirGestionEquipo() {
     if (cerrada) return;
     cerrada = true;
     refrescarEquipoAbierto = null;
+    refrescarEsperaAbierta = null;
     document.removeEventListener('keydown', alTeclado);
     overlay.classList.remove('open');
     setTimeout(() => overlay.remove(), 260);
@@ -919,6 +922,21 @@ function abrirGestionEquipo() {
   };
   refrescarEquipoAbierto = cargarPresenciasModal;
 
+  // Cada asignación o cierre llega como aviso a la bandeja, que vuelve a
+  // pedir el conteo; si falla, la ventana sigue sirviendo sin él.
+  const pintarEnEspera = async () => {
+    try {
+      const r = await api('/api/tools/atencion/en-espera');
+      const data = await r.json().catch(() => ({}));
+      const el = $('#atnEnEspera');
+      if (!r.ok || !el || !Number.isInteger(data.enEspera)) return;
+      el.innerHTML = data.enEspera === 0 ? 'No hay conversaciones en espera.'
+        : `En espera ahora: <strong>${data.enEspera}</strong> ${data.enEspera === 1 ? 'conversación' : 'conversaciones'}.`;
+      el.hidden = false;
+    } catch { /* el conteo es informativo */ }
+  };
+  refrescarEsperaAbierta = pintarEnEspera;
+
   const cargar = async () => {
     const errorEl = $('#atnEquipoError');
     try {
@@ -939,12 +957,13 @@ function abrirGestionEquipo() {
         <form id="atnEquipoForm" class="atn-equipo-form">
           <section class="atn-equipo-seccion"><h3>Asignación automática</h3><div id="atnAutoWrap"></div>
             <label>Máximo de conversaciones abiertas por asesor<input id="atnMaxAbiertas" type="number" min="1" max="50" required value="${escapeHtml(config.maxAbiertasPorAsesor)}"></label>
-            <p class="field-help">Las conversaciones nuevas se asignan a quien esté Disponible y tenga menos abiertas.</p>
+            <p class="field-help">Cada conversación va al asesor Disponible con menos chats abiertos. Si no hay nadie disponible o todos llegaron al máximo, queda en espera y se asigna al primero que se conecte o libere un cupo.</p>
+            <p class="field-help" id="atnEnEspera" hidden></p>
           </section>
           <section class="atn-equipo-seccion"><h3>Horario de atención</h3><div id="atnHorarioWrap"></div>
             <div class="atn-dias" aria-label="Días de atención">${[['L', 1, 'Lunes'], ['M', 2, 'Martes'], ['X', 3, 'Miércoles'], ['J', 4, 'Jueves'], ['V', 5, 'Viernes'], ['S', 6, 'Sábado'], ['D', 0, 'Domingo']].map(([dia, valor, nombre]) => `<button type="button" class="atn-dia${config.horario.dias.includes(valor) ? ' activo' : ''}" data-dia="${valor}" aria-label="${nombre}" aria-pressed="${config.horario.dias.includes(valor)}">${dia}</button>`).join('')}</div>
             <div class="atn-horas"><label>Desde<input id="atnHorarioDesde" type="time" required value="${escapeHtml(config.horario.desde)}"></label><label>Hasta<input id="atnHorarioHasta" type="time" required value="${escapeHtml(config.horario.hasta)}"></label></div>
-            <p class="field-help">Fuera de horario el bot avisa que responderemos en el próximo horario.</p>
+            <p class="field-help">Fuera de horario el bot avisa que responderemos en el próximo horario, y lo que quede en espera se asigna al empezar.</p>
           </section>
           <section class="atn-equipo-seccion"><h3>Encuesta de satisfacción</h3><div id="atnEncuestaWrap"></div>
             <p class="field-help">Al resolver una conversación el bot le pide a la persona calificar la atención del 1 al 5; la respuesta solo cuenta durante 2 horas.</p>
@@ -952,6 +971,7 @@ function abrirGestionEquipo() {
           <div class="atn-modal-acciones"><button type="button" class="btn btn-secondary" id="atnEquipoCancelar">Cerrar</button><button type="submit" class="btn btn-primary" id="atnEquipoGuardar">Guardar</button></div>
         </form>`;
       pintarLista(presencia.equipo ?? []);
+      pintarEnEspera();
       $('#atnAutoWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(asignacionAutomatica), v => { asignacionAutomatica = v === 'true'; }));
       $('#atnHorarioWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(horarioActivo), v => { horarioActivo = v === 'true'; }));
       $('#atnEncuestaWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(encuestaSatisfaccion), v => { encuestaSatisfaccion = v === 'true'; }));
