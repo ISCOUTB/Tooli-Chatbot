@@ -55,6 +55,7 @@ function armarConfigAtencion(valores) {
     asignacionAutomatica: valores.asignacionAutomatica === true || valores.asignacionAutomatica === 'true',
     maxAbiertasPorAsesor: Number(valores.maxAbiertasPorAsesor),
     encuestaSatisfaccion: valores.encuestaSatisfaccion === true || valores.encuestaSatisfaccion === 'true',
+    avisosCorreo: valores.avisosCorreo === true || valores.avisosCorreo === 'true',
     horario: {
       activo: valores.horarioActivo === true || valores.horarioActivo === 'true',
       dias: [...(valores.dias ?? [])].map(Number).sort((a, b) => a - b),
@@ -861,7 +862,7 @@ function abrirGestionEquipo() {
   overlay.innerHTML = `
     <div class="action-sheet atn-equipo-modal" role="dialog" aria-modal="true" aria-labelledby="atnEquipoTitulo">
       <div class="atn-macro-cuerpo">
-        <div class="atn-equipo-titulo"><div><div class="sheet-title" id="atnEquipoTitulo">Gestión del equipo</div><p class="field-help">Presencia, asignación automática, horario y encuesta de satisfacción.</p></div><button type="button" class="btn btn-ghost" id="atnEquipoCerrar" aria-label="Cerrar">×</button></div>
+        <div class="atn-equipo-titulo"><div><div class="sheet-title" id="atnEquipoTitulo">Gestión del equipo</div><p class="field-help">Presencia, asignación automática, horario, encuesta de satisfacción y avisos por correo.</p></div><button type="button" class="btn btn-ghost" id="atnEquipoCerrar" aria-label="Cerrar">×</button></div>
         <div id="atnEquipoError" class="atn-macro-error" role="alert"></div>
         <div id="atnEquipoContenido" aria-live="polite">Cargando…</div>
       </div>
@@ -872,6 +873,7 @@ function abrirGestionEquipo() {
   let asignacionAutomatica = false;
   let horarioActivo = false;
   let encuestaSatisfaccion = false;
+  let avisosCorreo = false;
   const cerrar = () => {
     if (cerrada) return;
     cerrada = true;
@@ -951,6 +953,7 @@ function abrirGestionEquipo() {
       asignacionAutomatica = config.asignacionAutomatica;
       horarioActivo = config.horario.activo;
       encuestaSatisfaccion = config.encuestaSatisfaccion;
+      avisosCorreo = config.avisosCorreo === true;
       miPresencia = presencia.yo;
       $('#atnEquipoContenido').innerHTML = `
         <section class="atn-equipo-seccion"><h3>Equipo</h3><div id="atnEquipoLista" class="atn-equipo-lista"></div></section>
@@ -968,6 +971,9 @@ function abrirGestionEquipo() {
           <section class="atn-equipo-seccion"><h3>Encuesta de satisfacción</h3><div id="atnEncuestaWrap"></div>
             <p class="field-help">Al resolver una conversación el bot le pide a la persona calificar la atención del 1 al 5; la respuesta solo cuenta durante 2 horas.</p>
           </section>
+          <section class="atn-equipo-seccion"><h3>Avisos por correo</h3><div id="atnAvisosCorreoWrap"></div>
+            <p class="field-help">Si una conversación lleva 2 minutos en espera y nadie de su área está Disponible en el panel, se avisa por correo a los asesores vinculados de esa área que tengan el panel cerrado y no estén Ausentes. Máximo un correo cada 30 minutos por persona, sin datos del estudiante y solo dentro del horario.</p>
+          </section>
           <div class="atn-modal-acciones"><button type="button" class="btn btn-secondary" id="atnEquipoCancelar">Cerrar</button><button type="submit" class="btn btn-primary" id="atnEquipoGuardar">Guardar</button></div>
         </form>`;
       pintarLista(presencia.equipo ?? []);
@@ -975,6 +981,7 @@ function abrirGestionEquipo() {
       $('#atnAutoWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(asignacionAutomatica), v => { asignacionAutomatica = v === 'true'; }));
       $('#atnHorarioWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(horarioActivo), v => { horarioActivo = v === 'true'; }));
       $('#atnEncuestaWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(encuestaSatisfaccion), v => { encuestaSatisfaccion = v === 'true'; }));
+      $('#atnAvisosCorreoWrap').appendChild(buildSegmented([{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }], String(avisosCorreo), v => { avisosCorreo = v === 'true'; }));
       $$('.atn-dia', overlay).forEach(btn => btn.addEventListener('click', () => {
         const activo = btn.getAttribute('aria-pressed') !== 'true';
         btn.setAttribute('aria-pressed', String(activo));
@@ -984,7 +991,7 @@ function abrirGestionEquipo() {
       $('#atnEquipoForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const configNueva = armarConfigAtencion({
-          asignacionAutomatica, maxAbiertasPorAsesor: $('#atnMaxAbiertas').value, encuestaSatisfaccion,
+          asignacionAutomatica, maxAbiertasPorAsesor: $('#atnMaxAbiertas').value, encuestaSatisfaccion, avisosCorreo,
           horarioActivo, dias: $$('.atn-dia[aria-pressed="true"]', overlay).map(btn => btn.dataset.dia),
           desde: $('#atnHorarioDesde').value, hasta: $('#atnHorarioHasta').value,
         });
