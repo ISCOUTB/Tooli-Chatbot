@@ -24,12 +24,14 @@ export interface HorarioAtencion {
 
 export interface ConfigAtencion {
   asignacionAutomatica: boolean;
+  encuestaSatisfaccion: boolean;
   maxAbiertasPorAsesor: number;
   horario: HorarioAtencion;
 }
 
 export const CONFIG_ATENCION_DEFAULT: ConfigAtencion = {
   asignacionAutomatica: false,
+  encuestaSatisfaccion: false,
   maxAbiertasPorAsesor: 5,
   horario: { activo: false, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '18:00' },
 };
@@ -46,6 +48,9 @@ export function validarConfigAtencion(input: unknown): ConfigAtencion {
   const valor = input as Record<string, unknown>;
   if (typeof valor.asignacionAutomatica !== 'boolean') {
     throw new AtencionConfigError('La asignación automática debe ser verdadera o falsa.');
+  }
+  if (valor.encuestaSatisfaccion !== undefined && typeof valor.encuestaSatisfaccion !== 'boolean') {
+    throw new AtencionConfigError('La encuesta de satisfacción debe ser verdadera o falsa.');
   }
   if (!Number.isInteger(valor.maxAbiertasPorAsesor) || Number(valor.maxAbiertasPorAsesor) < 1 || Number(valor.maxAbiertasPorAsesor) > 50) {
     throw new AtencionConfigError('El máximo de conversaciones abiertas por asesor debe estar entre 1 y 50.');
@@ -66,6 +71,7 @@ export function validarConfigAtencion(input: unknown): ConfigAtencion {
   if (horario.desde >= horario.hasta) throw new AtencionConfigError('La hora de inicio debe ser anterior a la hora de cierre.');
   return {
     asignacionAutomatica: valor.asignacionAutomatica,
+    encuestaSatisfaccion: valor.encuestaSatisfaccion === true,
     maxAbiertasPorAsesor: Number(valor.maxAbiertasPorAsesor),
     horario: { activo: horario.activo, dias, desde: horario.desde, hasta: horario.hasta },
   };

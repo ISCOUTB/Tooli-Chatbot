@@ -16,11 +16,13 @@ describe('configuración del equipo de atención', () => {
   it('acepta y normaliza una configuración completa', () => {
     const config = validarConfigAtencion({
       asignacionAutomatica: true,
+      encuestaSatisfaccion: true,
       maxAbiertasPorAsesor: 12,
       horario: { activo: true, dias: [5, 1, 3], desde: '09:15', hasta: '17:45' },
     });
     assert.deepEqual(config, {
       asignacionAutomatica: true,
+      encuestaSatisfaccion: true,
       maxAbiertasPorAsesor: 12,
       horario: { activo: true, dias: [1, 3, 5], desde: '09:15', hasta: '17:45' },
     });

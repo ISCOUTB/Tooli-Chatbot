@@ -63,6 +63,12 @@ import {
   planMacro,
   reemplazarNombre,
 } from '../../services/atencionMacrosService';
+import {
+  obtenerInformeAtencion,
+  registrarPrimeraRespuesta,
+  registrarReapertura,
+  registrarResolucion,
+} from '../../services/atencionInformesService';
 
 export const atencionRouter = Router();
 
@@ -185,6 +191,19 @@ atencionRouter.put('/atencion/config', requireAdmin, async (req: AuthedRequest, 
     res.json({ config: nueva });
   } catch (err) {
     if (!responderValidacion(res, err)) responderError(res, err, 'actualizar configuración');
+  }
+});
+
+atencionRouter.get('/atencion/informes', requireAdmin, async (req: AuthedRequest, res: Response) => {
+  const dias = Number(req.query.dias ?? 7);
+  if (dias !== 7 && dias !== 30 && dias !== 90) {
+    res.status(400).json({ error: 'validation_error', message: 'El periodo debe ser de 7, 30 o 90 días.' });
+    return;
+  }
+  try {
+    res.json(await obtenerInformeAtencion(dias));
+  } catch (err) {
+    responderError(res, err, 'consultar informes');
   }
 });
 
@@ -314,6 +333,7 @@ atencionRouter.post('/atencion/conversaciones/:id/adjuntos', async (req: AuthedR
       }
     }
     await enviarAdjunto(id, archivo, texto, privado);
+    if (!privado) await registrarPrimeraRespuesta(id, req.user!.username);
     publicarAtencion({ tipo: 'mensaje', conversacionId: id, entrante: false });
     await logAudit(req.user!.username, 'atencion_adjunto', `conv ${id} · ${archivo.nombre}`);
     res.json({ ok: true });
@@ -362,6 +382,7 @@ atencionRouter.post('/atencion/conversaciones/:id/macros/:macroId', async (req: 
         hechos.push('Nota privada agregada');
       } else if (paso.tipo === 'mensaje') {
         await enviarMensaje(id, reemplazarNombre(String(paso.valor), nombreReal), false);
+        await registrarPrimeraRespuesta(id, req.user!.username);
         hechos.push('Mensaje enviado');
       } else if (paso.tipo === 'etiquetas') {
         await reemplazarEtiquetas(id, etiquetasFinales!);
@@ -375,6 +396,8 @@ atencionRouter.post('/atencion/conversaciones/:id/macros/:macroId', async (req: 
         hechos.push(paso.valor === null ? 'Asesor quitado' : 'Asesor asignado');
       } else {
         await cambiarEstado(id, paso.valor as EstadoAtencion);
+        if (paso.valor === 'resolved') await registrarResolucion(id, req.user!.username);
+        else if (paso.valor === 'open') await registrarReapertura(id);
         hechos.push(ESTADO_HECHO[paso.valor as EstadoAtencion]);
       }
     }
@@ -422,6 +445,7 @@ atencionRouter.post('/atencion/conversaciones/:id/mensajes', async (req: AuthedR
       }
     }
     await enviarMensaje(id, texto, privado);
+    if (!privado) await registrarPrimeraRespuesta(id, req.user!.username);
     publicarAtencion({ tipo: 'mensaje', conversacionId: id, entrante: false });
     await logAudit(req.user!.username, privado ? 'atencion_nota_privada' : 'mensaje_enviado', `conv ${id} · ${texto.length} chars`);
     res.json({ ok: true });
@@ -439,6 +463,8 @@ atencionRouter.post('/atencion/conversaciones/:id/estado', async (req: AuthedReq
   }
   try {
     await cambiarEstado(id, estado);
+    if (estado === 'resolved') await registrarResolucion(id, req.user!.username);
+    else if (estado === 'open') await registrarReapertura(id);
     publicarAtencion({ tipo: 'estado', conversacionId: id });
     await logAudit(req.user!.username, 'atencion_estado_cambiado', `conv ${id} → ${estado}`);
     res.json({ ok: true });
