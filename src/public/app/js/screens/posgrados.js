@@ -5,6 +5,7 @@ import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { conectarReintento, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= LÓGICA PURA DE POSGRADOS (probada en posgrados.test.js) ======
    Serie del endpoint real `/api/tools/metrics/range` (contadores en Redis,
@@ -44,7 +45,7 @@ async function renderPosgrados(main) {
     <div class="page-header">
       <div><h1>${icon('funnel', 26)} Embudo de posgrados</h1><div class="subtitle">Métricas de prospectos, registros y programas consultados</div></div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <a class="btn btn-secondary" href="${sesion.urls.chatwoot}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">💬 Ver prospectos</a>
+        <a class="btn btn-secondary" href="${escapeHtml(sesion.urls.chatwoot)}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">💬 Ver prospectos</a>
         <div id="pgRangeWrap"></div>
       </div>
     </div>
@@ -79,10 +80,12 @@ async function renderPosgrados(main) {
     const loadId = ++pgLoadId;
     destroyPgCharts();
     content.innerHTML = pgSkeleton();
+    marcarCargando(content, true);
     const days = pgDays;
     try {
       const r = await api(`/api/tools/metrics/range?days=${days}`);
       if (!r || !content.isConnected || loadId !== pgLoadId) return;
+      if (!r.ok) throw new Error('metricas_no_disponibles');
       const { days: series } = await r.json();
       if (!content.isConnected || loadId !== pgLoadId) return;
       const { dateKeys, prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados, conv, regConv } = resumirPosgrado(series ?? {});
@@ -95,7 +98,7 @@ async function renderPosgrados(main) {
 
       content.innerHTML = `
         <div class="card op-contexto" style="margin-bottom:16px;">
-          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${prospectos} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${convTexto}) y ${registros} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${regConvTexto}). El detalle por persona está en el CRM y en el evento.</div>
+          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${escapeHtml(prospectos)} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${escapeHtml(convTexto)}) y ${escapeHtml(registros)} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${escapeHtml(regConvTexto)}). El detalle por persona está en el CRM y en el evento.</div>
           <div class="op-contexto-acciones">
             <button type="button" class="btn btn-secondary" id="pgVerCrm">Ver CRM</button>
             <button type="button" class="btn btn-secondary" id="pgVerEvento">Ver evento</button>
@@ -104,50 +107,47 @@ async function renderPosgrados(main) {
         <div class="stats-grid" style="margin-bottom:20px;">
           <div class="stat-card">
             <div class="label">Prospectos</div>
-            <div class="value">${prospectos}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${convTexto} · ${prospInicio} iniciados</div>
+            <div class="value">${escapeHtml(prospectos)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(convTexto)} · ${escapeHtml(prospInicio)} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Registros BD</div>
-            <div class="value">${registros}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${regConvTexto} · ${regInicio} iniciados</div>
+            <div class="value">${escapeHtml(registros)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(regConvTexto)} · ${escapeHtml(regInicio)} iniciados</div>
           </div>
           <div class="stat-card">
             <div class="label">Especializaciones</div>
-            <div class="value">${especs}</div>
+            <div class="value">${escapeHtml(especs)}</div>
           </div>
           <div class="stat-card">
             <div class="label">Maestrías</div>
-            <div class="value">${maestrias}</div>
+            <div class="value">${escapeHtml(maestrias)}</div>
           </div>
           <div class="stat-card">
             <div class="label">Doctorados</div>
-            <div class="value">${doctorados}</div>
+            <div class="value">${escapeHtml(doctorados)}</div>
           </div>
         </div>
 
         <div class="card" style="margin-bottom:16px;">
           <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Actividad diaria — posgrados</h3>
-          <div style="position:relative;height:240px;"><canvas id="pgChartDaily"></canvas></div>
+          <div id="pgChartDailyWrap" style="position:relative;height:240px;"><canvas id="pgChartDaily"></canvas></div>
         </div>
 
         <div class="posgrados-split" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Programas consultados</h3>
-            <div style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
+            <div id="pgChartProgramasWrap" style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
           </div>
           <div class="card">
             <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Embudo prospectos</h3>
-            <div style="position:relative;height:200px;"><canvas id="pgChartFunnel"></canvas></div>
+            <div id="pgChartFunnelWrap" style="position:relative;height:200px;"><canvas id="pgChartFunnel"></canvas></div>
           </div>
         </div>
       `;
 
       $('#pgVerCrm')?.addEventListener('click', () => navigate('registros'));
       $('#pgVerEvento')?.addEventListener('click', () => navigate('evento-posgrado'));
-
-      await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
-      if (!content.isConnected || loadId !== pgLoadId) return;
 
       const ticks = { color: '#94a3b8' };
       const grid  = { color: '#e2e8f0' };
@@ -157,7 +157,17 @@ async function renderPosgrados(main) {
         scales: { x: { ticks, grid }, y: { ticks, grid, beginAtZero: true } },
       };
 
-      pgCharts.push(new Chart(document.getElementById('pgChartDaily'), {
+      const cargarGraficas = async () => {
+        const wraps = [content.querySelector('#pgChartDailyWrap'), content.querySelector('#pgChartFunnelWrap'), ...(hayProgramas ? [content.querySelector('#pgChartProgramasWrap')] : [])].filter(Boolean);
+        destroyPgCharts();
+        content.querySelector('#pgChartDailyWrap').innerHTML = '<canvas id="pgChartDaily"></canvas>';
+        content.querySelector('#pgChartFunnelWrap').innerHTML = '<canvas id="pgChartFunnel"></canvas>';
+        if (hayProgramas) content.querySelector('#pgChartProgramasWrap').innerHTML = '<canvas id="pgChartProgramas"></canvas>';
+        wraps.forEach(wrap => marcarCargando(wrap, true));
+        try {
+          await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+          if (!content.isConnected || loadId !== pgLoadId) return;
+          pgCharts.push(new Chart(document.getElementById('pgChartDaily'), {
         type: 'line',
         data: {
           labels: dateKeys.map(fmtDay),
@@ -168,18 +178,18 @@ async function renderPosgrados(main) {
           ],
         },
         options: base,
-      }));
+          }));
 
-      if (hayProgramas) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
+          if (hayProgramas) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
         type: 'doughnut',
         data: {
           labels: ['Especializaciones', 'Maestrías', 'Doctorados'],
           datasets: [{ data: [especs, maestrias, doctorados], backgroundColor: ['#38bdf8', '#a855f7', '#ec4899'] }],
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } },
-      }));
+          }));
 
-      pgCharts.push(new Chart(document.getElementById('pgChartFunnel'), {
+          pgCharts.push(new Chart(document.getElementById('pgChartFunnel'), {
         type: 'bar',
         data: {
           labels: ['Prosp. iniciados', 'Prosp. completados', 'Reg. iniciados', 'Reg. completados'],
@@ -189,12 +199,28 @@ async function renderPosgrados(main) {
           }],
         },
         options: { ...base, plugins: { legend: { display: false } } },
-      }));
+          }));
+        } catch (err) {
+          console.error(err);
+          destroyPgCharts();
+          if (!content.isConnected || loadId !== pgLoadId) return;
+          wraps.forEach((wrap) => {
+            wrap.innerHTML = `<div class="estado-grafica">${htmlError('No se pudo cargar la gráfica.')}</div>`;
+            conectarReintento(wrap, cargarGraficas);
+          });
+        } finally {
+          wraps.forEach(wrap => marcarCargando(wrap, false));
+          if (loadId === pgLoadId) marcarCargando(content, false);
+        }
+      };
+      await cargarGraficas();
 
     } catch (err) {
       if (!content.isConnected || loadId !== pgLoadId) return;
       console.error(err);
-      content.innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas de posgrados.</div>';
+      content.innerHTML = htmlError('No se pudieron cargar las métricas de posgrados. Intenta de nuevo; si sigue fallando, avisa a un administrador.');
+      conectarReintento(content, loadPg);
+      marcarCargando(content, false);
     }
   }
 

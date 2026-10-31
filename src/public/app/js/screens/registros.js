@@ -12,6 +12,7 @@ import { buildSegmented } from '../ui/controls.js';
 import { previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
 import { contextSheet } from '../ui/sheet.js';
+import { conectarReintento, htmlAvisoParcial, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= LÓGICA PURA DEL CRM (probada en registros.test.js) =============
    Filas del endpoint real `/api/tools/registros-posgrado` (ver
@@ -174,6 +175,7 @@ async function renderRegistros(main) {
       <button type="button" class="crm-mios crm-sin-asignar ${crmSinAsignar ? 'active' : ''}" id="crmSinAsignar" aria-pressed="${crmSinAsignar}">${icon('x', 13)} Sin asignar</button>
     </div>
     <p id="crmSegResumen" class="seg-resumen" aria-live="polite"></p>
+    <div id="crmAvisoSeguimiento"></div>
     <div id="broadcastBar" class="broadcast-bar hidden">
       <div class="broadcast-bar-left">
         <span class="broadcast-count" id="broadcastCount">0 seleccionados</span>
@@ -594,17 +596,101 @@ async function renderRegistros(main) {
 
   setPullToRefresh(() => loadReg());
   const regContent = main.querySelector('#regContent');
+  const avisoSeguimiento = main.querySelector('#crmAvisoSeguimiento');
+  const motivoSeguimiento = 'No está disponible porque no se pudo cargar el seguimiento.';
+  let seguimientoDisponible = false;
   let loadSeq = 0;
+
+  function pintarFiltroEtapas() {
+    const wrap = $('#crmEtapaWrap');
+    const etiqueta = $('#crmEtapaFila')?.querySelector('.crm-etapa-label');
+    const botonMios = $('#crmMios');
+    const botonSinAsignar = $('#crmSinAsignar');
+    [botonMios, botonSinAsignar].forEach((boton) => {
+      if (!boton) return;
+      boton.disabled = !seguimientoDisponible;
+      if (seguimientoDisponible) boton.removeAttribute('title');
+      else boton.title = motivoSeguimiento;
+    });
+    if (!seguimientoDisponible) {
+      crmEtapa = 'todas';
+      crmSoloMios = false;
+      crmSinAsignar = false;
+      botonMios?.classList.remove('active');
+      botonSinAsignar?.classList.remove('active');
+      botonMios?.setAttribute('aria-pressed', 'false');
+      botonSinAsignar?.setAttribute('aria-pressed', 'false');
+      if (wrap) {
+        wrap.style.display = '';
+        wrap.innerHTML = `<div class="segmented"><button type="button" disabled title="${escapeHtml(motivoSeguimiento)}">Todas</button></div>`;
+      }
+      if (etiqueta) { etiqueta.style.display = ''; etiqueta.title = motivoSeguimiento; }
+      return;
+    }
+
+    if (etiqueta) etiqueta.removeAttribute('title');
+    // Segundo filtro: etapa del embudo. Solo aparece si alguien ya movió
+    // fichas; si no, sería un control que no filtra nada.
+    const etapaCounts = crmRows.reduce((acc, row) => {
+      const est = crmFichas[row[3]]?.estado ?? 'nuevo';
+      acc[est] = (acc[est] ?? 0) + 1;
+      return acc;
+    }, {});
+    const hayEtapas = Object.keys(etapaCounts).some(k => k !== 'nuevo');
+    if (wrap) wrap.style.display = hayEtapas ? '' : 'none';
+    if (etiqueta) etiqueta.style.display = hayEtapas ? '' : 'none';
+    if (!hayEtapas || !wrap) return;
+    wrap.innerHTML = '';
+    wrap.appendChild(buildSegmented(
+      [
+        { value: 'todas', label: 'Todas' },
+        ...CRM_ESTADOS.filter(e => etapaCounts[e.value]).map(e => ({ value: e.value, label: `${e.icon} ${e.label} (${etapaCounts[e.value]})` })),
+      ],
+      etapaCounts[crmEtapa] ? crmEtapa : 'todas',
+      (v) => { crmEtapa = v; renderCrmGrid(); },
+    ));
+    hacerSegmentadoAccesible($('#crmEtapaWrap .segmented'), 'Filtrar prospectos por etapa del embudo');
+  }
+
+  function mostrarAvisoSeguimiento() {
+    if (!avisoSeguimiento) return;
+    avisoSeguimiento.innerHTML = seguimientoDisponible ? '' : htmlAvisoParcial('No se pudo cargar el seguimiento (etapa, responsable y notas). Lo que ves no incluye esos datos.');
+    if (!seguimientoDisponible) conectarReintento(avisoSeguimiento, cargarSoloSeguimiento);
+  }
+
+  async function cargarSoloSeguimiento() {
+    if (!avisoSeguimiento?.isConnected) return;
+    marcarCargando(avisoSeguimiento, true);
+    try {
+      const respuesta = await api('/api/tools/crm/fichas');
+      if (!respuesta?.ok) throw new Error('seguimiento_no_disponible');
+      const datos = await respuesta.json();
+      if (!avisoSeguimiento.isConnected) return;
+      crmFichas = datos.fichas ?? {};
+      seguimientoDisponible = true;
+      mostrarAvisoSeguimiento();
+      pintarFiltroEtapas();
+      renderCrmGrid();
+    } catch {
+      seguimientoDisponible = false;
+      mostrarAvisoSeguimiento();
+      pintarFiltroEtapas();
+    } finally {
+      marcarCargando(avisoSeguimiento, false);
+    }
+  }
+
   async function loadReg() {
     if (!regContent?.isConnected) return;
     const seq = ++loadSeq;
+    marcarCargando(regContent, true);
     main.querySelector('#refreshReg')?.querySelector('.refresh-icon')?.classList.add('spin-once');
     try {
       // Las fichas se traen en una sola llamada junto con los registros: una
       // por tarjeta sería un N+1 contra el backend al pintar la grilla.
       const [r, fichasRes] = await Promise.all([
         api('/api/tools/registros-posgrado'),
-        api('/api/tools/crm/fichas').then(x => x.json()).catch(() => ({ fichas: {} })),
+        api('/api/tools/crm/fichas').then(async (respuesta) => respuesta?.ok ? respuesta.json() : null).catch(() => null),
       ]);
       if (!regContent.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -618,8 +704,11 @@ async function renderRegistros(main) {
         updateBroadcastBar();
         toast('La lista cambió; vuelve a seleccionar los destinatarios');
       }
-      crmFichas = fichasRes.fichas ?? {};
+      seguimientoDisponible = Boolean(fichasRes);
+      crmFichas = fichasRes?.fichas ?? {};
       crmRows = rows ?? [];
+      mostrarAvisoSeguimiento();
+      pintarFiltroEtapas();
       const resumenCarga = resumirSegmentos(crmRows);
       const pintarResumen = (visibles) => {
         const el = $('#crmSegResumen');
@@ -629,6 +718,7 @@ async function renderRegistros(main) {
         regContent.innerHTML = `<div class="card"><p style="color:var(--text-muted);text-align:center;padding:24px 0;">No hay registros de Pregrado ni Posgrado aún. Cuando un prospecto complete el formulario del bot, aparecerá aquí.</p></div>`;
         $('#crmFilterWrap').innerHTML = '';
         pintarResumen(0);
+        marcarCargando(regContent, false);
         return;
       }
       const counts = crmRows.reduce((acc, row) => { const c = crmCategoria(row); acc[c] = (acc[c] ?? 0) + 1; return acc; }, {});
@@ -643,32 +733,16 @@ async function renderRegistros(main) {
       hacerSegmentadoAccesible($('#crmFilterWrap .segmented'), 'Filtrar prospectos por segmento Pregrado o Posgrado');
       pintarResumen(crmRows.length);
 
-      // Segundo filtro: etapa del embudo. Solo aparece si alguien ya movió
-      // fichas — si no, sería un control que no filtra nada.
-      const etapaCounts = crmRows.reduce((acc, row) => {
-        const est = crmFichas[row[3]]?.estado ?? 'nuevo';
-        acc[est] = (acc[est] ?? 0) + 1;
-        return acc;
-      }, {});
-      const hayEtapas = Object.keys(etapaCounts).some(k => k !== 'nuevo');
-      $('#crmEtapaWrap').style.display = hayEtapas ? '' : 'none';
-      $('#crmEtapaFila').querySelector('.crm-etapa-label').style.display = hayEtapas ? '' : 'none';
-      if (hayEtapas) {
-        $('#crmEtapaWrap').innerHTML = '';
-        $('#crmEtapaWrap').appendChild(buildSegmented(
-          [
-            { value: 'todas', label: 'Todas' },
-            ...CRM_ESTADOS.filter(e => etapaCounts[e.value]).map(e => ({ value: e.value, label: `${e.icon} ${e.label} (${etapaCounts[e.value]})` })),
-          ],
-          etapaCounts[crmEtapa] ? crmEtapa : 'todas',
-          (v) => { crmEtapa = v; renderCrmGrid(); },
-        ));
-        hacerSegmentadoAccesible($('#crmEtapaWrap .segmented'), 'Filtrar prospectos por etapa del embudo');
-      }
       renderCrmGrid();
+      marcarCargando(regContent, false);
     } catch (err) {
       console.error(err);
-      if (regContent.isConnected && seq === loadSeq) regContent.innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros. Verifica que el Sheet esté configurado.</div>';
+      if (regContent.isConnected && seq === loadSeq) {
+        avisoSeguimiento.innerHTML = '';
+        regContent.innerHTML = htmlError('No se pudieron cargar los registros. Intenta de nuevo; si sigue fallando, avisa a un administrador.');
+        conectarReintento(regContent, loadReg);
+        marcarCargando(regContent, false);
+      }
     }
   }
 
@@ -795,8 +869,14 @@ async function renderRegistros(main) {
     }
     if (!regContent.isConnected) return;
     let ficha = null;
+    let fichaDisponible = false;
     if (phone) {
-      try { ficha = (await (await api(`/api/tools/crm/${phone}`)).json()).ficha; }
+      try {
+        const respuesta = await api(`/api/tools/crm/${phone}`);
+        if (!respuesta?.ok) throw new Error('ficha_no_disponible');
+        ficha = (await respuesta.json()).ficha;
+        fichaDisponible = true;
+      }
       catch { /* la ficha es opcional: si falla, el perfil se abre igual */ }
     }
     if (!regContent.isConnected) return;
@@ -817,8 +897,8 @@ async function renderRegistros(main) {
         { icon: '🗓️', label: 'Registrado', value: friendlyDate(fecha) },
         ...(flowInfo?.last ? [{ icon: '💬', label: 'Último mensaje', value: flowInfo.last.text }] : []),
       ],
-      extraHtml: phone ? fichaHtml(ficha) : '',
-      onMount: phone ? (sheet) => wireFicha(sheet, phone, ficha, () => loadReg()) : undefined,
+      extraHtml: phone && fichaDisponible ? fichaHtml(ficha) : '',
+      onMount: phone && fichaDisponible ? (sheet) => wireFicha(sheet, phone, ficha, () => loadReg()) : undefined,
       actions: [
         ...(phone ? [{ label: 'Vista previa en teléfono', icon: '📲', onClick: () => previewPhoneFor(phone), closeAfter: false }] : []),
         ...(phone ? [{ label: 'Ver conversación', icon: '💬', onClick: () => abrirConversacion(phone) }] : []),

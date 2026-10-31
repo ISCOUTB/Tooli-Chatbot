@@ -37,9 +37,17 @@ function escapeHtml(s) {
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const existente = document.querySelector(`script[src="${src}"]`);
+    if (existente) {
+      if (existente.dataset.tooliCargado === 'true') { resolve(); return; }
+      existente.addEventListener('load', () => { existente.dataset.tooliCargado = 'true'; resolve(); }, { once: true });
+      existente.addEventListener('error', () => { existente.remove(); reject(new Error('script_no_disponible')); }, { once: true });
+      return;
+    }
     const s = document.createElement('script');
-    s.src = src; s.onload = resolve; s.onerror = reject;
+    s.src = src;
+    s.onload = () => { s.dataset.tooliCargado = 'true'; resolve(); };
+    s.onerror = () => { s.remove(); reject(new Error('script_no_disponible')); };
     document.head.appendChild(s);
   });
 }

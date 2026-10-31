@@ -8,6 +8,7 @@ import { buildSegmented } from '../ui/controls.js';
 import { previewPhoneFor } from '../ui/phone-preview.js';
 import { openProfileSheet } from '../ui/profile.js';
 import { contextSheet } from '../ui/sheet.js';
+import { conectarReintento, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= LÓGICA PURA DEL EVENTO (probada en evento.test.js) =============
    Filas del endpoint real `/api/tools/registros-evento-posgrado` (ver
@@ -172,6 +173,7 @@ async function renderEventoPosgrado(main) {
   async function loadEvento() {
     if (!eventoContent?.isConnected) return;
     const seq = ++loadSeq;
+    marcarCargando(eventoContent, true);
     main.querySelector('#refreshEvento')?.querySelector('.refresh-icon')?.classList.add('spin-once');
     try {
       const r = await api('/api/tools/registros-evento-posgrado');
@@ -189,6 +191,7 @@ async function renderEventoPosgrado(main) {
         $('#eventoFilterWrap').innerHTML = '';
         $('#becaVistaWrap').innerHTML = '';
         pintarResumenEvento(0);
+        marcarCargando(eventoContent, false);
         return;
       }
       const counts = eventoRows.reduce((acc, row) => { const k = estadoEventoDe(row); acc[k] = (acc[k] ?? 0) + 1; return acc; }, {});
@@ -203,9 +206,14 @@ async function renderEventoPosgrado(main) {
       ));
       renderBecaVistaSegment();
       renderEventoGrid();
+      marcarCargando(eventoContent, false);
     } catch (err) {
       console.error(err);
-      if (eventoContent.isConnected && seq === loadSeq) eventoContent.innerHTML = '<div class="alert alert-error">No se pudieron cargar los registros del evento. Verifica que el Sheet esté configurado.</div>';
+      if (eventoContent.isConnected && seq === loadSeq) {
+        eventoContent.innerHTML = htmlError('No se pudieron cargar los registros del evento. Intenta de nuevo; si sigue fallando, avisa a un administrador.');
+        conectarReintento(eventoContent, loadEvento);
+        marcarCargando(eventoContent, false);
+      }
     }
   }
 

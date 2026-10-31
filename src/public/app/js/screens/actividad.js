@@ -6,6 +6,7 @@ import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { conectarReintento, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= ACTIVIDAD DE ASESORES (admin) ============= */
 let actChart = null;
@@ -40,10 +41,14 @@ async function renderActividad(main) {
   async function load() {
     const seq = ++loadSeq;
     if (actChart) { actChart.destroy(); actChart = null; }
+    marcarCargando(content, true);
     try {
       const [summaryRes, usersRes] = await Promise.all([
-        api(`/api/tools/audit/summary?days=${actDays}`).then(r => r.json()),
-        api('/api/auth/users').then(r => r.json()).catch(() => ({ users: [] })),
+        api(`/api/tools/audit/summary?days=${actDays}`).then((r) => {
+          if (!r?.ok) throw new Error('actividad_no_disponible');
+          return r.json();
+        }),
+        api('/api/auth/users').then(r => r?.ok ? r.json() : { users: [] }).catch(() => ({ users: [] })),
       ]);
       if (!content.isConnected || seq !== loadSeq) return;
       const fullNameOf = Object.fromEntries((usersRes.users ?? []).map(u => [u.username, u.fullName]));
@@ -58,6 +63,7 @@ async function renderActividad(main) {
             <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Sin actividad aún</div>
             <div style="font-size:13px;color:var(--text-muted);">No hay acciones registradas en este rango. Probá con otro período.</div>
           </div>`;
+        marcarCargando(content, false);
         return;
       }
 
@@ -82,7 +88,7 @@ async function renderActividad(main) {
           ${advisors.slice(0, 3).map((a, i) => `
             <div class="stat-card">
               <div class="label">${MEDALS[i]} ${escapeHtml(fullNameOf[a.username] ?? a.username)}</div>
-              <div class="value">${a.total}</div>
+              <div class="value">${escapeHtml(a.total)}</div>
               <div style="font-size:12px;color:var(--text-muted);">acciones registradas</div>
             </div>
           `).join('')}
@@ -96,7 +102,7 @@ async function renderActividad(main) {
               <div style="margin-bottom:12px;">
                 <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
                   <span style="font-weight:600;color:var(--text-main);">${a.label}</span>
-                  <span style="color:var(--text-muted);">${a.count} · ${pct}%</span>
+                  <span style="color:var(--text-muted);">${escapeHtml(a.count)} · ${escapeHtml(pct)}%</span>
                 </div>
                 <div class="event-bar-track"><div class="event-bar-fill" style="width:${pct}%;background:${a.color};"></div></div>
               </div>
@@ -106,7 +112,7 @@ async function renderActividad(main) {
 
         <div class="card" style="margin-bottom:16px;">
           <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Total de acciones por asesor</h3>
-          <div style="position:relative;height:${Math.max(140, advisors.length * 42)}px;"><canvas id="actChartCanvas"></canvas></div>
+          <div id="actChartWrap" style="position:relative;height:${escapeHtml(Math.max(140, advisors.length * 42))}px;"><canvas id="actChartCanvas"></canvas></div>
         </div>
 
         <div class="widget-card">
@@ -118,7 +124,7 @@ async function renderActividad(main) {
                 return `<th style="text-align:center;">${AUDIT_LABELS[k]?.icon ?? fb?.icon ?? ''} ${escapeHtml(AUDIT_LABELS[k]?.label ?? fb?.label ?? k)}</th>`;
               }).join('')}<th style="text-align:right;">Total</th></tr></thead>
               <tbody class="stagger-in">
-                ${advisors.map(a => `<tr><td><strong>${escapeHtml(fullNameOf[a.username] ?? a.username)}</strong></td>${actionKeys.map(k => `<td style="text-align:center;">${a.counts[k] ?? '—'}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--utb-blue);">${a.total}</td></tr>`).join('')}
+                ${advisors.map(a => `<tr><td><strong>${escapeHtml(fullNameOf[a.username] ?? a.username)}</strong></td>${actionKeys.map(k => `<td style="text-align:center;">${escapeHtml(a.counts[k] ?? '—')}</td>`).join('')}<td style="text-align:right;font-weight:700;color:var(--utb-blue);">${escapeHtml(a.total)}</td></tr>`).join('')}
               </tbody>
             </table>
           </div>
@@ -126,26 +132,48 @@ async function renderActividad(main) {
         </div>
       `;
 
-      await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
-      if (!content.isConnected || seq !== loadSeq) return;
-      actChart = new Chart(content.querySelector('#actChartCanvas'), {
-        type: 'bar',
-        data: {
-          labels: advisors.map(a => fullNameOf[a.username] ?? a.username),
-          datasets: [{ data: advisors.map(a => a.total), backgroundColor: '#003087', borderRadius: 6, maxBarThickness: 26 }],
-        },
-        options: {
-          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { beginAtZero: true, max: maxTotal + Math.ceil(maxTotal * 0.15), ticks: { color: '#94a3b8' }, grid: { color: '#e2e8f0' } },
-            y: { ticks: { color: '#64748b' }, grid: { display: false } },
-          },
-        },
-      });
+      const cargarGrafica = async () => {
+        const wrap = content.querySelector('#actChartWrap');
+        if (!wrap) return;
+        if (actChart) { actChart.destroy(); actChart = null; }
+        wrap.innerHTML = '<canvas id="actChartCanvas"></canvas>';
+        marcarCargando(wrap, true);
+        try {
+          await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+          if (!content.isConnected || seq !== loadSeq) return;
+          actChart = new Chart(content.querySelector('#actChartCanvas'), {
+            type: 'bar',
+            data: {
+              labels: advisors.map(a => fullNameOf[a.username] ?? a.username),
+              datasets: [{ data: advisors.map(a => a.total), backgroundColor: '#003087', borderRadius: 6, maxBarThickness: 26 }],
+            },
+            options: {
+              indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { beginAtZero: true, max: maxTotal + Math.ceil(maxTotal * 0.15), ticks: { color: '#94a3b8' }, grid: { color: '#e2e8f0' } },
+                y: { ticks: { color: '#64748b' }, grid: { display: false } },
+              },
+            },
+          });
+        } catch (err) {
+          console.error(err);
+          if (!wrap.isConnected || seq !== loadSeq) return;
+          wrap.innerHTML = `<div class="estado-grafica">${htmlError('No se pudo cargar la gráfica.')}</div>`;
+          conectarReintento(wrap, cargarGrafica);
+        } finally {
+          marcarCargando(wrap, false);
+          if (seq === loadSeq) marcarCargando(content, false);
+        }
+      };
+      await cargarGrafica();
     } catch (err) {
       console.error(err);
-      if (content.isConnected && seq === loadSeq) content.innerHTML = '<div class="alert alert-error">No se pudo cargar la actividad.</div>';
+      if (content.isConnected && seq === loadSeq) {
+        content.innerHTML = htmlError('No se pudo cargar la actividad de asesores. Intenta de nuevo; si sigue fallando, avisa a un administrador.');
+        conectarReintento(content, load);
+        marcarCargando(content, false);
+      }
     }
   }
   load();

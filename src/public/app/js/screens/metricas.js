@@ -4,6 +4,7 @@ import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { conectarReintento, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= MÉTRICAS ============= */
 const EVENT_META = {
@@ -82,6 +83,7 @@ async function renderMetricas(main) {
   async function loadMetrics() {
     const seq = ++loadSeq;
     destroyMetricsCharts();
+    marcarCargando(content, true);
     try {
       const r = await api(`/api/tools/metrics/range?days=${metDays}`);
       if (!content.isConnected || seq !== loadSeq || !r) return;
@@ -105,15 +107,15 @@ async function renderMetricas(main) {
 
       content.innerHTML = `
         <div class="stats-grid stagger-in" style="margin-bottom:16px;">
-          <div class="stat-card"><div class="label">Mensajes totales</div><div class="value">${totalMsgs}</div></div>
-          <div class="stat-card"><div class="label">Preguntas IA</div><div class="value">${totals.ai_request ?? 0}</div></div>
-          <div class="stat-card"><div class="label">Prospectos</div><div class="value">${totals.prospecto_completado ?? 0}</div></div>
-          <div class="stat-card"><div class="label">Casos a asesor</div><div class="value">${totals.agent_handoff ?? 0}</div></div>
+          <div class="stat-card"><div class="label">Interacciones con el bot</div><div class="value">${escapeHtml(totalMsgs)}</div></div>
+          <div class="stat-card"><div class="label">Preguntas a la IA</div><div class="value">${escapeHtml(totals.ai_request ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">Prospectos nuevos</div><div class="value">${escapeHtml(totals.prospecto_completado ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">Derivados a asesor</div><div class="value">${escapeHtml(totals.agent_handoff ?? 0)}</div></div>
         </div>
 
         <div class="card" style="margin-bottom:16px;">
           <h3 style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px;">Tendencia diaria</h3>
-          <div style="position:relative;height:240px;"><canvas id="metChartDaily"></canvas></div>
+          <div id="metChartDailyWrap" style="position:relative;height:240px;"><canvas id="metChartDaily"></canvas></div>
         </div>
 
         <div class="widget-card">
@@ -126,7 +128,7 @@ async function renderMetricas(main) {
                 <div class="event-bar-row">
                   <span class="event-bar-icon">${meta.icon}</span>
                   <div class="event-bar-body">
-                    <div class="event-bar-top"><span class="event-bar-label">${escapeHtml(meta.label)}</span><span class="event-bar-value">${v}</span></div>
+                    <div class="event-bar-top"><span class="event-bar-label">${escapeHtml(meta.label)}</span><span class="event-bar-value">${escapeHtml(v)}</span></div>
                     <div class="event-bar-track"><div class="event-bar-fill" style="width:${pct}%;background:${meta.color};"></div></div>
                   </div>
                 </div>
@@ -136,35 +138,57 @@ async function renderMetricas(main) {
         </div>
 
         <p style="margin-top:16px;font-size:13px;color:var(--text-muted);">
-          Para métricas técnicas (latencia, errores, uso de recursos), abre <a href="${sesion.urls.grafana}" target="_blank">Grafana</a>.
+          Para métricas técnicas (latencia, errores, uso de recursos), abre <a href="${escapeHtml(sesion.urls.grafana)}" target="_blank" rel="noopener">Grafana</a>.
         </p>
       `;
 
-      await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
-      if (!content.isConnected || seq !== loadSeq) return;
       const topKeys = rows.slice(0, 4).map(([k]) => k);
       const ticks = { color: '#94a3b8' };
       const grid = { color: '#e2e8f0' };
-      metricsCharts.push(new Chart(content.querySelector('#metChartDaily'), {
-        type: 'line',
-        data: {
-          labels: dateKeys.map(d => d.slice(5)),
-          datasets: topKeys.map(k => ({
-            label: eventMeta(k).label,
-            data: dateKeys.map(d => numv(days[d], k)),
-            borderColor: eventMeta(k).color, backgroundColor: eventMeta(k).color + '33',
-            tension: 0.3, fill: true,
-          })),
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: '#64748b' } } },
-          scales: { x: { ticks, grid }, y: { ticks, grid, beginAtZero: true } },
-        },
-      }));
+      const cargarGrafica = async () => {
+        const wrap = content.querySelector('#metChartDailyWrap');
+        if (!wrap) return;
+        marcarCargando(wrap, true);
+        destroyMetricsCharts();
+        wrap.innerHTML = '<canvas id="metChartDaily"></canvas>';
+        try {
+          await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
+          if (!content.isConnected || seq !== loadSeq) return;
+          metricsCharts.push(new Chart(content.querySelector('#metChartDaily'), {
+            type: 'line',
+            data: {
+              labels: dateKeys.map(d => d.slice(5)),
+              datasets: topKeys.map(k => ({
+                label: eventMeta(k).label,
+                data: dateKeys.map(d => numv(days[d], k)),
+                borderColor: eventMeta(k).color, backgroundColor: eventMeta(k).color + '33',
+                tension: 0.3, fill: true,
+              })),
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { labels: { color: '#64748b' } } },
+              scales: { x: { ticks, grid }, y: { ticks, grid, beginAtZero: true } },
+            },
+          }));
+        } catch (err) {
+          console.error(err);
+          if (!wrap.isConnected || seq !== loadSeq) return;
+          wrap.innerHTML = `<div class="estado-grafica">${htmlError('No se pudo cargar la gráfica.')}</div>`;
+          conectarReintento(wrap, cargarGrafica);
+        } finally {
+          marcarCargando(wrap, false);
+          if (seq === loadSeq) marcarCargando(content, false);
+        }
+      };
+      await cargarGrafica();
     } catch (err) {
       console.error(err);
-      if (content.isConnected && seq === loadSeq) content.innerHTML = '<div class="alert alert-error">No se pudieron cargar las métricas.</div>';
+      if (content.isConnected && seq === loadSeq) {
+        content.innerHTML = htmlError('No se pudieron cargar las métricas. Intenta de nuevo; si sigue fallando, avisa a un administrador.');
+        conectarReintento(content, loadMetrics);
+        marcarCargando(content, false);
+      }
     }
   }
 

@@ -21,6 +21,21 @@ app.use((_q, res, next) => {
 });
 
 const ROL = process.env.MOCK_ROL || 'admin';
+const MOCK_FALLA = new Set(String(process.env.MOCK_FALLA || '').split(',').map(x => x.trim()).filter(Boolean));
+const RUTAS_FALLA = {
+  metrics: '/api/tools/metrics/range',
+  crm_fichas: '/api/tools/crm/fichas',
+  registros: '/api/tools/registros-posgrado',
+  evento: '/api/tools/registros-evento-posgrado',
+  audit: '/api/tools/audit/summary',
+};
+// La falla se decide antes de las rutas normales para poder combinar varios
+// servicios en una sola ejecución: MOCK_FALLA=crm_fichas,metrics.
+app.use((req, res, next) => {
+  const debeFallar = Object.entries(RUTAS_FALLA).some(([clave, ruta]) => MOCK_FALLA.has(clave) && req.method === 'GET' && req.path === ruta);
+  if (debeFallar) return res.status(503).json({ error: 'mock_falla' });
+  next();
+});
 let mockAuthenticated = !process.env.MOCK_ANON;
 const hoy = Date.now();
 const hace = (min) => hoy - min * 60000;
