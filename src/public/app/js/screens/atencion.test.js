@@ -66,9 +66,10 @@ describe('configuración del equipo', () => {
   it('arma el contrato desde valores de formulario', () => {
     assert.deepEqual(A.armarConfigAtencion({
       asignacionAutomatica: 'true', maxAbiertasPorAsesor: '8', horarioActivo: false,
-      dias: ['5', '1', '3'], desde: '08:00', hasta: '17:00',
+      encuestaSatisfaccion: 'true', dias: ['5', '1', '3'], desde: '08:00', hasta: '17:00',
     }), {
       asignacionAutomatica: true, maxAbiertasPorAsesor: 8,
+      encuestaSatisfaccion: true,
       horario: { activo: false, dias: [1, 3, 5], desde: '08:00', hasta: '17:00' },
     });
   });

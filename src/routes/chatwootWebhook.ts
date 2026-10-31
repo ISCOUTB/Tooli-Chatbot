@@ -9,6 +9,8 @@ import { config } from '../config';
 import { isLinkedSession, linkedChatwootTarget } from '../services/chatwootWebhookGuard';
 import { enqueueInbound } from '../services/inboundInbox';
 import { publicarAtencion } from '../services/atencionEventos';
+import { obtenerConfigAtencion } from '../services/atencionEquipoService';
+import { registrarPrimeraRespuesta, registrarResolucion } from '../services/atencionInformesService';
 
 export const chatwootWebhookRouter = Router();
 
@@ -95,6 +97,7 @@ async function handleMessageCreated(payload: any): Promise<void> {
   // Los paneles abiertos se ponen al día aunque la respuesta no salga por
   // WhatsApp (por ejemplo, si la sesión del bot ya no está con el asesor).
   publicarAtencion({ tipo: 'mensaje', conversacionId: conversationId, entrante: false });
+  await registrarPrimeraRespuesta(conversationId, null);
   const session = await getSession(phone);
   if (!isLinkedSession(session, conversationId)) return;
 
@@ -152,12 +155,24 @@ async function handleConversationResolved(payload: any): Promise<void> {
   if (!target) return;
   const { phone, conversationId } = target;
   publicarAtencion({ tipo: 'estado', conversacionId: conversationId });
+  await registrarResolucion(conversationId, null);
   const session = await getSession(phone);
   if (!isLinkedSession(session, conversationId)) return;
-  await setSession(phone, { step: 'menu', data: {} });
+
+  // Si no se puede leer la config, se cierra como siempre, sin encuesta.
+  const encuestaActiva = await obtenerConfigAtencion().then((c) => c.encuestaSatisfaccion).catch(() => false);
+  await setSession(phone, encuestaActiva
+    ? { step: 'encuesta_atencion', data: { conversationId: String(conversationId), preguntadaEn: String(Date.now()) } }
+    : { step: 'menu', data: {} });
 
   await messaging.sendText({
     to: phone,
     text: '✅ La conversación con el asesor fue cerrada.\n\nEscribe *menu* para volver al inicio.',
   });
+  if (encuestaActiva) {
+    await messaging.sendText({
+      to: phone,
+      text: '¿Cómo te pareció la atención? Responde con un número del 1 (muy mala) al 5 (excelente).',
+    });
+  }
 }

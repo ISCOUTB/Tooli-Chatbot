@@ -2250,6 +2250,34 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   .atn-dias { grid-template-columns: repeat(4, minmax(44px, 1fr)); }
 }
 
+/* Informes de atención: la tabla conserva sus columnas y se desplaza dentro
+   de la tarjeta, sin ensanchar la página en celulares. */
+.informe-stats { margin-bottom: 16px; }
+.informe-card-ayuda { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
+.informe-bloque { margin-bottom: 16px; }
+.informe-chart { position: relative; height: 260px; }
+.informe-tabla-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.informe-tabla-wrap table { min-width: 760px; box-shadow: none; }
+.informe-tabla-wrap caption { padding: 0 4px 10px; color: var(--text-muted); font-size: 12px; text-align: left; }
+.informe-tabla-wrap th:not(:first-child), .informe-tabla-wrap td:not(:first-child) { text-align: right; white-space: nowrap; }
+.informe-respuestas { display: block; margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+.informe-distribucion { display: grid; gap: 12px; }
+.informe-distribucion-texto { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--text-muted); font-size: 13px; }
+.informe-distribucion-texto span:first-child { color: var(--text); font-weight: 600; }
+.informe-barra { height: 10px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+.informe-barra > span { display: block; min-width: 0; height: 100%; border-radius: inherit; }
+.informe-notas { margin-top: 4px; padding: 12px 16px; border-left: 3px solid var(--utb-blue); color: var(--text-muted); font-size: 12.5px; }
+.informe-notas h2 { margin-bottom: 5px; color: var(--text); font-size: 13px; }
+.informe-notas ul { margin: 0; padding-left: 18px; }
+.informe-notas li + li { margin-top: 3px; }
+.informe-vacio { display: grid; justify-items: center; gap: 6px; padding: 44px 20px; text-align: center; }
+.informe-vacio > span:first-child { font-size: 32px; }
+.informe-vacio > span:last-child { color: var(--text-muted); font-size: 13px; }
+@media (max-width: 720px) {
+  .informe-chart { height: 230px; }
+  .informe-tabla-wrap { margin: 0 -16px -16px; padding: 0 16px 16px; }
+}
+
 /* Atención en vivo: insignia de pendientes en el menú y estado de la conexión */
 .nav-insignia {
   margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;

@@ -5,6 +5,7 @@ const { chromium } = require('playwright');
 const ROUTES = [
   'home', 'atencion', 'turno', 'recibo', 'metricas', 'conversaciones', 'posgrados',
   'registros', 'evento-posgrado', 'recordatorios', 'health', 'usuarios', 'actividad',
+  'informes',
 ];
 
 (async () => {

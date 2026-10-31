@@ -20,10 +20,12 @@ const { chromium } = require('playwright');
     await page.waitForFunction(() => location.hash === '#home');
     await page.goto('http://localhost:4599/app/index.html#actividad');
     await page.waitForFunction(() => location.hash === '#home');
+    await page.goto('http://localhost:4599/app/index.html#informes');
+    await page.waitForFunction(() => location.hash === '#home');
     await page.goto('http://localhost:4599/app/index.html#health');
     await page.waitForFunction(() => location.hash === '#home');
     assert.deepEqual(errors, []);
-    console.log('Asesor: sin envío masivo ni vistas administrativas; acceso directo redirige a Inicio OK');
+    console.log('Asesor: sin envío masivo ni vistas administrativas, incluidos informes; acceso directo redirige a Inicio OK');
   } finally {
     await browser.close();
   }

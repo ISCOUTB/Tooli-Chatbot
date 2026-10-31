@@ -27,6 +27,7 @@ const NAV_SECTIONS = [
     { route: 'metricas', icon: 'chart', label: 'Métricas' },
     { route: 'posgrados', icon: 'funnel', label: 'Embudo de posgrados' },
     { route: 'actividad', icon: 'activity', label: 'Actividad de asesores', admin: true },
+    { route: 'informes', icon: 'report', label: 'Informes de atención', admin: true },
   ] },
   { title: 'Administración', admin: true, routes: [
     { route: 'usuarios', icon: 'shield', label: 'Asesores', admin: true },

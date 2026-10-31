@@ -259,6 +259,7 @@ const PRESENCIAS = [
 let CONFIG_ATENCION = {
   asignacionAutomatica: true,
   maxAbiertasPorAsesor: 8,
+  encuestaSatisfaccion: false,
   horario: { activo: true, dias: [1, 2, 3, 4, 5], desde: '08:00', hasta: '17:00' },
 };
 const EQUIPOS = [{ id: 10, nombre: 'Admisiones' }, { id: 11, nombre: 'Soporte TI' }];
@@ -352,7 +353,7 @@ app.post('/api/tools/atencion/presencia', (req, res) => {
   j(res, { ok: true, estado: req.body.estado });
 });
 const configAtencionValida = config => {
-  if (!config || typeof config.asignacionAutomatica !== 'boolean' || !Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) return false;
+  if (!config || typeof config.asignacionAutomatica !== 'boolean' || typeof config.encuestaSatisfaccion !== 'boolean' || !Number.isInteger(config.maxAbiertasPorAsesor) || config.maxAbiertasPorAsesor < 1 || config.maxAbiertasPorAsesor > 50) return false;
   const horario = config.horario;
   if (!horario || typeof horario.activo !== 'boolean' || !Array.isArray(horario.dias) || horario.dias.some(d => !Number.isInteger(d) || d < 0 || d > 6)) return false;
   if (horario.activo && !horario.dias.length) return false;
@@ -367,6 +368,60 @@ app.put('/api/tools/atencion/config', (req, res) => {
   if (!configAtencionValida(req.body.config)) return res.status(400).json({ message: 'Revisa el máximo, los días y las horas de atención.' });
   CONFIG_ATENCION = { ...req.body.config, horario: { ...req.body.config.horario, dias: [...new Set(req.body.config.horario.dias)].sort((a, b) => a - b) } };
   j(res, { config: CONFIG_ATENCION });
+});
+const repartirInforme = (total, pesos) => {
+  const partes = pesos.map(peso => Math.floor(total * peso));
+  let faltan = total - partes.reduce((suma, valor) => suma + valor, 0);
+  for (let i = 0; faltan > 0; i = (i + 1) % partes.length) { partes[i]++; faltan--; }
+  return partes;
+};
+app.get('/api/tools/atencion/informes', (req, res) => {
+  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden', message: 'Solo un administrador puede consultar los informes de atención.' });
+  const dias = Number(req.query.dias);
+  if (![7, 30, 90].includes(dias)) return res.status(400).json({ error: 'periodo_invalido', message: 'El período debe ser de 7, 30 o 90 días.' });
+  const hasta = new Date();
+  hasta.setUTCHours(0, 0, 0, 0);
+  const porDia = Array.from({ length: dias }, (_, indice) => {
+    const fecha = new Date(hasta);
+    fecha.setUTCDate(fecha.getUTCDate() - (dias - indice - 1));
+    const recibidas = 4 + (indice * 3 + dias) % 5;
+    return { fecha: fecha.toISOString().slice(0, 10), recibidas, resueltas: Math.max(1, recibidas - (indice % 3 === 0 ? 2 : 1)) };
+  });
+  const recibidas = porDia.reduce((suma, dia) => suma + dia.recibidas, 0);
+  const resueltas = porDia.reduce((suma, dia) => suma + dia.resueltas, 0);
+  const sinResponder = Math.max(2, Math.round(recibidas * 0.08));
+  const respondidas = recibidas - sinResponder;
+  const csatRespuestas = Math.max(3, Math.round(resueltas * 0.42));
+  const distribuidos = repartirInforme(csatRespuestas, [0.03, 0.06, 0.14, 0.31, 0.46]);
+  const csatDistribucion = Object.fromEntries(distribuidos.map((cantidad, indice) => [indice + 1, cantidad]));
+  const csatPromedio = distribuidos.reduce((suma, cantidad, indice) => suma + cantidad * (indice + 1), 0) / csatRespuestas;
+  const pesos = [0.25, 0.36, 0.27, 0.12];
+  const respuestasPorAsesor = repartirInforme(respondidas, pesos);
+  const resueltasPorAsesor = repartirInforme(resueltas, pesos);
+  const csatPorAsesor = repartirInforme(csatRespuestas, pesos);
+  const filas = [
+    { username: mockAdminUsername, nombre: USUARIOS.find(u => u.username === mockAdminUsername)?.fullName ?? 'Ángel Acero' },
+    { username: 'luis', nombre: 'Luis Pérez' },
+    { username: 'ana', nombre: 'Ana Díaz' },
+    { username: null, nombre: null },
+  ].map((asesor, indice) => ({
+    ...asesor,
+    respondidas: respuestasPorAsesor[indice], resueltas: resueltasPorAsesor[indice],
+    primeraRespuestaMedianaMin: [11, 8, 17, 24][indice] + Math.floor(dias / 30),
+    resolucionMedianaMin: [190, 145, 260, 330][indice] + dias,
+    csatPromedio: [4.6, 4.8, 4.3, 4.1][indice], csatRespuestas: csatPorAsesor[indice],
+  }));
+  const desde = porDia[0].fecha;
+  j(res, {
+    periodo: { dias, desde, hasta: porDia.at(-1).fecha },
+    totales: {
+      recibidas, respondidas, resueltas, sinResponder,
+      primeraRespuestaMedianaMin: 12 + Math.floor(dias / 30), resolucionMedianaMin: 205 + dias,
+      csatPromedio: Number(csatPromedio.toFixed(1)), csatRespuestas, csatDistribucion,
+    },
+    porAsesor: filas, porDia,
+    notas: ['Las medianas excluyen conversaciones que todavía no tienen respuesta.', '“Hecho en Chatwoot” reúne acciones realizadas fuera del panel.'],
+  });
 });
 app.get('/api/tools/atencion/resumen', (_q, res) => {
   const abiertas = ATENCION.filter(c => c.estado === 'open');

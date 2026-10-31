@@ -34,6 +34,7 @@ import {
 import { handleTiCollectEmail, handleTiCollectCodigo, handleTiCollectCedula } from './identity';
 import { handleVerifEmail, handleVerifCodigo } from './verificacion';
 import { handleNotasPassword, handleNotasMfa } from './notas';
+import { handleEncuestaAtencion } from './encuestaAtencion';
 
 const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   // ── Inicio: recomendación de posgrados según el pregrado ────────────────────
@@ -87,6 +88,7 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   academico_desvincular: handleAcademicUnlink,
   chatting_with_ai: handleChattingWithAI,
   with_agent: handleWithAgent,
+  encuesta_atencion: handleEncuestaAtencion,
   // ── Legacy (sesiones activas anteriores) ────────────────────────────────────
   esperando_codigo: handleEsperandoCodigo,
   recibo_codigo: handleReciboCodigo,

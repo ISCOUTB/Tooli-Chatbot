@@ -41,6 +41,7 @@ const ICONS = {
   shield: '<path d="M12 3 20 6v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2 2M14 9l2 2"/>',
   activity: '<path d="M4 19V9M10 19V5M16 19v-7M3 19h18"/><path d="m4 7 6-4 6 7 4-3"/>',
+  report: '<path d="M6 3h9l4 4v14H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M15 3v5h4M9 17v-3M12 17v-6M15 17v-2"/>',
 };
 function icon(name, size = 20) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="icon-svg" aria-hidden="true" focusable="false">${ICONS[name] ?? ''}</svg>`;
