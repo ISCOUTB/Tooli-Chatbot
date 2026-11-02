@@ -830,5 +830,6 @@ app.get('/api/auth/chatwoot-sso', (_q, res) => j(res, { url: 'https://chat.examp
 app.get('/health/deep', (_q, res) => j(res, SALUD_MOCK));
 
 app.use('/app', express.static(path.join(__dirname, '..', 'src', 'public', 'app')));
+app.get('/favicon.ico', (_q, res) => res.sendFile(path.join(__dirname, '..', 'src', 'public', 'app', 'favicon.ico')));
 app.get('/', (_q, res) => res.redirect('/app/index.html'));
 app.listen(4599, () => console.log('mock panel en http://localhost:4599/app/index.html'));

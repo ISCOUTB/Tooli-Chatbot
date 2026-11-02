@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#003087"/>
+      <stop offset="1" stop-color="#001f5c"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#fondo)"/>
+  <g id="tooli-figure">
+    <path d="M21 48H29L21 55V48Z" fill="#fff"/>
+    <rect x="10" y="17" width="44" height="32" rx="11" fill="#fff"/>
+    <circle cx="24" cy="33" r="4" fill="#003087"/>
+    <circle cx="40" cy="33" r="4" fill="#003087"/>
+    <path d="M32 17V10" stroke="#5eead4" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="32" cy="8" r="3" fill="#5eead4"/>
+  </g>
+</svg>

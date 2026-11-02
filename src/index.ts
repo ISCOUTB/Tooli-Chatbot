@@ -75,6 +75,9 @@ app.use('/posgrados', express.static(path.resolve(__dirname, 'public/posgrados')
 
 app.use('/public', express.static(path.resolve(__dirname, 'public')));
 
+// Los navegadores piden /favicon.ico en la raíz aunque la página no lo enlace.
+app.get('/favicon.ico', (_req, res) => res.sendFile(path.resolve(__dirname, 'public/app/favicon.ico')));
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
