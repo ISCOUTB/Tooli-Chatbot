@@ -26,6 +26,7 @@
  */
 
 import Redis from 'ioredis';
+import { normalizeContactId } from './whatsappId';
 import { config } from '../config';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
@@ -93,7 +94,7 @@ function fichaVacia(phone: string): FichaCrm {
 }
 
 export function normalizarPhone(raw: string): string {
-  return String(raw ?? '').replace(/\D/g, '');
+  return normalizeContactId(raw);
 }
 
 export async function getFicha(phone: string): Promise<FichaCrm> {

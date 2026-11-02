@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { config } from '../config';
 import { describeError, maskEmail } from './logSafe';
+import { isBsuid } from './whatsappId';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 
@@ -49,7 +50,7 @@ export async function upsertContactoHubspot(lead: HubspotLead): Promise<void> {
     email: lead.email,
     firstname,
     lastname,
-    phone: `+${lead.whatsapp}`,
+    ...(!isBsuid(lead.whatsapp) ? { phone: `+${lead.whatsapp}` } : {}),
   };
 
   // Propiedades personalizadas — solo si se configuró su nombre interno

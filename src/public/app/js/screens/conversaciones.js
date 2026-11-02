@@ -146,7 +146,7 @@ async function renderConversaciones(main) {
       .map(info => ({
         phone: info.phone,
         banned: info.banned,
-        nombre: info.session?.data?.nombre,
+        nombre: info.session?.data?.nombre || info.profileName || (info.username ? `@${info.username}` : undefined),
         last: info.recentMessages[0] ?? null,
         cat: flowCategory(info.session?.step),
       }))
@@ -442,7 +442,7 @@ async function openThread(phone, opener) {
     // Una respuesta vieja nunca debe reemplazar el hilo actualmente visible.
     if (requestId !== threadRequestId || openPhone !== phone || !thread.isConnected) return;
     const ficha = fichaRes?.ficha ?? null;
-    const nombre = info.session?.data?.nombre;
+    const nombre = info.session?.data?.nombre || info.profileName || (info.username ? `@${info.username}` : undefined);
     const msgs = [...info.recentMessages].reverse();
     const groups = groupMessages(msgs);
 
@@ -499,7 +499,7 @@ async function openThread(phone, opener) {
           <form class="composer" id="composer" autocomplete="off">
             <button type="button" class="composer-quick" id="composerQuick" aria-label="Respuestas rápidas" title="Respuestas rápidas">${icon('bolt', 18)}</button>
             <textarea class="composer-input" id="composerInput" rows="1" maxlength="4096"
-              placeholder="Escribe un mensaje…" aria-label="Escribir mensaje para ${nombre ? escapeHtml(nombre) : `+${phone}`}"></textarea>
+              placeholder="Escribe un mensaje…" aria-label="Escribir mensaje para ${nombre ? escapeHtml(nombre) : formatTelefono(phone)}"></textarea>
             <button type="submit" class="composer-send" id="composerSend" disabled aria-label="Enviar mensaje">${icon('send', 18)}</button>
           </form>
           <div class="composer-hint" id="composerHint" aria-live="polite">Enter envía · Shift+Enter salta de línea</div>
@@ -514,7 +514,7 @@ async function openThread(phone, opener) {
       toast(enabled ? 'IA activada para esta conversación' : 'IA apagada — escalará a un asesor');
     });
     $('#threadMenuBtn').addEventListener('click', () => ActionSheet.open({
-      title: nombre ?? `+${phone}`,
+      title: nombre ?? formatTelefono(phone),
       groups: [[
         { label: 'Ficha del prospecto', icon: '🗂️', onClick: () => openFichaSheet(phone, nombre, ficha, info) },
         { label: 'Programar recordatorio', icon: '⏰', onClick: () => { setRemPrefill({ telefono: phone, nombre }); navigate('recordatorios'); } },

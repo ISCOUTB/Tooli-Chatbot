@@ -5,6 +5,7 @@ import {
   validarTemplateName, validarLanguage, clasificarDestinatarios, contarVariablesCuerpo,
 } from './broadcastValidation';
 import { describeExternalError } from './logSafe';
+import { metaRecipient } from './whatsappId';
 
 // Re-exportados para que la ruta valide el formato sin tocar la API de Meta.
 export { BroadcastValidationError, validarTemplateName, validarLanguage };
@@ -184,7 +185,7 @@ export async function sendTemplateToRecipient(name: string, lang: string, to: st
         url,
         {
           messaging_product: 'whatsapp',
-          to,
+          ...metaRecipient(to),
           type: 'template',
           template: {
             name,

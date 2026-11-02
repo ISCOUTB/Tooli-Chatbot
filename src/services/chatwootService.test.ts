@@ -69,4 +69,15 @@ describe('getOrCreateContact', () => {
     const creado = llamadas.find((l) => l.metodo === 'post' && l.url === '/contacts');
     assert.equal((creado?.body as { name: string }).name, 'Carlos Pérez');
   });
+
+  it('crea un contacto BSUID sin phone_number', async () => {
+    llamadas.length = 0;
+    contactoExistente = null;
+    await getOrCreateContact('CO.13491208655302741918', 'Usuario de WhatsApp');
+    const creado = llamadas.find((l) => l.metodo === 'post' && l.url === '/contacts');
+    const body = creado?.body as Record<string, unknown>;
+    assert.equal(body.identifier, 'CO.13491208655302741918');
+    assert.equal(body.name, 'Usuario de WhatsApp');
+    assert.equal('phone_number' in body, false);
+  });
 });

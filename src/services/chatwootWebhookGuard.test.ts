@@ -18,3 +18,9 @@ test('Chatwoot delivery must belong to the configured account, inbox and live co
   assert.equal(isLinkedSession({ step: 'with_agent', data: { conversationId: '90' } }, 91), false);
   assert.equal(isLinkedSession({ step: 'menu', data: { conversationId: '91' } }, 91), false);
 });
+
+test('Chatwoot acepta un BSUID válido como identifier', () => {
+  const bsuid = 'CO.13491208655302741918';
+  const body = { ...payload, conversation: { ...payload.conversation, meta: { sender: { identifier: bsuid } } } };
+  assert.deepEqual(linkedChatwootTarget(body, '2', '7', 'message'), { phone: bsuid, conversationId: 91 });
+});

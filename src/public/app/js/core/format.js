@@ -70,7 +70,9 @@ function friendlyDate(raw) {
 /* Teléfono legible: 573001234567 → +57 300 123 4567. Lo que no es un celular
    colombiano se muestra con + y sin agrupar, para no inventarle un formato. */
 function formatTelefono(phone) {
-  const digitos = String(phone ?? '').replace(/\D/g, '');
+  const raw = String(phone ?? '').trim();
+  if (/^[A-Z]{2}\.(ENT\.)?[A-Za-z0-9]{1,128}$/.test(raw)) return 'Usuario de WhatsApp';
+  const digitos = raw.replace(/\D/g, '');
   if (!digitos) return '';
   const co = digitos.match(/^57(3\d{2})(\d{3})(\d{4})$/);
   return co ? `+57 ${co[1]} ${co[2]} ${co[3]}` : `+${digitos}`;

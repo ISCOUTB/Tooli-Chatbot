@@ -6,6 +6,7 @@ import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
 import { parseGlobalCommand } from './commands';
 import { resumenOrientacion } from './programasCatalog';
+import { contactIdLabel } from '../services/whatsappId';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -136,7 +137,7 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
   const contexto =
     `🎓 Posgrado · ${programa} — ${nombre}\n\n` +
     `👤 Nombre: ${nombre}\n` +
-    `📱 WhatsApp: +${from}\n` +
+    `📱 WhatsApp: ${contactIdLabel(from)}\n` +
     `📧 Email: ${email}\n` +
     `🎯 Programa de interés: ${programa}\n` +
     (datos.lineas ?? []).map((l) => `${l}\n`).join('') +

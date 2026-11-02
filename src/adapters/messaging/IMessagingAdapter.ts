@@ -71,6 +71,9 @@ export interface OutboundMediaUrl {
 
 export interface InboundMessage {
   from: string;
+  userId?: string;       // BSUID estable provisto por Meta
+  username?: string;
+  profileName?: string;
   messageId: string;
   text: string;  // para botones/lista: llega el id de la opción seleccionada
   timestamp: number;

@@ -42,7 +42,7 @@ export interface InboxItem {
 export async function enqueueInbound(
   source: InboundSource, inbound: InboundMessage, store: InboxStore = redis,
 ): Promise<boolean> {
-  if (!inbound.from || inbound.from.length > 128 || !inbound.messageId || inbound.messageId.length > 256) {
+  if (!inbound.from || inbound.from.length > 140 || !inbound.messageId || inbound.messageId.length > 256) {
     throw new Error('Mensaje entrante inválido');
   }
   const now = Date.now();

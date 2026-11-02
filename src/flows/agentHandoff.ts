@@ -7,6 +7,7 @@ import { messaging } from './shared';
 import { parseOriginArea } from './commands';
 import { resumenRecomendacion } from './recomendacionView';
 import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
+import { contactIdLabel } from '../services/whatsappId';
 
 export interface HandoffOptions {
   aiNoResolvio?: boolean;
@@ -65,7 +66,7 @@ export async function iniciarConversacionAsesor(
     area === 'posgrados' ? [data.posgradoInteres, data.nombre].filter(Boolean).join(' — ') :
     data.nivel;
   let contexto = `🆘 ${areaLabel}${asunto ? ` · ${asunto}` : ''}\n\n`;
-  contexto += `📱 WhatsApp: +${from}\n`;
+  contexto += `📱 WhatsApp: ${contactIdLabel(from)}\n`;
   contexto += `📅 Recibido: ${ahora}\n`;
   contexto += `🕐 Dentro de horario: ${fueraHorario ? '❌ NO (fuera de horario)' : '✅ Sí'}\n`;
   if (opts.aiNoResolvio) {
