@@ -10,6 +10,7 @@ import {
 } from './IMessagingAdapter';
 import { config } from '../../config';
 import { recordActivity } from '../../services/botUserService';
+import { metaRecipient } from '../../services/whatsappId';
 
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
 
@@ -50,7 +51,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: 'text',
         text: { body: msg.text, preview_url: false },
       },
@@ -73,7 +74,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: 'interactive',
         interactive: {
           type: 'button',
@@ -105,7 +106,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: 'interactive',
         interactive: {
           type: 'list',
@@ -148,7 +149,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: 'document',
         document: {
           id: mediaId,
@@ -181,7 +182,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: 'image',
         image: { id: mediaId, caption: msg.caption },
       },
@@ -207,7 +208,7 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
-        to: msg.to,
+        ...metaRecipient(msg.to),
         type: mediaType,
         [mediaType]: mediaPayload,
       },

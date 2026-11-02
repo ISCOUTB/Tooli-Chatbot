@@ -3,6 +3,7 @@ import { guardarRegistroProspecto } from '../services/registroService';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
 import { parseGlobalCommand } from './commands';
+import { contactIdLabel } from '../services/whatsappId';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -141,7 +142,7 @@ export async function handleRegistroPrograma(ctx: FlowContext): Promise<void> {
       '✅ *¡Registro exitoso!*\n\n' +
       `📋 *Nombre:* ${nombre}\n` +
       `📧 *Correo:* ${email}\n` +
-      `📱 *WhatsApp:* +${from}\n` +
+      `📱 *WhatsApp:* ${contactIdLabel(from)}\n` +
       `🎓 *Programa:* ${programa}\n\n` +
       'Te contactaremos con información sobre los programas de posgrado de la UTB.\n\n' +
       '_Si tienes preguntas, escribe *menu* para volver al inicio._',

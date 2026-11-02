@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { sanitizeActivityText } from './activityPrivacy';
+import { getWhatsAppContactProfile } from './whatsappContactService';
 
 const redis = new Redis(config.redis.url);
 
@@ -15,6 +16,8 @@ export interface BotUserInfo {
   banned: boolean;
   banReason?: string;
   aiDisabled: boolean;
+  username?: string;
+  profileName?: string;
   recentMessages: Array<{ ts: number; direction: 'in' | 'out'; text: string }>;
 }
 
@@ -23,11 +26,12 @@ const ACTIVITY_KEY = (phone: string) => `activity:${phone}`;
 const AI_DISABLED_KEY = (phone: string) => `ai_disabled:${phone}`;
 
 export async function getBotUser(phone: string): Promise<BotUserInfo> {
-  const [sessionRaw, banRaw, activityRaw, aiDisabledRaw] = await Promise.all([
+  const [sessionRaw, banRaw, activityRaw, aiDisabledRaw, profile] = await Promise.all([
     redis.get(`session:${phone}`),
     redis.get(BAN_KEY(phone)),
     redis.lrange(ACTIVITY_KEY(phone), 0, 49),
     redis.get(AI_DISABLED_KEY(phone)),
+    getWhatsAppContactProfile(phone),
   ]);
 
   return {
@@ -36,6 +40,8 @@ export async function getBotUser(phone: string): Promise<BotUserInfo> {
     banned: !!banRaw,
     banReason: banRaw ?? undefined,
     aiDisabled: !!aiDisabledRaw,
+    username: profile.username,
+    profileName: profile.profileName,
     recentMessages: activityRaw
       .map(s => {
         try { return JSON.parse(s); } catch { return null; }

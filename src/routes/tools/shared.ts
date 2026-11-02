@@ -3,6 +3,7 @@
 import { config } from '../../config';
 import { getBotUser } from '../../services/botUserService';
 import { ultimoEntranteVerificable, ventanaTextoLibreAbierta } from '../../services/replyWindow';
+import { normalizeContactId } from '../../services/whatsappId';
 
 /**
  * Deja solo los dígitos de un número. Los teléfonos llegan escritos de muchas
@@ -10,7 +11,7 @@ import { ultimoEntranteVerificable, ventanaTextoLibreAbierta } from '../../servi
  * siempre la cadena de dígitos.
  */
 export function normalizePhone(input: string): string {
-  return String(input ?? '').replace(/\D/g, '');
+  return normalizeContactId(input);
 }
 
 /**

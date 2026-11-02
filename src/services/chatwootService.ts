@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 import { describeError } from './logSafe';
 import { publicarAtencion } from './atencionEventos';
+import { isBsuid } from './whatsappId';
 
 let client: AxiosInstance | null = null;
 
@@ -47,9 +48,8 @@ export async function getOrCreateContact(phoneNumber: string, name: string): Pro
   // 1. Buscar por identifier
   try {
     const search = await cw().get('/contacts/search', { params: { q: phoneNumber } });
-    const existing = search.data?.payload?.find(
-      (c: any) => c.identifier === phoneNumber || c.phone_number === `+${phoneNumber}`
-    );
+    const existing = search.data?.payload?.find((c: any) =>
+      c.identifier === phoneNumber || (!isBsuid(phoneNumber) && c.phone_number === `+${phoneNumber}`));
 
     if (existing) {
       if (esNombreGenerico(existing.name, phoneNumber) && !esNombreGenerico(name, phoneNumber)) {
@@ -81,7 +81,7 @@ export async function getOrCreateContact(phoneNumber: string, name: string): Pro
   const create = await cw().post('/contacts', {
     inbox_id: inboxId,
     name,
-    phone_number: `+${phoneNumber}`,
+    ...(!isBsuid(phoneNumber) ? { phone_number: `+${phoneNumber}` } : {}),
     identifier: phoneNumber,
   });
 

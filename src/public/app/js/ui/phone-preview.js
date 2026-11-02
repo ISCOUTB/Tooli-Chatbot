@@ -14,7 +14,7 @@ function openPhonePreview(phone, nombre, groups) {
   overlay.className = 'phone-preview-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', `Vista previa de la conversación con ${nombre ?? `+${phone}`}`);
+  overlay.setAttribute('aria-label', `Vista previa de la conversación con ${nombre ?? formatTelefono(phone)}`);
   const now = new Date();
   const clock = now.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
 

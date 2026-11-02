@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { config } from '../config';
 import { maskEmail, maskPhone } from './logSafe';
+import { contactIdLabel } from './whatsappId';
 
 export interface RegistroProspecto {
   nombre: string;
@@ -54,7 +55,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
         ahora,
         data.nombre,
         data.email,
-        `+${data.whatsapp}`,
+        contactIdLabel(data.whatsapp),
         data.programa ?? '',
         data.area ?? 'Posgrado',
       ]],

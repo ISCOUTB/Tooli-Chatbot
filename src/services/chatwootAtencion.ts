@@ -10,7 +10,8 @@
  */
 
 import { config } from '../config';
-import { chatwootApi } from './chatwootService';
+import { chatwootApi, esNombreGenerico } from './chatwootService';
+import { contactIdLabel, isBsuid, normalizeContactId } from './whatsappId';
 
 export type EstadoAtencion = 'open' | 'pending' | 'resolved';
 export const ESTADOS_ATENCION: readonly EstadoAtencion[] = ['open', 'pending', 'resolved'];
@@ -133,13 +134,19 @@ export function mapMensaje(raw: any): MensajeAtencion {
 
 export function mapConversacion(raw: any): ConversacionAtencion {
   const sender = raw?.meta?.sender ?? {};
-  const telefono = String(sender.phone_number ?? sender.identifier ?? '').replace(/\D/g, '');
+  const telefono = isBsuid(sender.identifier)
+    ? sender.identifier
+    : normalizeContactId(sender.phone_number ?? sender.identifier ?? '');
+  const senderName = String(sender.name ?? '').trim();
+  const nombre = isBsuid(telefono) && esNombreGenerico(senderName, telefono)
+    ? 'Usuario de WhatsApp'
+    : senderName || (telefono ? contactIdLabel(telefono) : 'Sin nombre');
   const mensajes = Array.isArray(raw?.messages) ? raw.messages : [];
   const ultimo = mensajes.length ? mapMensaje(mensajes[mensajes.length - 1]) : null;
   return {
     id: Number(raw?.id) || 0,
     estado: String(raw?.status ?? 'open'),
-    contacto: { nombre: String(sender.name ?? '').trim() || (telefono ? `+${telefono}` : 'Sin nombre'), telefono },
+    contacto: { nombre, telefono },
     asignado: persona(raw?.meta?.assignee),
     equipo: persona(raw?.meta?.team),
     etiquetas: Array.isArray(raw?.labels) ? raw.labels.map(String) : [],

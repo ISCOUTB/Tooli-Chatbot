@@ -66,6 +66,17 @@ describe('mapConversacion', () => {
     assert.equal(c.contacto.nombre, '+573009876543');
     assert.equal(c.ultimoMensaje, null);
   });
+
+  it('con BSUID no inventa un número de teléfono', () => {
+    const c = mapConversacion({
+      id: 6,
+      meta: { sender: { identifier: 'CO.13491208655302741918', name: 'Usuario 1918' } },
+      messages: [],
+    });
+    assert.deepEqual(c.contacto, {
+      nombre: 'Usuario de WhatsApp', telefono: 'CO.13491208655302741918',
+    });
+  });
 });
 
 describe('mapMensaje', () => {

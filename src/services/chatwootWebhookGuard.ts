@@ -1,4 +1,5 @@
 import type { Session } from './session';
+import { isBsuid } from './whatsappId';
 
 function id(value: unknown): number | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
@@ -35,7 +36,8 @@ export function linkedChatwootTarget(payload: any, accountId: string, inboxId: s
     payload.meta?.sender?.identifier,
     payload.contact?.identifier,
   ].filter(value => value !== undefined && value !== null);
-  if (phones.length === 0 || !phones.every(value => typeof value === 'string' && /^\d{10,15}$/.test(value) && value === phones[0])) return null;
+  if (phones.length === 0 || !phones.every(value => typeof value === 'string' &&
+      (/^\d{10,15}$/.test(value) || isBsuid(value)) && value === phones[0])) return null;
   return { phone: phones[0], conversationId: conversationIds[0]! };
 }
 

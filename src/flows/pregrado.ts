@@ -6,6 +6,7 @@ import { config } from '../config';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu, sendMenuPregrado } from './shared';
 import { parseGlobalCommand } from './commands';
+import { contactIdLabel } from '../services/whatsappId';
 import {
   buildUndecidedLabel,
   formatAreasMessage,
@@ -216,7 +217,7 @@ export async function handlePregradoRegistroCarrera(ctx: FlowContext): Promise<v
       '✅ *¡Registro exitoso!*\n\n' +
       `📋 *Nombre:* ${nombre}\n` +
       `📧 *Correo:* ${email}\n` +
-      `📱 *WhatsApp:* +${from}\n` +
+      `📱 *WhatsApp:* ${contactIdLabel(from)}\n` +
       `🏫 *Carrera de interés:* ${carrera}\n\n` +
       'Te contactaremos con información sobre el proceso de admisión a pregrado de la UTB.\n\n' +
       '_Si tienes preguntas, escribe *menu* para volver al inicio._',
@@ -318,7 +319,7 @@ export async function handlePregradoProspectoCarrera(ctx: FlowContext): Promise<
   const contexto =
     `🏫 Pregrado · ${carrera} — ${nombre}\n\n` +
     `👤 Nombre: ${nombre}\n` +
-    `📱 WhatsApp: +${from}\n` +
+    `📱 WhatsApp: ${contactIdLabel(from)}\n` +
     `📧 Email: ${email}\n` +
     `🎯 Carrera de interés: ${carrera}\n` +
     `📅 Recibido: ${ahora}`;

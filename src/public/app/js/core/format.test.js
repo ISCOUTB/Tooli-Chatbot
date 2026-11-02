@@ -182,6 +182,10 @@ describe('formatTelefono', () => {
     assert.equal(F.formatTelefono(''), '');
     assert.equal(F.formatTelefono(undefined), '');
   });
+
+  it('un BSUID se muestra como usuario y no como teléfono', () => {
+    assert.equal(F.formatTelefono('CO.13491208655302741918'), 'Usuario de WhatsApp');
+  });
 });
 
 describe('formatWhatsApp', () => {

@@ -1,123 +1,117 @@
 import { z } from 'zod';
 import { InboundMessage } from '../adapters/messaging/IMessagingAdapter';
 
-// ── Esquemas Zod ──────────────────────────────────────────────────────────────
+const MetaMessageSchema = z.object({
+  from: z.string().optional(),
+  from_user_id: z.string().optional(),
+  id: z.string(),
+  timestamp: z.string(),
+  type: z.string(),
+  text: z.object({ body: z.string() }).optional(),
+  interactive: z.any().optional(),
+  button: z.object({ payload: z.string().optional(), text: z.string() }).optional(),
+  image: z.object({ id: z.string(), mime_type: z.string().optional() }).optional(),
+}).passthrough();
 
-const MetaTextMessageSchema = z.object({
-  type: z.literal('text'),
-  text: z.object({ body: z.string() }),
-});
-
-const MetaInteractiveSchema = z.object({
-  type: z.literal('interactive'),
-  interactive: z.union([
-    z.object({
-      type: z.literal('button_reply'),
-      button_reply: z.object({ id: z.string(), title: z.string() }),
-    }),
-    z.object({
-      type: z.literal('list_reply'),
-      list_reply: z.object({ id: z.string(), title: z.string() }),
-    }),
-  ]),
-});
-
-const MetaImageMessageSchema = z.object({
-  type: z.literal('image'),
-  image: z.object({ id: z.string(), mime_type: z.string().optional() }),
-});
-
-// Toque en un botón de respuesta rápida de una PLANTILLA (los mensajes que
-// inicia el bot). Meta no lo manda como `interactive` sino como `button`.
-const MetaTemplateButtonSchema = z.object({
-  type: z.literal('button'),
-  button: z.object({ payload: z.string().optional(), text: z.string() }),
-});
-
-const MetaMessageSchema = z.union([
-  MetaTextMessageSchema, MetaInteractiveSchema, MetaImageMessageSchema, MetaTemplateButtonSchema,
-]).and(
-  z.object({
-    from: z.string(),
-    id: z.string(),
-    timestamp: z.string(),
-  })
-);
+const MetaContactSchema = z.object({
+  wa_id: z.string().optional(),
+  user_id: z.string().optional(),
+  profile: z.object({ name: z.string().optional(), username: z.string().optional() }).optional(),
+}).passthrough();
 
 const MetaWebhookSchema = z.object({
   object: z.literal('whatsapp_business_account'),
-  entry: z.array(
-    z.object({
-      id: z.string(),
-      changes: z.array(
-        z.object({
-          value: z.object({
-            messaging_product: z.literal('whatsapp'),
-            metadata: z.object({
-              display_phone_number: z.string(),
-              phone_number_id: z.string(),
-            }),
-            // Un webhook puede mezclar texto con tipos no soportados. Validar
-            // cada mensaje aparte evita perder los demás por un audio/sticker.
-            messages: z.array(z.unknown()).optional(),
-            statuses: z.array(z.unknown()).optional(),
-          }),
-          field: z.string(),
-        })
-      ),
-    })
-  ),
+  entry: z.array(z.object({
+    id: z.string(),
+    changes: z.array(z.object({
+      value: z.object({
+        messaging_product: z.literal('whatsapp'),
+        metadata: z.object({ display_phone_number: z.string(), phone_number_id: z.string() }),
+        messages: z.array(z.unknown()).optional(),
+        contacts: z.array(MetaContactSchema).optional(),
+        statuses: z.array(z.unknown()).optional(),
+        errors: z.array(z.object({ code: z.union([z.string(), z.number()]) }).passthrough()).optional(),
+      }),
+      field: z.string(),
+    })),
+  })),
 });
 
 export type MetaWebhookPayload = z.infer<typeof MetaWebhookSchema>;
+export interface MetaCloudParseResult {
+  mensajes: InboundMessage[];
+  estados: number;
+  sinTelefono: number;
+  descartados: string[];
+}
 
-// ── Parser ────────────────────────────────────────────────────────────────────
+const UNSUPPORTED = new Set(['audio', 'voice', 'sticker', 'video', 'document', 'location', 'contacts', 'unsupported']);
 
-/**
- * Parsea el body de un webhook de Meta WhatsApp Cloud API.
- * Devuelve todos los mensajes manejables del payload en orden de entrega.
- */
-export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
+/** Parsea mensajes y devuelve además contadores seguros para observabilidad. */
+export function parseMetaCloudWebhookResult(body: unknown): MetaCloudParseResult {
   const result = MetaWebhookSchema.safeParse(body);
-  if (!result.success) return [];
-
-  const inbound: InboundMessage[] = [];
+  if (!result.success) return { mensajes: [], estados: 0, sinTelefono: 0, descartados: [] };
+  const output: MetaCloudParseResult = { mensajes: [], estados: 0, sinTelefono: 0, descartados: [] };
 
   for (const entry of result.data.entry) {
     for (const change of entry.changes) {
+      output.estados += change.value.statuses?.length ?? 0;
+      output.descartados.push(...(change.value.errors ?? []).map(error => String(error.code)));
       if (change.field !== 'messages') continue;
-      const messages = change.value.messages ?? [];
 
-      for (const rawMsg of messages) {
-        const parsed = MetaMessageSchema.safeParse(rawMsg);
-        if (!parsed.success) continue;
+      // Cada mensaje se valida aparte para no perder los demás por un audio o sticker.
+      for (const raw of change.value.messages ?? []) {
+        const parsed = MetaMessageSchema.safeParse(raw);
+        if (!parsed.success) {
+          const type = typeof raw === 'object' && raw && 'type' in raw ? String(raw.type) : 'invalido';
+          output.descartados.push(type);
+          continue;
+        }
         const msg = parsed.data;
-        let text: string | undefined;
-
-        let mediaId: string | undefined;
-        let mediaType: string | undefined;
-
-        if (msg.type === 'text') {
-          text = msg.text.body;
-        } else if (msg.type === 'interactive') {
-          if (msg.interactive.type === 'button_reply') {
-            text = msg.interactive.button_reply.id;
-          } else if (msg.interactive.type === 'list_reply') {
-            text = msg.interactive.list_reply.id;
-          }
-        } else if (msg.type === 'button') {
-          // Sin payload definido al enviar, Meta repite el texto del botón.
-          text = msg.button.payload || msg.button.text;
-        } else if (msg.type === 'image') {
-          text = '__image__';
-          mediaId = msg.image.id;
-          mediaType = 'image';
+        if (msg.type === 'reaction' || msg.type === 'system') {
+          output.descartados.push(msg.type);
+          continue;
+        }
+        if (!msg.from && msg.from_user_id) {
+          output.sinTelefono++;
+        }
+        const from = msg.from ?? msg.from_user_id;
+        if (!from) {
+          output.descartados.push(`${msg.type}:sin-from:sin-from_user_id`);
+          continue;
         }
 
-        if (!text) continue; // audio, sticker — ignorar
+        let text: string | undefined;
+        let mediaId: string | undefined;
+        let mediaType: string | undefined;
+        if (msg.type === 'text') text = msg.text?.body;
+        else if (msg.type === 'interactive') {
+          const interactive = msg.interactive;
+          if (interactive?.type === 'button_reply') text = interactive.button_reply?.id;
+          if (interactive?.type === 'list_reply') text = interactive.list_reply?.id;
+        // `button` es el toque en una respuesta rápida de una plantilla; Meta no lo manda como `interactive`.
+        } else if (msg.type === 'button') {
+          // Sin payload definido al enviar, Meta repite el texto del botón.
+          text = msg.button?.payload || msg.button?.text;
+        }
+        else if (msg.type === 'image') {
+          text = '__image__'; mediaId = msg.image?.id; mediaType = 'image';
+        } else if (UNSUPPORTED.has(msg.type)) {
+          text = '__unsupported__'; mediaType = msg.type;
+        }
+        if (!text) {
+          output.descartados.push(msg.type);
+          continue;
+        }
 
-        inbound.push({
-          from: msg.from,
+        const contact = (change.value.contacts ?? []).find(candidate =>
+          candidate.wa_id === msg.from || candidate.user_id === msg.from_user_id ||
+          candidate.wa_id === from || candidate.user_id === from);
+        output.mensajes.push({
+          from,
+          userId: msg.from_user_id,
+          username: contact?.profile?.username,
+          profileName: contact?.profile?.name,
           messageId: msg.id,
           text,
           timestamp: parseInt(msg.timestamp, 10),
@@ -128,8 +122,12 @@ export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
       }
     }
   }
+  return output;
+}
 
-  return inbound;
+/** Parsea todos los mensajes válidos incluidos en el webhook. */
+export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
+  return parseMetaCloudWebhookResult(body).mensajes;
 }
 
 /** Compatibilidad con consumidores que solo necesitan el primer mensaje. */

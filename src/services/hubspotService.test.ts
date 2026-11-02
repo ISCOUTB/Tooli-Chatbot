@@ -78,4 +78,11 @@ describe('upsertContactoHubspot', () => {
       assert.equal(enviados.length, 0);
     });
   });
+
+  it('no manda phone cuando el identificador es un BSUID', async () => {
+    await conHubspot({ propPosgrado: '', propFuente: '', propPregrado: '', propRelacion: '' }, async (enviados) => {
+      await upsertContactoHubspot({ ...lead, whatsapp: 'CO.13491208655302741918' });
+      assert.equal('phone' in enviados[0], false);
+    });
+  });
 });
