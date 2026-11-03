@@ -4,7 +4,7 @@ import { avatarTone, colorTextoLegible, formatTelefono, formatWhatsApp, initials
 import { icon } from '../core/icons.js';
 import { parametrosRuta } from '../core/router.js';
 import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarConversacionVisible, pedirPermisoAvisos, permisoAvisos, preferenciasAvisos } from '../core/realtime.js';
-import { screenInterval, setPullToRefresh } from '../core/screen.js';
+import { screenInterval, seguirTeclado, setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
 import { abrirRespuestasRapidas } from '../ui/quick-replies.js';
@@ -101,6 +101,27 @@ function textoAsignacion(asignado, yo) {
   return yo && asignado.id === yo ? 'Asignada a ti' : `Asignada a ${asignado.nombre}`;
 }
 
+/** Bajo el nombre en el celular. Quien no tiene número llega con "Usuario de
+    WhatsApp" como nombre y como teléfono: ahí aporta más saber quién la atiende. */
+function subtituloMovil(c, yo) {
+  const telefono = c.contacto.telefono ? formatTelefono(c.contacto.telefono) : '';
+  return telefono && telefono !== c.contacto.nombre ? telefono : textoAsignacion(c.asignado, yo);
+}
+
+/** Las acciones que en el celular salen de la cabecera. Cada una pulsa el botón
+    oculto que sigue ahí, para que los manejadores vivan en un solo lugar. */
+function accionesDetalles(c) {
+  return [
+    ...(c.contacto.telefono ? [{ label: 'Historial', icon: icon('message', 15), onClick: () => $('#atnHistorial')?.click() }] : []),
+    { label: 'Macros', icon: icon('bolt', 15), onClick: () => $('#atnMacrosHilo')?.click() },
+    ...(c.estado === 'open'
+      ? [{ label: 'Pendiente', icon: icon('clock', 15), onClick: () => $('.atn-acciones [data-estado="pending"]')?.click() }]
+      : c.estado === 'pending'
+        ? [{ label: 'Abrir', icon: icon('clock', 15), onClick: () => $('.atn-acciones [data-estado="open"]')?.click() }]
+        : []),
+  ];
+}
+
 function formatoTamano(bytes) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
@@ -150,6 +171,9 @@ let hiloSeq = 0;
 const borradores = new Map(); // id → { texto, privado }
 let adjuntoActual = null;      // { conversacionId, archivo }
 let cabeceraPintada = '';    // estado y asignación que muestra la cabecera del hilo
+let cabeceraActual = null;   // la conversación que muestra la cabecera, siempre la más reciente
+let detallesAbiertos = false;
+let dejarDeSeguirTeclado = null;
 let ultimaCargaLista = 0;
 let ultimaCargaHilo = 0;
 let eventoTimer = null;
@@ -273,7 +297,7 @@ function pintarAvisos() {
     </label>
     <span class="atn-estado-ayuda">${conexion === 'conectado' ? 'Disponible recibe asignaciones automáticas.' : 'La sesión en vivo no está conectada.'}</span>
     ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" aria-label="${avisoTexto}" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span class="hide-sm">${avisoTexto}</span></button>` : ''}
-    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="Tono cuando llega un mensaje">${emoji(prefs.sonido ? '🔊' : '🔇')}<span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
+    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="Tono cuando llega un mensaje"><span class="atn-solo-escritorio">${emoji(prefs.sonido ? '🔊' : '🔇')}</span><span class="atn-solo-movil">${icon(prefs.sonido ? 'volume' : 'volumeOff', 16)}</span><span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
     ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionEquipo" aria-label="Gestionar equipo">${icon('users', 14)}<span class="hide-sm">Equipo</span></button><button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
   `;
   $('#atnMiEstado').addEventListener('change', cambiarMiPresencia);
@@ -470,6 +494,7 @@ function pintarFilas(truncado) {
 }
 
 function abrirHilo(id) {
+  if (detallesAbiertos) ActionSheet.close();
   guardarBorrador();
   abierta = id;
   marcarConversacionVisible(id);
@@ -487,7 +512,10 @@ function abrirHilo(id) {
 }
 
 function cerrarHilo() {
+  if (detallesAbiertos) ActionSheet.close();
   guardarBorrador();
+  dejarDeSeguirTeclado?.();
+  dejarDeSeguirTeclado = null;
   abierta = null;
   marcarConversacionVisible(null);
   hiloSeq++;
@@ -583,32 +611,41 @@ function claveCabecera(c) {
 }
 
 function pintarCabecera(c) {
+  cabeceraActual = c;
   cabeceraPintada = claveCabecera(c);
   const est = etiquetaEstado(c.estado);
   const cab = $('#atnCabecera');
   if (!cab) return;
+  const asigActual = $('#atnAsignacion');
+  const focoId = detallesAbiertos && asigActual?.contains(document.activeElement) ? document.activeElement.id : '';
   cab.innerHTML = `
     <button type="button" class="mobile-only back-link" id="atnVolver" aria-label="Volver a la lista" style="margin:0;">${icon('chevronLeft', 18)}</button>
     <div class="avatar" style="background:${avatarTone(c.contacto.telefono || String(c.id))};width:36px;height:36px;font-size:13px;">${initialsFor(c.contacto.telefono, c.contacto.nombre)}</div>
     <div class="atn-cabecera-info">
       <div class="atn-cabecera-nombre">${escapeHtml(c.contacto.nombre)}</div>
-      <div class="atn-cabecera-sub">${c.contacto.telefono ? formatTelefono(c.contacto.telefono) : ''}
-        <span class="atn-estado" style="color:${colorTextoLegible(est.color)};background:${est.color}1a;">${est.label}</span></div>
+      <div class="atn-cabecera-sub"><span class="atn-solo-escritorio">${c.contacto.telefono ? formatTelefono(c.contacto.telefono) : ''} </span><span class="atn-estado atn-solo-escritorio" style="color:${colorTextoLegible(est.color)};background:${est.color}1a;">${est.label}</span><span class="atn-solo-movil">${escapeHtml(subtituloMovil(c, equipo.yo))}</span></div>
     </div>
     <div class="atn-acciones">
-    ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion" id="atnHistorial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
-    <button type="button" class="btn btn-ghost atn-accion" id="atnMacrosHilo">${icon('bolt', 14)}<span>Macros</span></button>
+    ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnHistorial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
+    <button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnMacrosHilo">${icon('bolt', 14)}<span>Macros</span></button>
     ${c.estado === 'resolved'
       ? '<button type="button" class="btn btn-secondary atn-accion" data-estado="open">Reabrir</button>'
-      : `${c.estado === 'open' ? '<button type="button" class="btn btn-ghost atn-accion" data-estado="pending" title="Esperando algo de la persona o de otra área">Pendiente</button>' : '<button type="button" class="btn btn-ghost atn-accion" data-estado="open">Abrir</button>'}
+      : `${c.estado === 'open' ? '<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" data-estado="pending" title="Esperando algo de la persona o de otra área">Pendiente</button>' : '<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" data-estado="open">Abrir</button>'}
          <button type="button" class="btn btn-primary atn-accion" data-estado="resolved" title="Cierra la conversación y se lo avisa a la persona">Resolver</button>`}
+    <button type="button" class="btn btn-ghost atn-accion atn-solo-movil" id="atnDetalles" aria-label="Detalles de la conversación" aria-haspopup="dialog" aria-expanded="${detallesAbiertos}">${icon('more', 20)}</button>
     </div>
   `;
   $('#atnVolver').addEventListener('click', cerrarHilo);
   $('#atnHistorial')?.addEventListener('click', () => abrirConversacion(c.contacto.telefono));
   $('#atnMacrosHilo')?.addEventListener('click', () => abrirMacrosHilo(c));
+  $('#atnDetalles')?.addEventListener('click', abrirDetalles);
   $$('.atn-accion[data-estado]', cab).forEach(b => b.addEventListener('click', () => cambiarEstado(c, b.dataset.estado, b)));
 
+  pintarAsignacion(c);
+  if (focoId) document.getElementById(focoId)?.focus({ preventScroll: true });
+}
+
+function pintarAsignacion(c) {
   const asig = $('#atnAsignacion');
   if (!asig) return;
   asig.innerHTML = `
@@ -656,6 +693,40 @@ function pintarCabecera(c) {
   });
 }
 
+/* La hoja Detalles del celular. #atnAsignacion se muda a ella mientras está
+   abierta, así los cambios que llegan en vivo la siguen actualizando. */
+function abrirDetalles() {
+  const c = cabeceraActual;
+  const asig = $('#atnAsignacion');
+  if (!c || !asig) return;
+  detallesAbiertos = true;
+  $('#atnDetalles')?.setAttribute('aria-expanded', 'true');
+  const telefono = c.contacto.telefono ? formatTelefono(c.contacto.telefono) : '';
+  const subtitle = [etiquetaEstado(c.estado).label, ...(telefono && telefono !== c.contacto.nombre ? [telefono] : [])].join(' · ');
+  ActionSheet.open({
+    title: 'Detalles',
+    subtitle,
+    clase: 'atn-detalles',
+    contenido: asig,
+    groups: [accionesDetalles(c), [{ label: 'Cerrar', cancel: true }]],
+    alCerrar: () => {
+      // Lo que queda en la hoja se va con la animación de salida; sin ids para
+      // no chocar con la asignación nueva que vuelve al hilo.
+      asig.removeAttribute('id');
+      asig.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+      const mensajes = $('#atnMensajes');
+      const nuevo = document.createElement('div');
+      nuevo.className = 'atn-asignacion';
+      nuevo.id = 'atnAsignacion';
+      mensajes?.before(nuevo);
+      detallesAbiertos = false;
+      if (mensajes) pintarAsignacion(cabeceraActual);
+      $('#atnDetalles')?.setAttribute('aria-expanded', 'false');
+      if (document.activeElement === document.body) $('#atnDetalles')?.focus({ preventScroll: true });
+    },
+  });
+}
+
 function pintarHilo(data) {
   const c = data.conversacion;
   const hilo = $('#atnHilo');
@@ -670,11 +741,11 @@ function pintarHilo(data) {
       <div class="atn-archivo-chip" id="atnArchivoChip" hidden></div>
       <form class="composer${borrador.privado ? ' atn-composer-nota' : ''}" id="atnComposer" autocomplete="off">
         <div class="atn-composer-tools">
-          <button type="button" class="atn-composer-tool" id="atnAdjuntar" aria-label="Adjuntar archivo">📎</button>
+          <button type="button" class="atn-composer-tool" id="atnAdjuntar" aria-label="Adjuntar archivo"><span class="atn-solo-escritorio">📎</span><span class="atn-solo-movil">${icon('paperclip', 20)}</span></button>
           <button type="button" class="atn-composer-tool" id="atnRapidas" aria-label="Respuestas rápidas">${icon('bolt', 17)}</button>
         </div>
         <input type="file" id="atnArchivo" hidden accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,application/pdf,text/plain">
-        <textarea class="composer-input" id="atnTexto" rows="1" maxlength="4096" aria-label="Escribir a ${escapeHtml(c.contacto.nombre)}"></textarea>
+        <textarea class="composer-input" id="atnTexto" rows="1" maxlength="4096" enterkeyhint="send" aria-label="Escribir a ${escapeHtml(c.contacto.nombre)}"></textarea>
         <button type="submit" class="composer-send" id="atnEnviar" disabled aria-label="Enviar">${icon('send', 18)}</button>
       </form>
       <div class="composer-hint" id="atnPista" aria-live="polite"></div>
@@ -717,6 +788,8 @@ function pintarHilo(data) {
   const fila = $(`.atn-row[data-id="${c.id}"] .atn-no-leidos`);
   fila?.remove();
   actualizarResumenAtencion();
+  dejarDeSeguirTeclado?.();
+  dejarDeSeguirTeclado = seguirTeclado($('#atnHilo'));
 }
 
 function pintarArchivoSeleccionado(sync) {
@@ -739,9 +812,13 @@ function actualizarModo() {
   const privado = modoPrivado();
   $('#atnComposer')?.classList.toggle('atn-composer-nota', privado);
   const input = $('#atnTexto');
-  if (input) input.placeholder = privado ? 'Nota solo para el equipo (la persona no la ve)…' : 'Escribe la respuesta por WhatsApp…';
+  const movil = globalThis.matchMedia?.('(max-width: 880px)')?.matches;
+  if (input) input.placeholder = movil
+    ? (privado ? 'Nota para el equipo…' : 'Escribe por WhatsApp…')
+    : (privado ? 'Nota solo para el equipo (la persona no la ve)…' : 'Escribe la respuesta por WhatsApp…');
   const pista = $('#atnPista');
-  if (pista) pista.textContent = privado ? 'La nota queda en la conversación y solo la ve el equipo.' : 'Enter envía · Shift+Enter salta de línea';
+  if (pista) pista.textContent = privado ? 'La nota queda en la conversación y solo la ve el equipo.'
+    : globalThis.matchMedia?.('(hover: none)')?.matches ? '' : 'Enter envía · Shift+Enter salta de línea';
 }
 
 async function enviar(c) {
@@ -1148,6 +1225,7 @@ async function asignarConv(id, cambios) {
 
 export {
   renderAtencion, etiquetaEstado, vistaPrevia, textoAsignacion,
+  subtituloMovil, accionesDetalles,
   resumenMacro, construirAccionesMacro, validarArchivo, formatoTamano,
   textoEstadoPresencia, validarConfigAtencion, armarConfigAtencion,
 };

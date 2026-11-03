@@ -2104,8 +2104,9 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-asignado .segmented { width: 100%; }
 .atn-asignado .segmented button { flex: 1 0 auto; padding: 6px 10px; font-size: 12.5px; }
 .atn-select {
+  --atn-flecha: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
   width: auto; max-width: 100%; padding: 6px 28px 6px 10px; font-size: 12.5px; border-radius: 999px;
-  background: rgba(118, 118, 128, 0.1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  background: rgba(118, 118, 128, 0.1) var(--atn-flecha) no-repeat right 10px center;
   border: none; color: var(--text); cursor: pointer;
 }
 .atn-select[hidden] { display: none; }
@@ -2230,9 +2231,6 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-dia.activo { border-color: var(--utb-blue); background: rgba(30, 115, 190, 0.1); color: var(--utb-blue); }
 .atn-horas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 720px) {
-  /* Las acciones bajan a su propia fila: el nombre necesita el ancho. */
-  .atn-cabecera { flex-wrap: wrap; row-gap: 8px; }
-  .atn-acciones { width: 100%; justify-content: flex-end; }
   .atn-accion { padding: 6px 10px; }
   .atn-nota { margin-left: 0; margin-right: 0; }
   .atn-macro-selects { grid-template-columns: 1fr; }
@@ -2243,8 +2241,6 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   .atn-equipo-lista { grid-template-columns: 1fr; }
   .atn-dia { min-height: 44px; }
   .atn-modal-acciones .btn { min-height: 44px; }
-  .atn-composer-tools { gap: 2px; }
-  .atn-composer-tool { width: 30px; }
 }
 @media (max-width: 480px) {
   .atn-dias { grid-template-columns: repeat(4, minmax(44px, 1fr)); }
@@ -2324,12 +2320,141 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-etiqueta-quitar, .atn-etiqueta-agregar { min-height: 24px; }
 @media (max-width: 720px) {
   .btn, .segmented button, .chip, .crm-estado-chip, .crm-mini-btn,
-  .crm-etiqueta button, .atn-etiqueta-quitar, .atn-etiqueta-agregar,
+  .crm-etiqueta button, .atn-etiqueta-agregar,
   .atn-composer-tool, .atn-archivo-chip button, .hint-retry, .atn-select {
     min-height: 44px;
   }
-  .btn, .atn-etiqueta-quitar, .crm-etiqueta button, .atn-composer-tool,
+  .btn, .crm-etiqueta button, .atn-composer-tool,
   .atn-archivo-chip button { min-width: 44px; }
   .atn-composer-tool { width: 44px; }
-  .atn-estado-ayuda { flex-basis: 100%; max-width: none; }
+}
+
+/* ===================================================================
+   Atención en el celular: mismo corte de .thread-open. Una conversación
+   abierta se comporta como una app de chat y lo secundario pasa a la hoja
+   Detalles. Por encima de 880 px nada de esto aplica.
+   =================================================================== */
+@media (min-width: 881px) { .atn-solo-movil { display: none !important; } }
+@media (max-width: 880px) {
+  .atn-solo-escritorio { display: none !important; }
+
+  /* La lista llena lo que deja el encabezado real. Con poco alto se desplaza
+     .main y no la ventana: en iOS la ventana lleva la página bajo el reloj. */
+  .app:has(#atnInbox) { height: 100vh; height: 100dvh; min-height: 0; }
+  .main:has(#atnInbox) { display: flex; flex-direction: column; align-self: stretch; min-height: 0; }
+  .main:has(#atnInbox) > .page-header { flex-shrink: 0; }
+  #atnInbox { flex: 1 0 0; height: auto; min-height: 320px; }
+
+  /* Presencia y avisos en una fila; lo que no quepa se desliza de lado. */
+  .atn-avisos {
+    flex-wrap: nowrap; overflow-x: auto; min-width: 0; max-width: 100%;
+    scrollbar-width: none;
+  }
+  .atn-avisos::-webkit-scrollbar { display: none; }
+  .atn-avisos > * { flex-shrink: 0; }
+  .atn-estado-ayuda { display: none; }
+  .atn-mi-estado { margin: 0; }
+  .atn-filtros-selects { flex-wrap: nowrap; }
+  .atn-filtros-selects .atn-select { flex: 1 1 0; min-width: 0; }
+
+  /* Hilo a pantalla completa. Se usa :has y no una clase en body para que todo
+     reaparezca solo al salir de la pantalla, sin un "al salir" que limpiar. */
+  body:has(#atnInbox.thread-open) { overflow: hidden; }
+  body:has(#atnInbox.thread-open) .tab-bar,
+  body:has(#atnInbox.thread-open) .sidebar,
+  .main:has(#atnInbox.thread-open) > .page-header { display: none; }
+  /* La animación de entrada lleva transform y descolocaría el position: fixed. */
+  .main:has(#atnInbox.thread-open) { animation: none; }
+  /* z-index bajo los modales (390) y las hojas (400). */
+  #atnInbox.thread-open {
+    position: fixed; top: 0; left: 0; right: 0; height: 100vh; height: 100dvh;
+    min-height: 0; z-index: 200; gap: 0; background: var(--bg);
+  }
+  #atnInbox.thread-open .inbox-thread {
+    border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none;
+    -webkit-backdrop-filter: none; background: var(--bg);
+  }
+  #atnHilo .atn-asignacion { display: none; }
+  /* Sin tab bar, abajo tapaban justo la caja de texto. */
+  body:has(#atnInbox.thread-open) .toast-stack { top: calc(var(--safe-top) + 72px); bottom: auto; }
+  #atnHilo .bubble { max-width: 85%; }
+  #atnHilo .inbox-messages { padding: 12px 10px; }
+
+  /* Cabecera de una fila: volver, persona, Resolver y Detalles. */
+  .atn-cabecera { flex-wrap: nowrap; gap: 6px; padding: calc(8px + var(--safe-top)) 2px 8px; }
+  .atn-cabecera-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .atn-acciones { width: auto; gap: 4px; }
+  .atn-cabecera .atn-accion { min-height: 44px; }
+  #atnDetalles { width: 44px; min-width: 44px; padding: 0; justify-content: center; color: var(--text); }
+
+  /* Compositor: las herramientas suben a la fila del modo y la caja de texto
+     queda a todo el ancho. Sin row-gap: las filas vacías sumarían el hueco. */
+  #atnHilo .inbox-thread-footer {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px;
+    grid-template-areas: "modo tools" "chip chip" "texto enviar" "pista pista";
+    padding-top: 8px; padding-left: 10px; padding-right: 10px;
+    padding-bottom: calc(8px + var(--kb, 0px) + env(safe-area-inset-bottom, 0px));
+  }
+  #atnComposer { display: contents; }
+  #atnModoWrap { grid-area: modo; margin: 0; min-width: 0; align-self: center; }
+  .atn-archivo-chip { grid-area: chip; }
+  .atn-composer-tools { grid-area: tools; gap: 2px; }
+  #atnTexto { grid-area: texto; margin-top: 6px; }
+  /* padding: 0 quita el relleno global de button, que corría el ícono. */
+  #atnEnviar { grid-area: enviar; margin-top: 6px; align-self: end; padding: 0; }
+  #atnPista { grid-area: pista; min-height: 0; margin-top: 4px; }
+  .atn-modo .segmented { padding-block: 0; }
+  .atn-modo .segmented button { min-height: 44px; padding: 0 10px; }
+  .atn-composer-tool {
+    width: 44px; height: 44px; min-height: 44px; padding: 0;
+    display: grid; place-items: center;
+  }
+  .atn-composer-tool .atn-solo-movil { display: grid; place-items: center; }
+  #atnHilo .composer-hint:empty { display: none; }
+
+  /* El × gana sus 44 px con un pseudo-elemento: en el propio botón inflaban la
+     píldora. El overflow de .atn-chip recortaría ese blanco táctil. */
+  .atn-etiqueta-quitar { position: relative; }
+  .atn-etiqueta-quitar::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
+  .atn-detalles .atn-chip-etiqueta { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+
+  /* Hoja Detalles: 16 px en los controles porque iOS hace zoom con menos. */
+  .atn-detalles {
+    background: var(--surface); border-radius: var(--radius-xl); padding: 10px 12px;
+    box-shadow: var(--shadow-float); max-height: min(88vh, 720px); max-height: min(88dvh, 720px);
+  }
+  .atn-detalles:focus { outline: none; }
+  .atn-detalles .sheet-group { box-shadow: none; border: 1px solid var(--border); }
+  .atn-detalles .sheet-action { min-height: 44px; padding-block: 12px; border-radius: 0; }
+  .atn-detalles .atn-asignacion {
+    display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+    padding: 4px 2px 12px; border: 0; background: transparent;
+  }
+  .atn-detalles .atn-campo { display: flex; width: 100%; margin: 0; }
+  .atn-detalles .atn-select { flex: 1; width: 100%; min-height: 44px; font-size: 16px; }
+  /* select:focus usa el atajo background y se llevaría la flecha. */
+  .atn-detalles .atn-select:focus { background: rgba(118, 118, 128, 0.1) var(--atn-flecha) no-repeat right 10px center; }
+  .atn-detalles .atn-etiquetas { gap: 10px 6px; }
+  .atn-detalles .atn-etiqueta-form { width: 100%; }
+  .atn-detalles .atn-etiqueta-input { flex: 1; width: auto; min-height: 44px; font-size: 16px; }
+  .atn-detalles .atn-accion,
+  .atn-detalles .atn-etiqueta-agregar { min-height: 44px; }
+  .atn-detalles .atn-asignacion > .atn-accion { justify-content: center; }
+}
+
+/* En tablet cabe todo el compositor en una sola fila. */
+@media (min-width: 561px) and (max-width: 880px) {
+  #atnHilo .inbox-thread-footer {
+    grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center;
+    grid-template-areas: "chip chip chip chip" "modo tools texto enviar" "pista pista pista pista";
+  }
+  #atnTexto, #atnEnviar { margin-top: 0; }
+}
+
+/* A 320 px el emoji no deja caber el modo junto a las herramientas. */
+@media (max-width: 360px) {
+  #atnModo button span[aria-hidden] { display: none; }
 }

@@ -20,26 +20,38 @@ function sheetMarkup({ title, subtitle, groups }) {
   return { html, actions };
 }
 
+/** Lo que el teclado puede alcanzar dentro de la hoja. */
+function controlesVisibles(raiz) {
+  return Array.from(raiz.querySelectorAll('button, select, input, textarea, a[href]'))
+    .filter(control => !control.disabled && control.offsetParent !== null);
+}
+
 const ActionSheet = {
   _escHandler: null,
-  open({ title, subtitle, groups }) {
+  _alCerrar: null,
+  open({ title, subtitle, groups, contenido, clase, alCerrar }) {
     this.close();
+    this._alCerrar = typeof alCerrar === 'function' ? alCerrar : null;
     haptic(12);
     const backdrop = document.createElement('div');
     backdrop.className = 'sheet-backdrop';
     backdrop.id = 'activeSheet';
 
     const sheet = document.createElement('div');
-    sheet.className = 'action-sheet';
+    sheet.className = `action-sheet${clase ? ` ${clase}` : ''}`;
     sheet.setAttribute('role', 'dialog');
     sheet.setAttribute('aria-modal', 'true');
     if (title) sheet.setAttribute('aria-label', String(title));
+    // Con un formulario dentro el foco va a la hoja y no a su primer control: en
+    // un celular ese control amanecería resaltado sin que nadie lo tocara.
+    if (contenido) sheet.tabIndex = -1;
     // Se recuerda quién tenía el foco para devolvérselo al cerrar: si no, el
     // teclado queda "perdido" al principio de la página tras cada sheet.
     this._focoPrevio = document.activeElement;
 
     const { html, actions } = sheetMarkup({ title, subtitle, groups });
     sheet.innerHTML = html;
+    if (contenido) sheet.querySelector('.sheet-group-title, .sheet-group')?.before(contenido);
     backdrop.appendChild(sheet);
     document.body.appendChild(backdrop);
 
@@ -74,27 +86,38 @@ const ActionSheet = {
     this._escHandler = (e) => {
       if (e.key === 'Escape') { this.close(); return; }
       if (e.key !== 'Tab') return;
-      const botones = $$('.sheet-action', sheet);
-      if (!botones.length) return;
-      const primero = botones[0];
-      const ultimo = botones[botones.length - 1];
-      if (e.shiftKey && (document.activeElement === primero || !sheet.contains(document.activeElement))) { e.preventDefault(); ultimo.focus(); }
-      else if (!e.shiftKey && (document.activeElement === ultimo || !sheet.contains(document.activeElement))) { e.preventDefault(); primero.focus(); }
+      const controles = controlesVisibles(sheet);
+      if (!controles.length) return;
+      const primero = controles[0];
+      const ultimo = controles[controles.length - 1];
+      const activo = document.activeElement;
+      const fuera = activo === sheet || !sheet.contains(activo);
+      if (e.shiftKey && (activo === primero || fuera)) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && (activo === ultimo || fuera)) { e.preventDefault(); primero.focus(); }
     };
     document.addEventListener('keydown', this._escHandler);
     requestAnimationFrame(() => backdrop.classList.add('open'));
     // El foco va con temporizador y no con otro requestAnimationFrame: rAF no
     // corre cuando la pestaña está en segundo plano, y entonces el sheet se
     // quedaría sin foco de teclado al volver a ella.
-    setTimeout(() => sheet.querySelector('.sheet-action:not(.cancel)')?.focus({ preventScroll: true }), 60);
+    setTimeout(() => {
+      const inicial = contenido ? sheet : sheet.querySelector('.sheet-action:not(.cancel)');
+      inicial?.focus({ preventScroll: true });
+    }, 60);
   },
   close() {
     const el = document.getElementById('activeSheet');
     if (this._escHandler) { document.removeEventListener('keydown', this._escHandler); this._escHandler = null; }
     if (this._focoPrevio?.isConnected) { this._focoPrevio.focus({ preventScroll: true }); }
     this._focoPrevio = null;
+    const alCerrar = this._alCerrar;
+    this._alCerrar = null;
+    alCerrar?.();
     if (!el) return;
     el.classList.remove('open');
+    // Sin el id mientras sale: una hoja abierta justo después de esta debe ser
+    // la única que close() encuentre, o se quedaría abierta sin poder cerrarse.
+    el.removeAttribute('id');
     setTimeout(() => el.remove(), 260);
   },
 };

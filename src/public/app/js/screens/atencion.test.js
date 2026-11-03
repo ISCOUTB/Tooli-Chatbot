@@ -50,6 +50,22 @@ describe('textoAsignacion', () => {
   });
 });
 
+describe('subtítulo y detalles móviles', () => {
+  it('prioriza un teléfono real y usa la asignación para Usuario de WhatsApp', () => {
+    assert.equal(A.subtituloMovil({ contacto: { nombre: 'Ana', telefono: '573001112233' }, asignado: null }, 2), '+57 300 111 2233');
+    assert.equal(A.subtituloMovil({ contacto: { nombre: 'Usuario de WhatsApp', telefono: 'CO.ENT.abc123' }, asignado: { id: 2, nombre: 'Luis' } }, 2), 'Asignada a ti');
+    assert.equal(A.subtituloMovil({ contacto: { nombre: 'Usuario de WhatsApp', telefono: 'CO.ENT.abc123' }, asignado: null }, 2), 'Sin asignar');
+  });
+
+  it('arma las acciones según estado y disponibilidad del teléfono', () => {
+    const conv = (estado, telefono = '573001112233') => ({ estado, contacto: { telefono } });
+    assert.deepEqual(A.accionesDetalles(conv('open')).map(a => a.label), ['Historial', 'Macros', 'Pendiente']);
+    assert.deepEqual(A.accionesDetalles(conv('pending')).map(a => a.label), ['Historial', 'Macros', 'Abrir']);
+    assert.deepEqual(A.accionesDetalles(conv('resolved')).map(a => a.label), ['Historial', 'Macros']);
+    assert.deepEqual(A.accionesDetalles(conv('open', null)).map(a => a.label), ['Macros', 'Pendiente']);
+  });
+});
+
 describe('etiquetaEstado', () => {
   it('traduce los estados de Chatwoot y no rompe con uno nuevo', () => {
     assert.equal(A.etiquetaEstado('pending').label, 'Pendiente');
