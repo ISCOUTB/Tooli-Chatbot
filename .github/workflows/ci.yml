@@ -109,6 +109,11 @@ jobs:
               git checkout main 2>/dev/null || git checkout -b main --track origin/main
             fi
             git merge --ff-only origin/main
+            # La caché de construcción llena el disco y deja menos de los 6 GiB del preflight.
+            # Se borra solo esa caché, lo justo para dejar 7 GiB libres (1 GiB de margen);
+            # no toca imágenes, contenedores ni volúmenes de Tooli ni de otros proyectos.
+            # Si aun así no alcanza, el preflight bloquea sin reiniciar nada.
+            docker builder prune -f --min-free-space 7gb || echo "AVISO: no se pudo limpiar la caché de construcción; el preflight decide si hay espacio."
             python3 tools/deploy-preflight.py
             # No recrear Redis ni Chatwoot sin la migración de datos previa.
             docker compose up -d --build --no-deps backend
