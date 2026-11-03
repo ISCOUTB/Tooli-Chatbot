@@ -29,6 +29,37 @@ function clearScreenTimers() {
   screenTimers = [];
 }
 
+/* Teclado virtual (Esc.2): cuando el teclado cubre parte de la ventana, el pie
+   del hilo se eleva justo lo invadido vía --kb (ver styles.css). Devuelve la
+   limpieza, que cada pantalla llama al cerrar el hilo (Esc.8). */
+function seguirTeclado(hilo) {
+  if (!hilo) return () => {};
+  const vv = window.visualViewport;
+  const onVv = () => {
+    if (!hilo.isConnected) return;
+    const overlap = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0))) || 0;
+    hilo.style.setProperty('--kb', `${overlap}px`);
+  };
+  if (vv) {
+    vv.addEventListener('resize', onVv);
+    vv.addEventListener('scroll', onVv);
+    onVv();
+  }
+  const footer = hilo.querySelector('.inbox-thread-footer');
+  const observer = footer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+    if (!hilo.isConnected) return;
+    hilo.style.setProperty('--composer-height', `${Math.ceil(footer.getBoundingClientRect().height)}px`);
+  }) : null;
+  observer?.observe(footer);
+  return () => {
+    vv?.removeEventListener('resize', onVv);
+    vv?.removeEventListener('scroll', onVv);
+    observer?.disconnect();
+    hilo.style.removeProperty('--kb');
+    hilo.style.removeProperty('--composer-height');
+  };
+}
+
 function ptrGetIndicador() {
   if (ptrIndicador) return ptrIndicador;
   ptrIndicador = document.createElement('div');
@@ -50,7 +81,8 @@ function ptrGetIndicador() {
     // Solo si ya estamos arriba del todo y el dedo no empezó dentro de un
     // contenedor con su propio scroll (el hilo de mensajes, por ejemplo).
     if (window.scrollY > 4) return;
-    const dentroDeScroll = e.target.closest?.('.inbox-messages, .profile-sheet, .action-sheet');
+    if ($('#main')?.scrollTop > 4 || e.target.closest?.('.inbox-rows')?.scrollTop > 4) return;
+    const dentroDeScroll = e.target.closest?.('.inbox-thread, .profile-sheet, .action-sheet');
     if (dentroDeScroll) return;
     startY = e.touches[0].clientY;
     activo = true;
@@ -98,4 +130,4 @@ function ptrGetIndicador() {
   document.addEventListener('touchcancel', soltar, { passive: true });
 })();
 
-export { setPullToRefresh, screenInterval, clearScreenTimers };
+export { setPullToRefresh, screenInterval, clearScreenTimers, seguirTeclado };

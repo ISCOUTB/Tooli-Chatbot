@@ -4,7 +4,7 @@ import { $, $$, copyToClipboard, emoji, escapeHtml, haptic, toast } from '../cor
 import { avatarTone, colorTextoLegible, formatTelefono, formatWhatsApp, initialsFor, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
-import { screenInterval, setPullToRefresh } from '../core/screen.js';
+import { screenInterval, seguirTeclado, setPullToRefresh } from '../core/screen.js';
 import { setRemPrefill } from './recordatorios.js';
 import { buildSegmented } from '../ui/controls.js';
 import { groupMessages, openPhonePreview, previewPhoneFor } from '../ui/phone-preview.js';
@@ -634,34 +634,7 @@ function setupComposer(phone, nombre) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
   });
 
-  // Teclado virtual (Esc.2): cuando el teclado cubre parte de la ventana, el
-  // footer se eleva justo lo invadido vía --kb (ver styles.css). Solo actúa si
-  // el hilo sigue en el DOM; al cerrar se desuscribe (Esc.8).
-  const vv = window.visualViewport;
-  const cleanups = [];
-  if (vv && thread) {
-    const onVv = () => {
-      if (!msgsEl?.isConnected || openPhone !== phone) return;
-      const overlap = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0))) || 0;
-      thread.style.setProperty('--kb', `${overlap}px`);
-    };
-    vv.addEventListener('resize', onVv);
-    vv.addEventListener('scroll', onVv);
-    cleanups.push(() => {
-      vv.removeEventListener('resize', onVv);
-      vv.removeEventListener('scroll', onVv);
-    });
-    onVv();
-  }
-  const footer = thread?.querySelector('.inbox-thread-footer');
-  if (footer && typeof ResizeObserver !== 'undefined') {
-    const observer = new ResizeObserver(() => {
-      thread.style.setProperty('--composer-height', `${Math.ceil(footer.getBoundingClientRect().height)}px`);
-    });
-    observer.observe(footer);
-    cleanups.push(() => observer.disconnect());
-  }
-  threadFxCleanup = () => cleanups.forEach(fn => fn());
+  threadFxCleanup = seguirTeclado(thread);
 
   $('#composerQuick')?.addEventListener('click', () => abrirRespuestasRapidas(input, sync, nombre));
 
