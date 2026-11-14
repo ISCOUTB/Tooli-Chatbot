@@ -12,7 +12,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 
-import { turnoRouter } from './tools/turno';
 import { reciboRouter } from './tools/recibo';
 import { metricsRouter } from './tools/metrics';
 import { botUsersRouter } from './tools/botUsers';
@@ -35,7 +34,6 @@ export const toolsRouter = Router();
 // ── Rutas PROTEGIDAS: todo lo que se monta debajo exige sesión de asesor ──────
 toolsRouter.use(requireAuth);
 
-toolsRouter.use(turnoRouter);
 toolsRouter.use(reciboRouter);
 toolsRouter.use(metricsRouter);
 toolsRouter.use(botUsersRouter);

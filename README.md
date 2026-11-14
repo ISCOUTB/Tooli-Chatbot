@@ -238,7 +238,7 @@ src/
 
 ## Dashboard de asesores
 
-Interfaz web privada en `/app`, con autenticación JWT y roles. Permite consultar turnos y recibos
+Interfaz web privada en `/app`, con autenticación JWT y roles. Permite descargar recibos
 en nombre de un estudiante, ver métricas de uso del bot, administrar las sesiones de los usuarios y
 gestionar las cuentas de los asesores. Incluye inicio de sesión unificado hacia Chatwoot.
 
@@ -365,7 +365,6 @@ producción, después de pasar typecheck, build y pruebas.
 
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
-| `GET` | `/api/tools/turno/:codigo` | JWT | Consultar turno de matrícula |
 | `POST` | `/api/tools/recibo` | JWT | Descargar recibo de pago (PDF) |
 | `GET` | `/api/tools/metrics/today` | JWT | Métricas del día |
 | `GET` | `/api/tools/bot-users` | JWT | Listar usuarios activos |

@@ -812,13 +812,6 @@ app.get('/api/tools/broadcast/jobs/:id', (req, res) => {
   job.nextIndex = job.destinatarios.length;
   j(res, { job });
 });
-app.get('/api/tools/turno/:codigo', (req, res) => {
-  if (!/^T\d{8}$/.test(req.params.codigo)) return res.status(400).json({ error: 'codigo_invalido' });
-  if (req.params.codigo === 'T00000000') return res.status(404).json({ error: 'no_encontrado' });
-  j(res, { turno: {
-  nombre: 'María José', apellido: 'Restrepo', programa: 'Maestría en Ingeniería',
-  turno: '12', fecha: '2026-10-12', hora: '09:00' } });
-});
 app.post('/api/tools/recibo', (req, res) => {
   if (!/^T\d{8}$/.test(req.body.codigo)) return res.status(400).json({ error: 'codigo_invalido' });
   if (!/^\d{6,12}$/.test(req.body.cedula)) return res.status(400).json({ error: 'cedula_invalida' });
