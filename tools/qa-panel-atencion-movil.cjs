@@ -385,7 +385,7 @@ async function probarEscritorio(browser) {
   revisar(!await page.locator('#atnDetalles').isVisible(), 'escritorio sin botón de Detalles');
   revisar(await page.locator('#atnAsignacion').isVisible(), 'escritorio con asignación a la vista');
   revisar(await page.locator('#atnMacrosHilo').isVisible(), 'escritorio con Macros en la cabecera');
-  revisar(await page.locator('#atnPista').innerText() === 'Enter envía · Shift+Enter salta de línea', 'escritorio con la pista de Enter');
+  revisar(await page.locator('#atnPista').innerText() === '', 'escritorio sin la pista de Enter');
   await page.close();
   console.log('Escritorio OK');
 }

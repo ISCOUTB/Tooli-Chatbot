@@ -415,7 +415,7 @@ async function renderRegistros(main) {
           <div id="bcSelectedInfo" style="font-size:12px;color:var(--text-muted);margin:8px 0 10px;"></div>
           <div style="display:flex;gap:8px;">
             <button type="button" class="btn btn-secondary" id="bcCancel" style="flex:1;">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="bcConfirm" style="flex:1;" disabled>📨 Enviar</button>
+            <button type="button" class="btn btn-primary" id="bcConfirm" style="flex:1;" disabled>${icon('send', 16)} Enviar</button>
           </div>
           <div id="bcAlert" style="margin-top:10px;"></div>
           <div id="bcResult" style="margin-top:10px;"></div>
@@ -573,7 +573,7 @@ async function renderRegistros(main) {
           const msg = body.message || body.error || `HTTP ${res.status}`;
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}${res.status === 403 ? ' — Solo administradores pueden enviar broadcasts.' : ''}</div>`;
           resultEl.innerHTML = '';
-          confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${total}`;
+          confirmBtn.disabled = false; confirmBtn.innerHTML = `${icon('send', 16)} Enviar "${escapeHtml(chosen.name)}" a ${total}`;
           haptic([20,30,20]);
           return;
         }
@@ -588,7 +588,7 @@ async function renderRegistros(main) {
         if (!overlay.isConnected) return;
         alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">No se pudo confirmar el trabajo: ${escapeHtml(err.message || String(err))}. Si reintentas la misma selección, el servidor devolverá el trabajo existente durante 24 horas.</div>`;
         resultEl.innerHTML = '';
-        confirmBtn.disabled = false; confirmBtn.textContent = `📨 Enviar "${chosen.name}" a ${total}`;
+        confirmBtn.disabled = false; confirmBtn.innerHTML = `${icon('send', 16)} Enviar "${escapeHtml(chosen.name)}" a ${total}`;
         haptic([20,30,20]);
       }
     });
@@ -800,7 +800,7 @@ async function renderRegistros(main) {
             ${selectMode && !hasPhone ? `<span class="badge" style="position:absolute;top:10px;right:10px;background:#fee2e2;color:${colorTextoLegible('#dc2626')};font-size:12px;">Sin WhatsApp</span>` : ''}
             <div class="advisor-card-top" style="${selectMode ? 'margin-top:6px;' : ''}">
               <div class="avatar" style="background:${avatarTone(nombre)};width:44px;height:44px;font-size:14px;">${initialsFor(row[3] || nombre, nombre)}</div>
-              <span class="badge" style="background:${areaOf(row) === 'Pregrado' ? '#0284c722' : '#7c3aed22'};color:${colorTextoLegible(areaOf(row) === 'Pregrado' ? '#0284c7' : '#7c3aed')};">${areaOf(row)}</span>
+              <span class="badge" style="background:${areaOf(row) === 'Pregrado' ? '#2f6fd61a' : '#0030871a'};color:${colorTextoLegible(areaOf(row) === 'Pregrado' ? '#2f6fd6' : '#003087')};">${areaOf(row)}</span>
             </div>
             <div class="crm-card-name">${escapeHtml(nombre)}</div>
             ${(() => {
@@ -884,7 +884,7 @@ async function renderRegistros(main) {
       avatarBg: avatarTone(nombre || phone), avatarText: initialsFor(phone || nombre, nombre),
       title: nombre || 'Prospecto', subtitle: email || (phone ? formatTelefono(phone) : undefined),
       badges: [
-        { label: area, color: area === 'Pregrado' ? '#0284c7' : '#7c3aed' },
+        { label: area, color: area === 'Pregrado' ? '#2f6fd6' : '#003087' },
         ...(programa ? [{ label: programa, color: PROGRAMA_COLORS[cat] }] : []),
         // La categoría del flujo solo suma si no repite el área ("Posgrado" dos veces).
         ...(flowInfo?.step && flowInfo.step.label !== area ? [{ label: flowInfo.step.label, color: flowInfo.step.color }] : []),

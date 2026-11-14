@@ -868,8 +868,8 @@ function actualizarModo() {
     ? (privado ? 'Nota para el equipo…' : 'Escribe por WhatsApp…')
     : (privado ? 'Nota solo para el equipo (la persona no la ve)…' : 'Escribe la respuesta por WhatsApp…');
   const pista = $('#atnPista');
-  if (pista) pista.textContent = privado ? 'La nota queda en la conversación y solo la ve el equipo.'
-    : globalThis.matchMedia?.('(hover: none)')?.matches ? '' : 'Enter envía · Shift+Enter salta de línea';
+  // Sin pista de teclado: la línea solo aparece para la nota privada o un error.
+  if (pista) pista.textContent = privado ? 'La nota queda en la conversación y solo la ve el equipo.' : '';
 }
 
 async function enviar(c) {

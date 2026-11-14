@@ -172,9 +172,9 @@ async function renderPosgrados(main) {
         data: {
           labels: dateKeys.map(fmtDay),
           datasets: [
-            { label: 'Prosp. iniciados',  data: daily('prospecto_iniciado'),   borderColor: '#38bdf8', backgroundColor: '#38bdf833', tension: 0.3, fill: true },
-            { label: 'Prosp. completados',data: daily('prospecto_completado'), borderColor: '#22c55e', backgroundColor: '#22c55e33', tension: 0.3, fill: true },
-            { label: 'Registros BD',      data: daily('registro_completado'),  borderColor: '#a855f7', backgroundColor: '#a855f733', tension: 0.3, fill: true },
+            { label: 'Prosp. iniciados',  data: daily('prospecto_iniciado'),   borderColor: '#8fb3ec', backgroundColor: '#8fb3ec22', tension: 0.3, fill: true },
+            { label: 'Prosp. completados',data: daily('prospecto_completado'), borderColor: '#2f6fd6', backgroundColor: '#2f6fd622', tension: 0.3, fill: true },
+            { label: 'Registros BD',      data: daily('registro_completado'),  borderColor: '#003087', backgroundColor: '#00308722', tension: 0.3, fill: true },
           ],
         },
         options: base,
@@ -184,7 +184,7 @@ async function renderPosgrados(main) {
         type: 'doughnut',
         data: {
           labels: ['Especializaciones', 'Maestrías', 'Doctorados'],
-          datasets: [{ data: [especs, maestrias, doctorados], backgroundColor: ['#38bdf8', '#a855f7', '#ec4899'] }],
+          datasets: [{ data: [especs, maestrias, doctorados], backgroundColor: ['#8fb3ec', '#2f6fd6', '#003087'] }],
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } },
           }));
@@ -195,7 +195,7 @@ async function renderPosgrados(main) {
           labels: ['Prosp. iniciados', 'Prosp. completados', 'Reg. iniciados', 'Reg. completados'],
           datasets: [{
             data: [prospInicio, prospectos, regInicio, registros],
-            backgroundColor: ['#38bdf8', '#22c55e', '#eab308', '#a855f7'],
+            backgroundColor: ['#8fb3ec', '#2f6fd6', '#003087', '#15803d'],
           }],
         },
         options: { ...base, plugins: { legend: { display: false } } },

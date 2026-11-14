@@ -146,7 +146,7 @@ async function renderInformes(main) {
             data: {
               labels: porDia.map(item => String(item.fecha ?? '').slice(5)),
               datasets: [
-                { label: 'Recibidas', data: porDia.map(item => Number(item.recibidas ?? 0)), backgroundColor: '#0369a1', borderRadius: 4 },
+                { label: 'Recibidas', data: porDia.map(item => Number(item.recibidas ?? 0)), backgroundColor: '#2f6fd6', borderRadius: 4 },
                 { label: 'Resueltas', data: porDia.map(item => Number(item.resueltas ?? 0)), backgroundColor: '#15803d', borderRadius: 4 },
               ],
             },

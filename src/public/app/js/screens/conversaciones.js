@@ -455,7 +455,7 @@ async function openThread(phone, opener) {
           <div class="pulse-dot ${info.banned ? 'down' : 'ok'}" style="font-size:12px;">${info.banned ? 'Baneado' : 'Activo'}</div>
         </div>
         <label class="ai-toggle" title="Si la apagas, Tooli deja de responder con IA y escala directo a un asesor">
-          <span class="ai-toggle-label">🤖 IA</span>
+          <span class="ai-toggle-label">${icon('bot', 15)}<span>IA</span></span>
           <span class="switch">
             <input type="checkbox" id="aiToggleInput" ${info.aiDisabled ? '' : 'checked'}>
             <span class="track"></span><span class="thumb"></span>
@@ -480,7 +480,7 @@ async function openThread(phone, opener) {
         ${info.session?.step ? `<div class="thread-meta">Paso actual: <strong title="${escapeHtml(info.session.step)}">${escapeHtml(describirPaso(info.session.step))}</strong></div>` : ''}
         ${groups.length === 0 ? `
           <div class="inbox-empty" style="height:auto;padding:48px 16px;flex-direction:column;text-align:center;gap:6px;">
-            <div class="inbox-empty-icon">📭</div>
+            <div class="inbox-empty-icon">${emoji('📭')}</div>
             <div class="inbox-empty-title">Sin mensajes aún</div>
             <div class="inbox-empty-sub">Los mensajes de WhatsApp aparecerán aquí cuando haya actividad.</div>
           </div>` : groups.map(g => g.map((m, i) => `
@@ -502,7 +502,7 @@ async function openThread(phone, opener) {
               placeholder="Escribe un mensaje…" aria-label="Escribir mensaje para ${nombre ? escapeHtml(nombre) : formatTelefono(phone)}"></textarea>
             <button type="submit" class="composer-send" id="composerSend" disabled aria-label="Enviar mensaje">${icon('send', 18)}</button>
           </form>
-          <div class="composer-hint" id="composerHint" aria-live="polite">Enter envía · Shift+Enter salta de línea</div>
+          <div class="composer-hint" id="composerHint" aria-live="polite"></div>
         `}
       </div>
     `;
@@ -559,7 +559,7 @@ async function openThread(phone, opener) {
         <div style="font-weight:600;font-size:14px;">Conversación</div>
       </div>
       <div class="inbox-empty" style="flex-direction:column;text-align:center;gap:8px;padding:48px 20px;">
-        <div class="inbox-empty-icon">⚠️</div>
+        <div class="inbox-empty-icon">${emoji('⚠️')}</div>
         <div class="inbox-empty-title">No se pudo cargar la conversación</div>
         <div class="inbox-empty-sub">Revisa tu conexión e inténtalo de nuevo.</div>
         <button type="button" class="btn btn-secondary" id="threadRetry" style="margin-top:8px;font-size:13px;">Reintentar</button>
@@ -584,7 +584,7 @@ function openFichaSheet(phone, nombre, ficha, info) {
     badges: [
       ...(cat ? [{ label: cat.label, color: cat.color }] : []),
       ...(info?.banned ? [{ label: 'Baneado', color: '#dc2626' }] : []),
-      ...(info?.aiDisabled ? [{ label: 'IA apagada', color: '#f59e0b' }] : []),
+      ...(info?.aiDisabled ? [{ label: 'IA apagada', color: '#b45309' }] : []),
     ],
     rows: [
       ...(info?.session?.data?.correo ? [{ icon: '📧', label: 'Correo', value: info.session.data.correo }] : []),
@@ -689,7 +689,7 @@ function setupComposer(phone, nombre) {
       if (drafts.get(phone) === crudo) drafts.delete(phone);
       row.classList.remove('sending');
       row.querySelector('.bubble-time').textContent = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-      hint.textContent = 'Enter envía · Shift+Enter salta de línea';
+      hint.textContent = '';
       haptic([10, 20, 10]);
     } catch {
       row.remove();

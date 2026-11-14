@@ -231,7 +231,7 @@ async function renderUsuarios(main) {
         avatarBg: avatarTone(u.username), avatarText: initialsFor(u.username, u.fullName),
         title: u.fullName, subtitle: `@${u.username}`,
         badges: [
-          { label: u.role === 'admin' ? 'Administrador' : 'Asesor', color: u.role === 'admin' ? '#7c3aed' : '#0284c7' },
+          { label: u.role === 'admin' ? 'Administrador' : 'Asesor', color: u.role === 'admin' ? '#003087' : '#2f6fd6' },
           { label: u.area && u.area !== 'all' ? areaLabel(u.area) : 'Todas las áreas', color: '#64748b' },
         ],
         stats: [
@@ -264,7 +264,7 @@ async function renderUsuarios(main) {
     if (users.length === 0) {
       $('#usersTable').innerHTML = `
         <div class="empty-state">
-          <span class="empty-state-icon">👥</span>
+          <span class="empty-state-icon">${emoji('👥')}</span>
           <div class="empty-state-title">No hay usuarios</div>
           <div class="empty-state-sub">Aún no se ha creado ningún asesor. Usa el botón "Nuevo usuario" para agregar el primero.</div>
         </div>`;

@@ -16,10 +16,10 @@ import { ActionSheet } from '../ui/sheet.js';
    datos académicos (tareas, notas) todavía no es posible — la pantalla lo
    dice explícitamente en vez de simularlo. */
 const REM_ESTADOS = {
-  programado: { label: 'Programado', icon: '⏰', color: '#0284c7' },
-  procesando: { label: 'En proceso', icon: '⌛', color: '#a16207' },
-  enviado:    { label: 'Enviado',    icon: '✅', color: '#16a34a' },
-  fallido:    { label: 'Falló',      icon: '⚠️', color: '#dc2626' },
+  programado: { label: 'Programado', icon: '⏰', color: '#2f6fd6' },
+  procesando: { label: 'En proceso', icon: '⌛', color: '#475163' },
+  enviado:    { label: 'Enviado',    icon: '✅', color: '#15803d' },
+  fallido:    { label: 'Falló',      icon: '⚠️', color: '#c5221f' },
   cancelado:  { label: 'Cancelado',  icon: '✖️', color: '#64748b' },
 };
 

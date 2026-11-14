@@ -9,9 +9,9 @@ import { sesion } from './session.js';
    src/flows — programas/registro/prospecto son de posgrado, turno/recibo
    son de pregrado/matrícula). Si no hay sesión activa, queda "Sin flujo". */
 const FLOW_CATEGORIES = {
-  posgrado: { label: 'Posgrado', color: '#7c3aed', prefixes: ['menu_posgrado', 'programas_', 'registro_', 'prospecto_', 'reco_'] },
-  pregrado: { label: 'Pregrado', color: '#0284c7', prefixes: ['menu_pregrado', 'pregrado_', 'esperando_codigo', 'recibo_'] },
-  evento: { label: 'Evento', color: '#db2777', prefixes: ['evento_', 'posg_'] },
+  posgrado: { label: 'Posgrado', color: '#003087', prefixes: ['menu_posgrado', 'programas_', 'registro_', 'prospecto_', 'reco_'] },
+  pregrado: { label: 'Pregrado', color: '#2f6fd6', prefixes: ['menu_pregrado', 'pregrado_', 'esperando_codigo', 'recibo_'] },
+  evento: { label: 'Evento', color: '#475163', prefixes: ['evento_', 'posg_'] },
   soporte: { label: 'Soporte', color: '#64748b', prefixes: ['agent_', 'ti_', 'with_agent', 'chatting_with_ai'] },
 };
 function flowCategory(step) {
@@ -78,10 +78,10 @@ function describirPaso(step) {
    Todo esto lo escribe el equipo — no viene del bot ni de un sistema
    universitario, y la UI lo deja claro (ver src/services/crmService.ts). */
 const CRM_ESTADOS = [
-  { value: 'nuevo',       label: 'Nuevo',       icon: '⏳', color: '#94a3b8' },
-  { value: 'contactado',  label: 'Contactado',  icon: '📞', color: '#0284c7' },
-  { value: 'interesado',  label: 'Interesado',  icon: '⭐', color: '#7c3aed' },
-  { value: 'inscrito',    label: 'Inscrito',    icon: '🎓', color: '#16a34a' },
+  { value: 'nuevo',       label: 'Nuevo',       icon: '⏳', color: '#475163' },
+  { value: 'contactado',  label: 'Contactado',  icon: '📞', color: '#2f6fd6' },
+  { value: 'interesado',  label: 'Interesado',  icon: '⭐', color: '#003087' },
+  { value: 'inscrito',    label: 'Inscrito',    icon: '🎓', color: '#15803d' },
   { value: 'descartado',  label: 'Descartado',  icon: '✖️', color: '#64748b' },
 ];
 function crmEstadoMeta(valor) {
@@ -271,7 +271,8 @@ function programaCategoria(programa) {
   return 'otro';
 }
 const PROGRAMA_LABELS = { pregrado: 'Pregrado', especializacion: 'Especialización', maestria: 'Maestría', doctorado: 'Doctorado', otro: 'Otro' };
-const PROGRAMA_COLORS = { pregrado: '#0284c7', especializacion: '#0369a1', maestria: '#7c3aed', doctorado: '#db2777', otro: '#64748b' };
+// Un solo tono por familia: el programa ya dice qué es, el color no compite.
+const PROGRAMA_COLORS = { pregrado: '#2f6fd6', especializacion: '#003087', maestria: '#003087', doctorado: '#003087', otro: '#64748b' };
 /* Columna F del sheet = área (agregada para distinguir prospectos de
    pregrado y posgrado que ahora comparten el mismo registro) — las filas
    guardadas antes de esa columna vienen vacías y se tratan como Posgrado. */

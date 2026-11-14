@@ -7,46 +7,47 @@ import { buildSegmented } from '../ui/controls.js';
 import { conectarReintento, htmlError, marcarCargando } from '../ui/estado.js';
 
 /* ============= MÉTRICAS ============= */
+const SERIES_AZUL = ['#003087', '#2f6fd6', '#8fb3ec', '#64748b'];
 const EVENT_META = {
-  menu_shown:               { label: 'Menú mostrado',        icon: '📲', color: '#64748b' },
-  ai_request:                { label: 'Preguntas a la IA',    icon: '🤖', color: '#7c3aed' },
-  ai_disabled_escalation:    { label: 'Escaladas (IA apagada)', icon: '🙋', color: '#f59e0b' },
-  turno_consultado:          { label: 'Turnos consultados',   icon: '📋', color: '#0284c7' },
-  recibo_descargado:         { label: 'Recibos descargados',  icon: '🧾', color: '#0ea5e9' },
-  prospecto_iniciado:        { label: 'Prospectos iniciados', icon: '🎓', color: '#38bdf8' },
-  prospecto_completado:      { label: 'Prospectos completados', icon: '🎓', color: '#22c55e' },
-  registro_iniciado:         { label: 'Registros BD iniciados', icon: '📝', color: '#eab308' },
-  registro_completado:       { label: 'Registros BD completados', icon: '📝', color: '#a855f7' },
-  agent_handoff:             { label: 'Casos escalados a asesor', icon: '🙋', color: '#ec4899' },
-  programas_especializaciones: { label: 'Especializaciones consultadas', icon: '🎓', color: '#38bdf8' },
-  programas_maestrias:      { label: 'Maestrías consultadas', icon: '🎓', color: '#a855f7' },
-  programas_doctorados:     { label: 'Doctorados consultados', icon: '🎓', color: '#ec4899' },
-  menu_pregrado_shown:       { label: 'Menú de pregrado',      icon: '🏫', color: '#0284c7' },
-  pregrado_explorar_iniciado: { label: 'Exploró carreras', icon: '🧭', color: '#0284c7' },
-  pregrado_explorar_area:     { label: 'Eligió área de pregrado', icon: '🎓', color: '#0284c7' },
-  pregrado_explorar_carrera:  { label: 'Eligió carrera de pregrado', icon: '📚', color: '#0284c7' },
-  admisiones_guia_pregrado:   { label: 'Guía admisión Pregrado', icon: '📝', color: '#0284c7' },
-  admisiones_guia_posgrado:   { label: 'Guía admisión Posgrado', icon: '📝', color: '#7c3aed' },
-  prospecto_pregrado_iniciado:   { label: 'Prospectos pregrado iniciados',   icon: '🏫', color: '#38bdf8' },
-  prospecto_pregrado_completado: { label: 'Prospectos pregrado completados', icon: '🏫', color: '#22c55e' },
-  registro_pregrado_iniciado:    { label: 'Registros pregrado iniciados',    icon: '📝', color: '#eab308' },
-  registro_pregrado_completado:  { label: 'Registros pregrado completados',  icon: '📝', color: '#16a34a' },
+  menu_shown:               { label: 'Menú mostrado',        icon: '📲', color: '#2f6fd6' },
+  ai_request:                { label: 'Preguntas a la IA',    icon: '🤖', color: '#2f6fd6' },
+  ai_disabled_escalation:    { label: 'Escaladas (IA apagada)', icon: '🙋', color: '#b45309' },
+  turno_consultado:          { label: 'Turnos consultados',   icon: '📋', color: '#2f6fd6' },
+  recibo_descargado:         { label: 'Recibos descargados',  icon: '🧾', color: '#2f6fd6' },
+  prospecto_iniciado:        { label: 'Prospectos iniciados', icon: '🎓', color: '#2f6fd6' },
+  prospecto_completado:      { label: 'Prospectos completados', icon: '🎓', color: '#2f6fd6' },
+  registro_iniciado:         { label: 'Registros BD iniciados', icon: '📝', color: '#2f6fd6' },
+  registro_completado:       { label: 'Registros BD completados', icon: '📝', color: '#2f6fd6' },
+  agent_handoff:             { label: 'Casos escalados a asesor', icon: '🙋', color: '#2f6fd6' },
+  programas_especializaciones: { label: 'Especializaciones consultadas', icon: '🎓', color: '#2f6fd6' },
+  programas_maestrias:      { label: 'Maestrías consultadas', icon: '🎓', color: '#2f6fd6' },
+  programas_doctorados:     { label: 'Doctorados consultados', icon: '🎓', color: '#2f6fd6' },
+  menu_pregrado_shown:       { label: 'Menú de pregrado',      icon: '🏫', color: '#2f6fd6' },
+  pregrado_explorar_iniciado: { label: 'Exploró carreras', icon: '🧭', color: '#2f6fd6' },
+  pregrado_explorar_area:     { label: 'Eligió área de pregrado', icon: '🎓', color: '#2f6fd6' },
+  pregrado_explorar_carrera:  { label: 'Eligió carrera de pregrado', icon: '📚', color: '#2f6fd6' },
+  admisiones_guia_pregrado:   { label: 'Guía admisión Pregrado', icon: '📝', color: '#2f6fd6' },
+  admisiones_guia_posgrado:   { label: 'Guía admisión Posgrado', icon: '📝', color: '#2f6fd6' },
+  prospecto_pregrado_iniciado:   { label: 'Prospectos pregrado iniciados',   icon: '🏫', color: '#2f6fd6' },
+  prospecto_pregrado_completado: { label: 'Prospectos pregrado completados', icon: '🏫', color: '#2f6fd6' },
+  registro_pregrado_iniciado:    { label: 'Registros pregrado iniciados',    icon: '📝', color: '#2f6fd6' },
+  registro_pregrado_completado:  { label: 'Registros pregrado completados',  icon: '📝', color: '#2f6fd6' },
   // Hub "Mi vida académica": qué plataforma busca realmente la gente
-  academico_menu_shown:      { label: 'Abrió Mi vida académica', icon: '🎒', color: '#6366f1' },
-  academico_notas:           { label: 'Buscó sus notas',        icon: '📊', color: '#6366f1' },
-  academico_horario:         { label: 'Buscó su horario',       icon: '🗓️', color: '#6366f1' },
-  academico_savio:           { label: 'Fue a Savio (cursos)',   icon: '📚', color: '#6366f1' },
-  savio_cursos_consultados:   { label: 'Consultó cursos Savio', icon: '📚', color: '#6366f1' },
-  savio_cuenta_no_encontrada: { label: 'Cuenta Savio sin coincidencia', icon: '🔐', color: '#eab308' },
-  savio_error:                { label: 'Consulta Savio fallida', icon: '⚠️', color: '#ef4444' },
-  academico_calendario:      { label: 'Calendario académico',   icon: '📅', color: '#8b5cf6' },
-  academico_recibo:          { label: 'Recibos (Iceberg)',      icon: '🧾', color: '#0ea5e9' },
-  academico_correo:          { label: 'Correo institucional',   icon: '✉️', color: '#8b5cf6' },
-  academico_becas:           { label: 'Becas y apoyo financiero', icon: '🎁', color: '#eab308' },
-  academico_derechos:        { label: 'Costos y derechos',      icon: '💳', color: '#f97316' },
+  academico_menu_shown:      { label: 'Abrió Mi vida académica', icon: '🎒', color: '#2f6fd6' },
+  academico_notas:           { label: 'Buscó sus notas',        icon: '📊', color: '#2f6fd6' },
+  academico_horario:         { label: 'Buscó su horario',       icon: '🗓️', color: '#2f6fd6' },
+  academico_savio:           { label: 'Fue a Savio (cursos)',   icon: '📚', color: '#2f6fd6' },
+  savio_cursos_consultados:   { label: 'Consultó cursos Savio', icon: '📚', color: '#2f6fd6' },
+  savio_cuenta_no_encontrada: { label: 'Cuenta Savio sin coincidencia', icon: '🔐', color: '#b45309' },
+  savio_error:                { label: 'Consulta Savio fallida', icon: '⚠️', color: '#c5221f' },
+  academico_calendario:      { label: 'Calendario académico',   icon: '📅', color: '#2f6fd6' },
+  academico_recibo:          { label: 'Recibos (Iceberg)',      icon: '🧾', color: '#2f6fd6' },
+  academico_correo:          { label: 'Correo institucional',   icon: '✉️', color: '#2f6fd6' },
+  academico_becas:           { label: 'Becas y apoyo financiero', icon: '🎁', color: '#2f6fd6' },
+  academico_derechos:        { label: 'Costos y derechos',      icon: '💳', color: '#2f6fd6' },
 };
 function eventMeta(key) {
-  return EVENT_META[key] ?? { label: key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), icon: '📊', color: '#64748b' };
+  return EVENT_META[key] ?? { label: key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), icon: '📊', color: '#2f6fd6' };
 }
 
 let metricsCharts = [];
@@ -158,10 +159,11 @@ async function renderMetricas(main) {
             type: 'line',
             data: {
               labels: dateKeys.map(d => d.slice(5)),
-              datasets: topKeys.map(k => ({
+              // Cada serie en un tono de la misma escala de azules para distinguirlas.
+              datasets: topKeys.map((k, i) => ({
                 label: eventMeta(k).label,
                 data: dateKeys.map(d => numv(days[d], k)),
-                borderColor: eventMeta(k).color, backgroundColor: eventMeta(k).color + '33',
+                borderColor: SERIES_AZUL[i % SERIES_AZUL.length], backgroundColor: SERIES_AZUL[i % SERIES_AZUL.length] + '22',
                 tension: 0.3, fill: true,
               })),
             },

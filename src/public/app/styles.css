@@ -1270,7 +1270,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
 /* ===================================================================
    Pulido inbox — empty states y affordance de swipe (Conversaciones)
    =================================================================== */
-.inbox-empty-icon { font-size: 28px; line-height: 1; margin-bottom: 2px; filter: grayscale(0.1); }
+.inbox-empty-icon { font-size: 28px; line-height: 1; margin-bottom: 2px; color: var(--utb-blue); opacity: .55; }
 .inbox-empty-title { font-weight: 700; font-size: 14px; color: var(--text); }
 .inbox-empty-sub { font-size: 12.5px; color: var(--text-muted); max-width: 260px; line-height: 1.45; }
 .swipe-hint {
@@ -1278,6 +1278,8 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   color: #cbd5e1; opacity: 0.85; padding-left: 6px; transition: opacity 0.18s ease, transform 0.18s var(--ease-spring);
 }
 .swipe-hint svg { display: block; }
+/* La flecha invita a deslizar con el dedo; con mouse no significa nada. */
+@media (hover: hover) and (pointer: fine) { .swipe-hint { display: none; } }
 .inbox-row:hover .swipe-hint { color: #94a3b8; opacity: 1; transform: translateX(-1px); }
 .swipe-row.swiped .swipe-hint { opacity: 0; transform: translateX(6px); }
 /* Mobile 375px: el layout de dos tarjetas colapsa a una columna ya definido
@@ -1349,6 +1351,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   box-shadow: 0 8px 20px rgba(0, 48, 135, 0.34);
 }
 .composer-send:not(:disabled):active { transform: scale(0.92); }
+.composer-hint:empty { display: none; }
 .composer-hint {
   margin-top: 6px;
   font-size: 11.5px;
@@ -1934,7 +1937,8 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   flex: 0 0 auto;
   width: 40px;
   height: 40px;
-  border: 1px solid var(--border);
+  padding: 0;
+  border: 1px solid #d5dbe5;
   border-radius: 50%;
   background: var(--surface);
   color: var(--text-muted);
@@ -2306,9 +2310,10 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 }
 .atn-avisos { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* Presencia: el punto de color va dentro de la misma píldora del selector. */
-.atn-mi-estado { position: relative; display: inline-flex; align-items: center; }
+/* margin: 0 anula el margin-bottom global de label, que subía la píldora 3 px. */
+.atn-mi-estado { position: relative; display: inline-flex; align-items: center; margin: 0; }
 .atn-mi-estado .atn-presencia-punto { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-.atn-mi-estado .atn-select { min-width: 128px; min-height: 36px; padding-left: 28px; font-size: 13px; font-weight: 600; }
+.atn-mi-estado .atn-select { min-width: 128px; height: 36px; min-height: 36px; padding-top: 0; padding-bottom: 0; padding-left: 28px; font-size: 13px; font-weight: 600; }
 .atn-icono-btn {
   width: 36px; height: 36px; padding: 0; border: 1px solid #d5dbe5; border-radius: 50%; background: var(--surface);
   color: #475163; display: inline-grid; place-items: center; cursor: pointer; flex-shrink: 0;
@@ -2516,3 +2521,18 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 @media (max-width: 360px) {
   #atnModo button span[aria-hidden] { display: none; }
 }
+
+/* ===================================================================
+   Íconos en lugar de emojis: emoji() devuelve un SVG de 1em que hereda el
+   color del texto, así que se alinea y se tiñe igual que la palabra al lado.
+   =================================================================== */
+.emoji-icono { display: inline-flex; align-items: center; justify-content: center; vertical-align: -0.14em; line-height: 1; }
+.emoji-icono svg { width: 1em; height: 1em; }
+.badge .emoji-icono, .flow-badge .emoji-icono { margin-right: 1px; }
+.sheet-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--utb-blue); }
+.sheet-action.destructive .sheet-icon { color: inherit; }
+.ai-toggle-label { display: inline-flex; align-items: center; gap: 5px; }
+.empty-state-icon .emoji-icono, .inbox-empty .emoji-icono { color: var(--utb-blue); opacity: .55; }
+.crm-card-row .emoji-icono { color: #475163; margin-right: 2px; }
+.event-bar-icon { color: var(--utb-blue); }
+

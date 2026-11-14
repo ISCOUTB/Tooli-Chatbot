@@ -99,16 +99,16 @@ function exportarEventoCsv() {
    Columnas: 0 fecha, 1 whatsapp, 2 nombre, 3 correo, 4 interésFinanciación,
    5 programa, 6 autorizaContacto, 7 seguimiento (agregada para el panel). */
 const SEGUIMIENTO_ESTADOS = [
-  { value: 'Contactado', icon: '📞', color: '#0284c7' },
-  { value: 'Interesado', icon: '⭐', color: '#7c3aed' },
-  { value: 'Inscrito', icon: '🎓', color: '#16a34a' },
-  { value: 'Invitado a próximo evento', icon: '📅', color: '#d97706' },
+  { value: 'Contactado', icon: '📞', color: '#2f6fd6' },
+  { value: 'Interesado', icon: '⭐', color: '#003087' },
+  { value: 'Inscrito', icon: '🎓', color: '#15803d' },
+  { value: 'Invitado a próximo evento', icon: '📅', color: '#2f6fd6' },
   { value: 'No interesado', icon: '✖️', color: '#64748b' },
-  { value: 'Confirmó asistencia', icon: '✅', color: '#16a34a' },
-  { value: 'Interesado en beca', icon: '💰', color: '#eab308' },
+  { value: 'Confirmó asistencia', icon: '✅', color: '#15803d' },
+  { value: 'Interesado en beca', icon: '💰', color: '#003087' },
 ];
 function seguimientoMeta(valor) {
-  return SEGUIMIENTO_ESTADOS.find(s => s.value === valor) ?? { value: valor || 'Sin contactar', icon: '⏳', color: '#94a3b8' };
+  return SEGUIMIENTO_ESTADOS.find(s => s.value === valor) ?? { value: valor || 'Sin contactar', icon: '⏳', color: '#64748b' };
 }
 
 let eventoRows = [];
@@ -260,7 +260,7 @@ async function renderEventoPosgrado(main) {
               <span class="badge" style="background:${meta.color}22;color:${colorTextoLegible(meta.color)};">${emoji(meta.icon)} ${escapeHtml(meta.value)}</span>
             </div>
             <div class="crm-card-name">${escapeHtml(nombre)}</div>
-            ${row[5] ? `<span class="badge" style="background:#7c3aed22;color:${colorTextoLegible('#7c3aed')};margin-bottom:8px;">${escapeHtml(row[5])}</span>` : ''}
+            ${row[5] ? `<span class="badge" style="background:#0030871a;color:${colorTextoLegible('#003087')};margin-bottom:8px;">${escapeHtml(row[5])}</span>` : ''}
             <div class="crm-card-row">${emoji('✉️')}<span class="sr-only">Correo: </span> ${escapeHtml(row[3] || '—')}</div>
             <div class="crm-card-row">${emoji('📱')}<span class="sr-only">WhatsApp: </span> ${escapeHtml(formatTelefono(row[1]) || '—')}</div>
             ${!autoriza ? `<div class="crm-card-row" style="color:var(--danger);font-weight:600;">${emoji('🔒')} No autorizó contacto</div>` : ''}
@@ -334,7 +334,7 @@ async function renderEventoPosgrado(main) {
           </div>
           <div style="display:flex;gap:8px;">
             <button type="button" class="btn btn-secondary" id="invitarCancel" style="flex:1;">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="invitarSend" style="flex:1;">📨 Enviar invitación</button>
+            <button type="button" class="btn btn-primary" id="invitarSend" style="flex:1;">${icon('send', 16)} Enviar invitación</button>
           </div>
           <div id="invitarAlert" style="margin-top:10px;"></div>
         </div>
@@ -381,7 +381,7 @@ async function renderEventoPosgrado(main) {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(err.message || err.error || 'No se pudo enviar')}</div>`;
-          btn.disabled = false; btn.textContent = '📨 Enviar invitación';
+          btn.disabled = false; btn.innerHTML = `${icon('send', 16)} Enviar invitación`;
           haptic([20, 30, 20]);
           return;
         }
@@ -392,7 +392,7 @@ async function renderEventoPosgrado(main) {
         renderEventoGrid();
       } catch {
         alertEl.innerHTML = '<div class="alert alert-error" style="margin:0;">Error de conexión.</div>';
-        btn.disabled = false; btn.textContent = '📨 Enviar invitación';
+        btn.disabled = false; btn.innerHTML = `${icon('send', 16)} Enviar invitación`;
         haptic([20, 30, 20]);
       }
     });
@@ -408,9 +408,9 @@ async function renderEventoPosgrado(main) {
       avatarBg: avatarTone(nombre || whatsapp), avatarText: initialsFor(whatsapp || nombre, nombre),
       title: nombre || 'Prospecto', subtitle: correo || (whatsapp ? formatTelefono(whatsapp) : undefined),
       badges: [
-        ...(programa ? [{ label: programa, color: '#7c3aed' }] : []),
+        ...(programa ? [{ label: programa, color: '#003087' }] : []),
         { label: meta.value, icon: meta.icon, color: meta.color },
-        ...(!autoriza ? [{ label: 'No autorizó contacto', icon: '🔒', color: '#dc2626' }] : []),
+        ...(!autoriza ? [{ label: 'No autorizó contacto', icon: '🔒', color: '#c5221f' }] : []),
       ],
       rows: [
         ...(correo ? [{ icon: '📧', label: 'Email', value: correo }] : []),
