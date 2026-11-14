@@ -46,9 +46,48 @@ const ICONS = {
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   volume: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
   volumeOff: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="m22 9-6 6M16 9l6 6"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
+  coins: '<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M15 11.2c3.4.3 6 1.4 6 2.8v4c0 1.7-2.7 3-6 3-1.9 0-3.6-.4-4.7-1.1"/>',
+  hourglass: '<path d="M6 3h12M6 21h12M7 3v3a5 5 0 0 0 10 0V3M7 21v-3a5 5 0 0 1 10 0v3"/>',
+  bot: '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 13v1M15 13v1M9 17h6"/><circle cx="12" cy="3.5" r="1"/>',
+  award: '<circle cx="12" cy="9" r="6"/><path d="m8.5 14.2-1.5 6.8 5-2.5 5 2.5-1.5-6.8"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>',
+  alert: '<path d="M12 3 2 20h20Z"/><path d="M12 10v4M12 17h.01"/>',
+  inbox: '<path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5 5h14l2 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6Z"/>',
+  building: '<path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6M3 21h18"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5Z"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13"/><path d="M12 8c-1.5-3-5-4-5-1.5S10 8 12 8c2 0 5-.5 5-1.5S13.5 5 12 8Z"/>',
+  card: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h3"/>',
+  megaphone: '<path d="M3 11v2a1 1 0 0 0 1 1h3l8 5V5L7 10H4a1 1 0 0 0-1 1Z"/><path d="M19 9a4 4 0 0 1 0 6"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11V4.5a1.5 1.5 0 0 1 3 0V12"/><path d="M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7 6 6 0 0 1-5-3l-2-3.5a1.5 1.5 0 0 1 2.6-1.5L8 15"/>',
+  folder: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',
 };
+
+/* Los emojis de la interfaz (estados, filas de contacto, acciones) se dibujan
+   con el mismo set de íconos: heredan el color del texto y escalan con él. Un
+   emoji sin equivalente se deja tal cual. Los mensajes de WhatsApp no pasan
+   por aquí: su contenido se muestra como lo escribió la persona. */
+const EMOJI_ICONO = {
+  '💬': 'message', '🔍': 'search', '🔄': 'refresh', '⛔': 'ban', '📱': 'phone', '📲': 'phone', '📞': 'phone',
+  '🔗': 'link', '🗂': 'folder', '⏰': 'clock', '⌛': 'hourglass', '⏳': 'hourglass', '📧': 'mail', '✉': 'mail',
+  '📨': 'send', '🎓': 'cap', '⭐': 'star', '✖': 'x', '✅': 'check', '✓': 'check', '📅': 'calendar', '🗓': 'calendar',
+  '💰': 'coins', '💡': 'note', '🔒': 'lock', '🔐': 'lock', '👤': 'user', '👥': 'users', '📊': 'chart',
+  '📋': 'clipboard', '🧾': 'receipt', '🔑': 'key', '🤖': 'bot', '➕': 'plus', '✏': 'pencil', '🎧': 'headset',
+  '🗑': 'trash', '🎯': 'target', '📣': 'megaphone', '🔔': 'bell', '📝': 'note', '📄': 'note', '🙋': 'hand',
+  '🥇': 'award', '🥈': 'award', '🥉': 'award', '🏫': 'building', '🧭': 'compass', '📚': 'book', '🎒': 'book',
+  '🎁': 'gift', '💳': 'card', '⚠': 'alert', '💤': 'moon', '📭': 'inbox', '📶': 'pulse',
+};
+function iconoDeEmoji(caracter, size = '1em') {
+  const nombre = EMOJI_ICONO[String(caracter ?? '').replace(/\uFE0F/g, '').trim()];
+  return nombre ? icon(nombre, size) : null;
+}
+
 function icon(name, size = 20) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="icon-svg" aria-hidden="true" focusable="false">${ICONS[name] ?? ''}</svg>`;
 }
 
-export { ICONS, icon };
+export { ICONS, icon, iconoDeEmoji };

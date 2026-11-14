@@ -1,3 +1,4 @@
+import { iconoDeEmoji } from './icons.js';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -38,7 +39,8 @@ function escapeHtml(s) {
 /* Los emojis que acompañan texto son decorativos: siguen visibles sin
    duplicar o entorpecer el nombre que anuncia el lector de pantalla. */
 function emoji(caracter) {
-  return `<span aria-hidden="true">${escapeHtml(caracter)}</span>`;
+  const svg = iconoDeEmoji(caracter);
+  return svg ? `<span class="emoji-icono" aria-hidden="true">${svg}</span>` : `<span aria-hidden="true">${escapeHtml(caracter)}</span>`;
 }
 
 function loadScript(src) {

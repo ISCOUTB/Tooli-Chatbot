@@ -48,7 +48,8 @@ describe('colorTextoLegible', () => {
 
 describe('emoji', () => {
   it('oculta el adorno al lector de pantalla y escapa el contenido', () => {
-    assert.equal(D.emoji('✉️'), '<span aria-hidden="true">✉️</span>');
+    assert.match(D.emoji('✉️'), /^<span class="emoji-icono" aria-hidden="true"><svg [^>]*width="1em"/);
+    assert.equal(D.emoji('🙌'), '<span aria-hidden="true">🙌</span>');
     assert.equal(D.emoji('<'), '<span aria-hidden="true">&lt;</span>');
   });
 });

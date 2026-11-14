@@ -1,5 +1,5 @@
 import { $, $$, escapeHtml, haptic } from '../core/dom.js';
-import { icon } from '../core/icons.js';
+import { icon, iconoDeEmoji } from '../core/icons.js';
 
 function sheetMarkup({ title, subtitle, groups }) {
   let html = '<div class="sheet-grabber"></div>';
@@ -14,7 +14,7 @@ function sheetMarkup({ title, subtitle, groups }) {
     html += '<div class="sheet-group">' + groupActions.map(a => {
       actions.push(a);
       const cls = [a.destructive ? 'destructive' : '', a.cancel ? 'cancel' : ''].filter(Boolean).join(' ');
-      return `<button type="button" class="sheet-action ${cls}">${a.icon ? `<span class="sheet-icon" aria-hidden="true">${a.icon}</span>` : ''}${escapeHtml(a.label)}</button>`;
+      return `<button type="button" class="sheet-action ${cls}">${a.icon ? `<span class="sheet-icon" aria-hidden="true">${iconoDeEmoji(a.icon, 18) ?? a.icon}</span>` : ''}${escapeHtml(a.label)}</button>`;
     }).join('') + '</div>';
   });
   return { html, actions };
