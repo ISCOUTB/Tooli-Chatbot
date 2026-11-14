@@ -19,29 +19,6 @@ async function visit(page, route) {
     const errors = [];
     page.on('pageerror', error => errors.push(error.stack ?? error.message));
 
-    await visit(page, 'turno');
-    await page.locator('#codigo').fill('abc');
-    await page.locator('#turnoBtn').click();
-    await page.locator('#turnoAlert').getByText('Formato de código inválido', { exact: false }).waitFor();
-    await page.locator('#codigo').fill('T00000000');
-    await page.locator('#turnoBtn').click();
-    await page.locator('#turnoAlert').getByText('No se encontró información', { exact: false }).waitFor();
-    await page.locator('#codigo').fill('T00012345');
-    await page.locator('#turnoBtn').click();
-    await page.locator('#turnoResult').getByText('María José Restrepo').waitFor();
-    console.log('Turno: validación, no encontrado y resultado OK');
-
-    await page.route('**/api/tools/turno/T00012345', async route => {
-      await new Promise(resolve => setTimeout(resolve, 350));
-      await route.continue();
-    });
-    await page.locator('#turnoBtn').click();
-    await page.locator('#tabBar .tab-item[data-tab="home"]').click();
-    await page.waitForFunction(() => location.hash === '#home');
-    await page.waitForTimeout(500);
-    assert.equal(errors.length, 0, `Errores al navegar durante turno: ${errors.join(' | ')}`);
-    console.log('Turno: navegación durante consulta OK');
-
     await visit(page, 'recibo');
     await page.locator('#rCodigo').fill('T00012345');
     await page.locator('#rCedula').fill('123');

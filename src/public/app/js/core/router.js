@@ -20,7 +20,6 @@ const NAV_SECTIONS = [
     { route: 'evento-posgrado', icon: 'calendar', label: 'Evento posgrados' },
   ] },
   { title: 'Estudiantes', routes: [
-    { route: 'turno', icon: 'clipboard', label: 'Consultar turno' },
     { route: 'recibo', icon: 'receipt', label: 'Descargar recibo' },
   ] },
   { title: 'Análisis', routes: [
