@@ -27,6 +27,7 @@ const ICONS = {
   check: '<path d="m5 13 4 4 10-10"/>',
   x: '<path d="m6 6 12 12M18 6 6 18"/>',
   bell: '<path d="M7 9a5 5 0 0 1 10 0v4l1.5 3h-13L7 13Z"/><path d="M10 19a2 2 0 0 0 4 0"/>',
+  bellOff: '<path d="M7 9a5 5 0 0 1 10 0v4l1.5 3h-13L7 13Z"/><path d="M10 19a2 2 0 0 0 4 0"/><path d="m4 4 16 16"/>',
   phone: '<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/>',
   send: '<path d="M4.5 12 20 4.5 15 20l-3.5-5.5L4.5 12Z"/><path d="m11.5 14.5 3.5-6"/>',
   note: '<path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h4"/>',

@@ -1326,6 +1326,7 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   flex: 0 0 auto;
   width: 40px;
   height: 40px;
+  padding: 0;
   border: none;
   border-radius: 50%;
   background: var(--utb-blue);
@@ -2119,7 +2120,6 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
    Reutiliza el layout de la bandeja (.inbox, .inbox-row, .bubble).
    =================================================================== */
 .atn-filtros { display: flex; flex-direction: column; gap: 8px; padding: 6px 10px 8px; flex-shrink: 0; }
-.atn-filtros-selects { display: flex; gap: 6px; flex-wrap: wrap; }
 .atn-asignado .segmented { width: 100%; }
 .atn-asignado .segmented button { flex: 1 0 auto; padding: 6px 10px; font-size: 12.5px; }
 .atn-select {
@@ -2182,13 +2182,14 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .atn-adjunto { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 12.5px; color: inherit; text-decoration: underline; }
 .atn-anteriores { align-self: center; font-size: 12.5px; margin-bottom: 10px; }
 .atn-modo { margin-bottom: 8px; }
-.atn-modo .segmented button { padding: 5px 12px; font-size: 12px; }
+.atn-modo .segmented button { padding: 5px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .atn-composer-nota .composer-input { background: #fef9c3; border-color: #fde68a; }
 .atn-composer .composer-input { min-width: 0; }
 .atn-composer-tools { display: flex; gap: 4px; flex: 0 0 auto; }
+/* padding: 0 porque el padding global de button corría los íconos fuera del círculo. */
 .atn-composer-tool {
-  width: 34px; height: 40px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
-  color: var(--text-muted); display: grid; place-items: center; cursor: pointer; font-size: 17px;
+  width: 40px; height: 40px; padding: 0; border: 1px solid #d5dbe5; border-radius: 50%; background: var(--surface);
+  color: #475163; display: grid; place-items: center; cursor: pointer;
 }
 .atn-composer-tool:hover { color: var(--utb-blue); border-color: var(--utb-blue-light); }
 .atn-archivo-chip {
@@ -2303,14 +2304,47 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   position: absolute; top: -4px; right: -10px; min-width: 17px; height: 17px; line-height: 17px;
   padding: 0 4px; font-size: 10px; margin: 0; box-shadow: 0 0 0 2px var(--surface);
 }
-.atn-avisos { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.atn-mi-estado { display: inline-flex; align-items: center; gap: 6px; }
-.atn-mi-estado .atn-select { min-width: 112px; }
-.atn-estado-ayuda { max-width: 190px; color: var(--text-muted); font-size: 11.5px; line-height: 1.25; }
+.atn-avisos { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Presencia: el punto de color va dentro de la misma píldora del selector. */
+.atn-mi-estado { position: relative; display: inline-flex; align-items: center; }
+.atn-mi-estado .atn-presencia-punto { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.atn-mi-estado .atn-select { min-width: 128px; min-height: 36px; padding-left: 28px; font-size: 13px; font-weight: 600; }
+.atn-icono-btn {
+  width: 36px; height: 36px; padding: 0; border: 1px solid #d5dbe5; border-radius: 50%; background: var(--surface);
+  color: #475163; display: inline-grid; place-items: center; cursor: pointer; flex-shrink: 0;
+}
+.atn-icono-btn:hover { border-color: var(--utb-blue); color: var(--utb-blue); }
+.atn-icono-btn[aria-pressed="true"] { border-color: var(--utb-blue); background: #e8eef9; color: var(--utb-blue); }
+.atn-icono-btn-texto { width: auto; padding: 0 14px 0 12px; border-radius: 999px; display: inline-flex; gap: 6px; font-size: 13px; font-weight: 600; }
+.atn-vacio-icono { color: var(--utb-blue); opacity: .5; margin-bottom: 8px; }
+/* Filtros: un botón que abre la hoja y una etiqueta por filtro activo. */
+.atn-filtros-linea { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.atn-filtrar {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid #d5dbe5;
+  border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.atn-filtrar:hover { border-color: var(--utb-blue); color: var(--utb-blue); }
+.atn-filtrar-cuenta { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--utb-blue); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.atn-filtro-chip { display: inline-flex; align-items: center; gap: 2px; min-height: 28px; padding: 0 2px 0 10px; border-radius: 999px; background: #e8eef9; color: var(--utb-blue); font-size: 12px; font-weight: 600; }
+.atn-filtro-chip button { position: relative; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; display: grid; place-items: center; cursor: pointer; }
+.atn-filtro-chip button:hover { background: rgba(0, 48, 135, 0.12); }
+/* La hoja Filtros es un panel blanco (como Detalles): sus controles no flotan sobre el fondo. */
+.atn-filtros-sheet { background: var(--surface); border-radius: var(--radius-xl); padding: 12px 12px 10px; box-shadow: var(--shadow-float); }
+.atn-filtros-sheet:focus { outline: none; }
+.atn-filtros-sheet .sheet-header { padding-bottom: 6px; }
+.atn-filtros-sheet .sheet-title { font-size: 15px; font-weight: 700; }
+.atn-filtros-sheet .sheet-group { margin: 8px 0 0; box-shadow: none; border: 1px solid #d5dbe5; background: var(--surface); }
+.atn-filtros-sheet .sheet-group + .sheet-group { margin-top: 8px; }
+.atn-filtros-hoja { display: grid; gap: 6px; padding: 0 8px 6px; }
+.atn-filtros-campo { margin: 8px 0 0; color: #475163; font-size: 12px; font-weight: 700; }
+.atn-filtros-campo[hidden] { display: none; }
+.atn-filtros-hoja .segmented { width: 100%; }
+.atn-filtros-hoja .segmented button { flex: 1 0 auto; padding: 8px 12px; }
+.atn-select-bloque { width: 100%; min-height: 40px; padding: 8px 32px 8px 12px; font-size: 14px; border-radius: 10px; }
 .atn-conexion { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; }
 .atn-conexion::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
 .atn-conexion-conectado { color: var(--success); }
-.atn-conexion-conectado::before { background: var(--success); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
+.atn-conexion-conectado::before { background: var(--success); }
 .atn-conexion-reconectando { color: var(--warning); }
 .atn-conexion-reconectando::before { background: var(--warning); }
 
@@ -2345,7 +2379,15 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   }
   .btn, .crm-etiqueta button, .atn-composer-tool,
   .atn-archivo-chip button { min-width: 44px; }
-  .atn-composer-tool { width: 44px; }
+  .atn-composer-tool { width: 44px; height: 44px; }
+  .atn-icono-btn, .atn-filtrar { min-height: 44px; }
+  .atn-icono-btn { width: 44px; }
+  /* En el celular "Activar avisos" queda solo con la campana para caber en una fila. */
+  .atn-icono-btn-texto { padding: 0; border-radius: 50%; justify-content: center; }
+  .atn-icono-btn-texto span { display: none; }
+  /* El × de un filtro activo gana su blanco táctil sin inflar la etiqueta. */
+  .atn-filtro-chip button::after { content: ""; position: absolute; inset: -10px; }
+  .atn-select-bloque { min-height: 44px; font-size: 16px; }
 }
 
 /* ===================================================================
@@ -2371,10 +2413,7 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
   }
   .atn-avisos::-webkit-scrollbar { display: none; }
   .atn-avisos > * { flex-shrink: 0; }
-  .atn-estado-ayuda { display: none; }
   .atn-mi-estado { margin: 0; }
-  .atn-filtros-selects { flex-wrap: nowrap; }
-  .atn-filtros-selects .atn-select { flex: 1 1 0; min-width: 0; }
 
   /* Hilo a pantalla completa. Se usa :has y no una clase en body para que todo
      reaparezca solo al salir de la pantalla, sin un "al salir" que limpiar. */

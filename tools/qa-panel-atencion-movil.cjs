@@ -94,7 +94,7 @@ function medirLista() {
     desbordeX: document.documentElement.scrollWidth > innerWidth + 1,
     ventanaDesplazable: document.documentElement.scrollHeight > innerHeight + 1,
     filasAvisos: tops.size,
-    ayudaVisible: getComputedStyle(document.querySelector('.atn-estado-ayuda')).display !== 'none',
+    ayudaVisible: !!document.querySelector('.atn-estado-ayuda') && getComputedStyle(document.querySelector('.atn-estado-ayuda')).display !== 'none',
     sonidoSvg: !!document.querySelector('#atnSonidoBtn svg') && document.querySelector('#atnSonidoBtn svg').getBoundingClientRect().width > 0,
     altoFilas: Math.round(document.querySelector('#atnFilas').getBoundingClientRect().height),
     pieDeLista: Math.round(document.querySelector('#atnInbox').getBoundingClientRect().bottom),
@@ -321,10 +321,19 @@ async function probarSinTelefono(browser) {
   console.log('Sin teléfono OK');
 }
 
+/* El estado se elige en la hoja Filtros; la lista lo muestra como etiqueta. */
+async function elegirEstado(page, estado) {
+  await page.locator('#atnFiltrar').click();
+  await page.locator('#atnEstadoWrap button', { hasText: estado }).click();
+  await page.locator('.atn-filtros-sheet .sheet-action', { hasText: 'Listo' }).click();
+  await page.locator('#activeSheet').waitFor({ state: 'detached' });
+  revisar(await page.locator('.atn-filtro-chip', { hasText: estado }).isVisible(), `la lista muestra el filtro ${estado}`);
+}
+
 /* Lo que la lista de Abiertas no muestra: otros estados y datos que estiran. */
 async function probarOtrosEstados(page) {
   await irALista(page);
-  await page.locator('#atnEstadoWrap button', { hasText: 'Resueltas' }).click();
+  await elegirEstado(page, 'Resueltas');
   await page.locator('.atn-row').first().waitFor();
   await abrir(page);
   revisar(await page.locator('.atn-acciones [data-estado="open"]', { hasText: 'Reabrir' }).isVisible(), 'resuelta muestra Reabrir en la cabecera');
@@ -334,7 +343,7 @@ async function probarOtrosEstados(page) {
   await cerrarDetalles(page);
 
   await page.locator('#atnVolver').click();
-  await page.locator('#atnEstadoWrap button', { hasText: 'Pendientes' }).click();
+  await elegirEstado(page, 'Pendientes');
   await page.locator('.atn-row').first().waitFor();
   await abrir(page);
   await accionDetalles(page, 'Abrir');

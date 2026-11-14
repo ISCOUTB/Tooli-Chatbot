@@ -197,27 +197,18 @@ async function renderAtencion(main) {
     </div>
     <div class="inbox" id="atnInbox">
       <div class="inbox-list glass" id="atnLista">
-        <div class="inbox-filter-wrap" id="atnEstadoWrap"></div>
         <div class="atn-filtros">
           <div id="atnAsignadoWrap" class="atn-asignado"></div>
-          <div class="atn-filtros-selects">
-            <select id="atnEquipo" class="atn-select" aria-label="Filtrar por equipo"><option value="">Todos los equipos</option></select>
-            <select id="atnEtiqueta" class="atn-select" aria-label="Filtrar por etiqueta"><option value="">Todas las etiquetas</option></select>
-          </div>
+          <div class="atn-filtros-linea" id="atnFiltrosLinea"></div>
         </div>
         <div class="inbox-rows" id="atnFilas" aria-busy="true" aria-label="Cargando conversaciones">${filasEsqueleto()}</div>
       </div>
       <div class="inbox-thread glass" id="atnHilo">
-        <div class="inbox-empty"><div style="font-size:40px;">${emoji('🎧')}</div>Selecciona una conversación</div>
+        <div class="inbox-empty"><div class="atn-vacio-icono">${icon('headset', 36)}</div>Selecciona una conversación</div>
       </div>
     </div>
   `;
-  $('#atnEstadoWrap').appendChild(buildSegmented(
-    Object.entries(ESTADOS).map(([value, e]) => ({ value, label: e.plural })),
-    filtros.estado, (v) => { filtros.estado = v; cargarLista(); },
-  ));
-  $('#atnEquipo').addEventListener('change', (e) => { filtros.equipo = e.target.value; cargarLista(); });
-  $('#atnEtiqueta').addEventListener('change', (e) => { filtros.etiqueta = e.target.value; cargarLista(); });
+  pintarFiltrosActivos();
   setPullToRefresh(() => cargarLista());
   screenInterval(() => {
     const respaldo = estadoConexion() !== 'conectado' ? SONDEO_MS : RESPALDO_EN_VIVO_MS;
@@ -229,8 +220,7 @@ async function renderAtencion(main) {
   cargarPresenciaPropia();
 
   if (!equipoCargado) await cargarEquipo();
-  pintarFiltroEquipo();
-  pintarFiltroEtiquetas();
+  pintarFiltrosActivos();
   cargarLista();
 }
 
@@ -286,18 +276,21 @@ function pintarAvisos() {
   const permiso = permisoAvisos();
   const avisoTexto = permiso === 'granted' ? (prefs.escritorio ? 'Avisos activados' : 'Avisos pausados')
     : permiso === 'denied' ? 'Avisos bloqueados' : permiso === 'default' ? 'Activar avisos' : '';
+  const avisosActivos = permiso === 'granted' && prefs.escritorio;
+  const tituloAvisos = permiso === 'denied' ? 'El navegador bloqueó los avisos: actívalos en la configuración del sitio'
+    : permiso === 'granted' ? `${avisoTexto}: avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña` : 'Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña';
   wrap.innerHTML = `
     <span class="atn-conexion atn-conexion-${conexion}" role="status">${conexion === 'conectado' ? 'En vivo' : conexion === 'reconectando' ? 'Reconectando…' : 'Actualiza cada 20 s'}</span>
-    <label class="atn-mi-estado" title="Con Disponible puedes recibir conversaciones automáticamente">
+    <label class="atn-mi-estado" title="${conexion === 'conectado' ? 'Con Disponible recibes conversaciones automáticamente' : 'La sesión en vivo no está conectada'}">
       <span class="atn-presencia-punto atn-presencia-${escapeHtml(miPresencia?.estado ?? 'desconectado')}" aria-hidden="true"></span>
       <span class="ini-sr-only">Mi estado</span>
       <select class="atn-select" id="atnMiEstado" aria-label="Mi estado" ${actualizandoPresencia ? 'disabled' : ''}>
         ${['disponible', 'ocupado', 'ausente'].map(estado => `<option value="${estado}" ${miPresencia?.estado === estado ? 'selected' : ''}>${textoEstadoPresencia(estado)}</option>`).join('')}
       </select>
     </label>
-    <span class="atn-estado-ayuda">${conexion === 'conectado' ? 'Disponible recibe asignaciones automáticas.' : 'La sesión en vivo no está conectada.'}</span>
-    ${avisoTexto ? `<button type="button" class="btn btn-ghost atn-accion" id="atnAvisoBtn" aria-label="${avisoTexto}" ${permiso === 'denied' ? 'title="El navegador los bloqueó: actívalos en la configuración del sitio"' : 'title="Avisos del sistema cuando llega un mensaje y no estás mirando esta pestaña"'}>${icon('bell', 14)}<span class="hide-sm">${avisoTexto}</span></button>` : ''}
-    <button type="button" class="btn btn-ghost atn-accion" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="Tono cuando llega un mensaje"><span class="atn-solo-escritorio">${emoji(prefs.sonido ? '🔊' : '🔇')}</span><span class="atn-solo-movil">${icon(prefs.sonido ? 'volume' : 'volumeOff', 16)}</span><span class="hide-sm">${prefs.sonido ? 'Sonido' : 'Sin sonido'}</span></button>
+    ${permiso === 'default' ? `<button type="button" class="atn-icono-btn atn-icono-btn-texto" id="atnAvisoBtn" aria-label="Activar avisos" title="${tituloAvisos}">${icon('bell', 16)}<span>Activar avisos</span></button>`
+      : avisoTexto ? `<button type="button" class="atn-icono-btn" id="atnAvisoBtn" aria-pressed="${avisosActivos}" aria-label="${avisoTexto}" title="${tituloAvisos}">${icon(avisosActivos ? 'bell' : 'bellOff', 18)}</button>` : ''}
+    <button type="button" class="atn-icono-btn" id="atnSonidoBtn" aria-pressed="${prefs.sonido}" aria-label="Tono cuando llega un mensaje: ${prefs.sonido ? 'activado' : 'desactivado'}" title="${prefs.sonido ? 'Sonido activado' : 'Sonido desactivado'}">${icon(prefs.sonido ? 'volume' : 'volumeOff', 18)}</button>
     ${sesion.user?.role === 'admin' ? `<button type="button" class="btn btn-ghost atn-accion" id="atnGestionEquipo" aria-label="Gestionar equipo">${icon('users', 14)}<span class="hide-sm">Equipo</span></button><button type="button" class="btn btn-ghost atn-accion" id="atnGestionMacros" aria-label="Gestionar macros">${icon('bolt', 14)}<span class="hide-sm">Macros</span></button>` : ''}
   `;
   $('#atnMiEstado').addEventListener('change', cambiarMiPresencia);
@@ -392,6 +385,64 @@ function pintarFiltroEquipo() {
     equipo.equipos.map(e => `<option value="${e.id}">${escapeHtml(e.nombre)}</option>`).join('');
   sel.value = filtros.equipo;
   sel.hidden = equipo.equipos.length === 0;
+}
+
+/* La lista deja a la vista solo Mías / Sin asignar / Todas. Estado, equipo y
+   etiqueta viven en la hoja Filtros; lo que esté activo queda como etiqueta con
+   su × para quitarlo sin abrir la hoja. */
+function filtrosActivos() {
+  const activos = [];
+  if (filtros.estado !== 'open') activos.push({ clave: 'estado', texto: ESTADOS[filtros.estado]?.plural ?? filtros.estado });
+  if (filtros.equipo) activos.push({ clave: 'equipo', texto: equipo.equipos.find(e => String(e.id) === String(filtros.equipo))?.nombre ?? 'Equipo' });
+  if (filtros.etiqueta) activos.push({ clave: 'etiqueta', texto: filtros.etiqueta });
+  return activos;
+}
+
+function pintarFiltrosActivos() {
+  const linea = $('#atnFiltrosLinea');
+  if (!linea) return;
+  const activos = filtrosActivos();
+  linea.innerHTML = `
+    <button type="button" class="atn-filtrar" id="atnFiltrar" aria-haspopup="dialog">${icon('funnel', 14)}<span>Filtros</span>${activos.length ? `<span class="atn-filtrar-cuenta">${activos.length}<span class="ini-sr-only"> activos</span></span>` : ''}</button>
+    ${activos.map(f => `<span class="atn-filtro-chip">${escapeHtml(f.texto)}<button type="button" data-quitar="${f.clave}" aria-label="Quitar filtro ${escapeHtml(f.texto)}">${icon('x', 12)}</button></span>`).join('')}`;
+  $('#atnFiltrar').addEventListener('click', abrirFiltros);
+  linea.querySelectorAll('[data-quitar]').forEach(btn => btn.addEventListener('click', () => {
+    if (btn.dataset.quitar === 'estado') filtros.estado = 'open';
+    else filtros[btn.dataset.quitar] = '';
+    pintarFiltrosActivos();
+    $('#atnFiltrar')?.focus();
+    cargarLista();
+  }));
+}
+
+function abrirFiltros() {
+  const hoja = document.createElement('div');
+  hoja.className = 'atn-filtros-hoja';
+  hoja.innerHTML = `
+    <p class="atn-filtros-campo" id="atnEstadoTitulo">Estado</p>
+    <div id="atnEstadoWrap"></div>
+    <label class="atn-filtros-campo" for="atnEquipo" id="atnEquipoTitulo">Equipo</label>
+    <select id="atnEquipo" class="atn-select atn-select-bloque"></select>
+    <label class="atn-filtros-campo" for="atnEtiqueta">Etiqueta</label>
+    <select id="atnEtiqueta" class="atn-select atn-select-bloque"></select>`;
+  const aplicar = () => { pintarFiltrosActivos(); cargarLista(); };
+  ActionSheet.open({
+    title: 'Filtrar conversaciones',
+    clase: 'atn-filtros-sheet',
+    contenido: hoja,
+    groups: [
+      ...(filtrosActivos().length ? [[{ label: 'Quitar filtros', onClick: () => { filtros.estado = 'open'; filtros.equipo = ''; filtros.etiqueta = ''; aplicar(); } }]] : []),
+      [{ label: 'Listo', cancel: true }],
+    ],
+  });
+  const estado = buildSegmented(Object.entries(ESTADOS).map(([value, e]) => ({ value, label: e.plural })), filtros.estado, (v) => { filtros.estado = v; aplicar(); });
+  estado.setAttribute('aria-labelledby', 'atnEstadoTitulo');
+  $('#atnEstadoWrap').appendChild(estado);
+  pintarFiltroEquipo();
+  pintarFiltroEtiquetas();
+  $('#atnEquipoTitulo').hidden = $('#atnEquipo').hidden;
+  $('#atnEquipo').addEventListener('change', (e) => { filtros.equipo = e.target.value; aplicar(); });
+  $('#atnEtiqueta').addEventListener('change', (e) => { filtros.etiqueta = e.target.value; aplicar(); });
 }
 
 async function cargarLista({ silencioso = false } = {}) {
@@ -521,7 +572,7 @@ function cerrarHilo() {
   hiloSeq++;
   $('#atnInbox')?.classList.remove('thread-open');
   const hilo = $('#atnHilo');
-  if (hilo) hilo.innerHTML = `<div class="inbox-empty"><div style="font-size:40px;">${emoji('🎧')}</div>Selecciona una conversación</div>`;
+  if (hilo) hilo.innerHTML = `<div class="inbox-empty"><div class="atn-vacio-icono">${icon('headset', 36)}</div>Selecciona una conversación</div>`;
   $$('.atn-row').forEach(r => r.classList.remove('activa'));
 }
 
@@ -741,8 +792,8 @@ function pintarHilo(data) {
       <div class="atn-archivo-chip" id="atnArchivoChip" hidden></div>
       <form class="composer${borrador.privado ? ' atn-composer-nota' : ''}" id="atnComposer" autocomplete="off">
         <div class="atn-composer-tools">
-          <button type="button" class="atn-composer-tool" id="atnAdjuntar" aria-label="Adjuntar archivo"><span class="atn-solo-escritorio">📎</span><span class="atn-solo-movil">${icon('paperclip', 20)}</span></button>
-          <button type="button" class="atn-composer-tool" id="atnRapidas" aria-label="Respuestas rápidas">${icon('bolt', 17)}</button>
+          <button type="button" class="atn-composer-tool" id="atnAdjuntar" aria-label="Adjuntar archivo" title="Adjuntar archivo">${icon('paperclip', 19)}</button>
+          <button type="button" class="atn-composer-tool" id="atnRapidas" aria-label="Respuestas rápidas" title="Respuestas rápidas">${icon('bolt', 18)}</button>
         </div>
         <input type="file" id="atnArchivo" hidden accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,application/pdf,text/plain">
         <textarea class="composer-input" id="atnTexto" rows="1" maxlength="4096" enterkeyhint="send" aria-label="Escribir a ${escapeHtml(c.contacto.nombre)}"></textarea>
@@ -753,7 +804,7 @@ function pintarHilo(data) {
   pintarCabecera(c);
   cablearAnteriores(c.id, data.mensajes);
 
-  const modo = buildSegmented([{ value: 'responder', label: 'Responder' }, { value: 'nota', icon: '📝', label: 'Nota privada' }],
+  const modo = buildSegmented([{ value: 'responder', label: 'Responder' }, { value: 'nota', iconHtml: icon('note', 14), label: 'Nota privada' }],
     borrador.privado ? 'nota' : 'responder', () => actualizarModo());
   modo.id = 'atnModo';
   $('#atnModoWrap').appendChild(modo);

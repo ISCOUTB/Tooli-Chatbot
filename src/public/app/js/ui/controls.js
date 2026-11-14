@@ -26,7 +26,9 @@ function buildSegmented(options, activeValue, onChange) {
   const buttons = options.map(opt => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    if (opt.icon) btn.innerHTML = `${emoji(opt.icon)} ${escapeHtml(opt.label)}`;
+    // iconHtml es un SVG propio (icons.js); icon sigue aceptando un emoji.
+    if (opt.iconHtml) btn.innerHTML = `${opt.iconHtml}<span>${escapeHtml(opt.label)}</span>`;
+    else if (opt.icon) btn.innerHTML = `${emoji(opt.icon)} ${escapeHtml(opt.label)}`;
     else btn.textContent = opt.label;
     btn.dataset.value = opt.value;
     btn.addEventListener('click', () => {
