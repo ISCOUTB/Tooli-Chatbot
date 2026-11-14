@@ -310,11 +310,27 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
   width: 250px; flex-shrink: 0; border-radius: var(--radius-xl); overflow: hidden;
   box-shadow: 0 1px 2px rgba(0, 15, 60, 0.3), 0 24px 48px -20px rgba(0, 20, 80, 0.55);
 }
-.sidebar .logo-wrap { padding: 0 18px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); margin-bottom: 6px; }
-.sidebar .logo-wrap img { height: 27px; filter: brightness(0) invert(1); }
-.sidebar .logo-wrap .product { font-size: 12px; opacity: 0.7; margin-top: 3px; }
-.sidebar nav { flex: 1; min-height: 0; padding: 0 10px; overflow-y: auto; }
+/* Logo, íconos del menú y nombre del usuario comparten el mismo borde
+   izquierdo (21 px = padding del nav + padding del enlace). El logo crece con
+   la altura de la pantalla para no robarle espacio al menú en pantallas bajas. */
+.sidebar .logo-wrap { padding: 8px 21px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); margin-bottom: 6px; }
+.sidebar .logo-wrap img { display: block; height: clamp(32px, 5vh, 42px); width: auto; filter: brightness(0) invert(1); }
+.sidebar .logo-wrap .product { font-size: 12px; font-weight: 500; letter-spacing: 0.02em; opacity: 0.7; margin-top: 8px; }
+@media (max-height: 720px) {
+  .sidebar .logo-wrap { padding-top: 0; padding-bottom: 10px; }
+  .sidebar .logo-wrap .product { margin-top: 4px; }
+}
+/* El menú reparte la altura libre del sidebar: enlaces y títulos de sección
+   crecen hasta un tope, así las opciones bajan hasta el bloque del usuario en
+   vez de amontonarse arriba. Si no caben (administradores en pantallas
+   bajas), conservan su alto mínimo y el menú hace scroll. */
+.sidebar nav {
+  flex: 1; min-height: 0; padding: 0 10px; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.sidebar nav .nav-section { display: contents; }
 .sidebar nav a {
+  flex: 1 0 auto; max-height: 46px;
   display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 6px 11px; color: rgba(255, 255, 255, 0.8);
   border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 500; margin-bottom: 1px;
   text-decoration: none; cursor: pointer; position: relative;
@@ -329,14 +345,17 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 .sidebar nav a .icon-svg { flex-shrink: 0; opacity: 0.85; }
 .sidebar nav a.active .icon-svg { opacity: 1; }
 .sidebar .nav-home { margin-bottom: 4px; }
-.nav-section { margin-top: 3px; }
 .nav-section-title {
-  padding: 2px 11px 1px; color: rgba(255, 255, 255, 0.52); font-size: 9px;
+  padding: 4px 11px 1px; color: rgba(255, 255, 255, 0.52); font-size: 9px;
   font-weight: 700; letter-spacing: 0.08em; line-height: 1.2; text-transform: uppercase;
+}
+/* El espacio extra se acumula encima del título, pegado a sus opciones. */
+.sidebar nav .nav-section-title {
+  flex: 1 0 auto; max-height: 64px; display: flex; align-items: flex-end;
 }
 .icon-svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
-.sidebar .user-block { display: flex; align-items: center; gap: 8px; padding: 8px 14px 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 6px; }
+.sidebar .user-block { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0 21px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 6px; }
 .sidebar .user-copy { flex: 1; min-width: 0; }
 .sidebar .user-block .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .user-block .role { font-size: 10.5px; opacity: 0.6; }
