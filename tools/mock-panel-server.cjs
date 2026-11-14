@@ -119,6 +119,11 @@ const METRICAS_HOY = {
   turno_consultado: 31, recibo_descargado: 18, prospecto_completado: 9,
   notas_consultadas: 22, academico_menu_shown: 27,
 };
+// Ayer completo, para que Inicio muestre cada cifra de hoy con su referencia.
+const METRICAS_AYER = {
+  menu_shown: 131, ai_request: 15, agent_handoff: 4, registro_completado: 10,
+  turno_consultado: 25, recibo_descargado: 16, prospecto_completado: 7,
+};
 const SALUD_MOCK = {
   status: 'degraded',
   timestamp: new Date().toISOString(),
@@ -469,6 +474,7 @@ app.get('/api/tools/inicio', (_q, res) => {
     misSinLeer: abiertas.filter(c => c.asignado?.id === miId && c.noLeidos > 0).length,
     mias: abiertas.filter(c => c.asignado?.id === miId).length,
     vinculado: true,
+    cola: [], sinLeer: [],
     esperaMasLargaMin: sinAsignar.length ? Math.floor((hoy - Math.min(...sinAsignar.map(c => c.mensajes.at(-1)?.ts || hoy))) / 60000) : null,
     ...(admin ? { porAsesor: equipoPresencia().map((p) => {
       const agente = AGENTES.find(a => (a.id === 1 ? mockAdminUsername : a.username) === p.username);
@@ -483,18 +489,31 @@ app.get('/api/tools/inicio', (_q, res) => {
   });
   const reminders = admin ? RECORDATORIOS : RECORDATORIOS.filter(r => r.createdBy === username);
   const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
-  const interacciones = ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado'].reduce((total, clave) => total + METRICAS_HOY[clave], 0);
+  const sumaInteracciones = (m) => ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado'].reduce((total, clave) => total + (m[clave] ?? 0), 0);
+  const interacciones = sumaInteracciones(METRICAS_HOY);
+  // Misma forma que armaría inicioService con listarConversaciones('open').
+  const resumenConv = (c) => {
+    const ultimo = c.mensajes.at(-1);
+    return { id: c.id, nombre: c.contacto.nombre || c.contacto.telefono, equipo: c.equipo?.nombre ?? null, vista: ultimo?.texto ?? '', esperaMin: Math.max(0, Math.floor((Date.now() - (ultimo?.ts ?? Date.now())) / 60000)) };
+  };
+  const cola = sinAsignar.map(resumenConv).sort((a, b) => b.esperaMin - a.esperaMin).slice(0, 5);
+  const sinLeer = abiertas.filter(c => c.asignado?.id === miId && c.noLeidos > 0).map(resumenConv).slice(0, 3);
+  const DIAS_SIN_MOVIMIENTO = 5;
+  const estancados = Object.values(FICHAS).filter(f => f.asignadoA === username && ['contactado', 'interesado'].includes(f.estado)
+    && (f.actualizadoEn ?? 0) < Date.now() - DIAS_SIN_MOVIMIENTO * 864e5).length;
   const afectados = Object.entries(SALUD_MOCK.checks).filter(([, check]) => ['down', 'degraded'].includes(check.status)).map(([servicio, check]) => ({
     servicio,
     nivel: check.status === 'down' ? 'caido' : 'degradado',
-    mensaje: servicio === 'iceberg' ? 'No se pueden consultar turnos ni descargar recibos' : 'Los registros nuevos del CRM pueden tardar en aparecer',
+    mensaje: servicio === 'iceberg' ? 'No se pueden descargar recibos' : 'Los registros nuevos del CRM pueden tardar en aparecer',
     ...(admin && check.detail ? { detalle: check.detail } : {}),
   }));
+  if (atencion.estado === 'ok') Object.assign(atencion, { cola, sinLeer });
   j(res, {
     rol: admin ? 'admin' : 'asesor', generadoEn: Date.now(), atencion,
-    seguimiento: process.env.MOCK_INICIO_ERROR ? { estado: 'error', mios: { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 }, sinAsignar: 0 } : { estado: 'ok', mios, sinAsignar: seguimientoSinAsignar },
+    seguimiento: process.env.MOCK_INICIO_ERROR ? { estado: 'error', mios: { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 }, sinAsignar: 0 } : { estado: 'ok', mios, sinAsignar: seguimientoSinAsignar, estancados, diasSinMovimiento: DIAS_SIN_MOVIMIENTO },
     recordatorios: { estado: 'ok', fallidos: reminders.filter(r => r.estado === 'fallido').length, programadosHoy: reminders.filter(r => r.estado === 'programado' && r.scheduledAt >= inicio.getTime() && r.scheduledAt < inicio.getTime() + 864e5).length },
-    hoy: { estado: 'ok', interaccionesBot: interacciones, derivadosAsesor: METRICAS_HOY.agent_handoff, prospectosNuevos: METRICAS_HOY.prospecto_completado, preguntasIa: METRICAS_HOY.ai_request },
+    hoy: { estado: 'ok', interaccionesBot: interacciones, derivadosAsesor: METRICAS_HOY.agent_handoff, prospectosNuevos: METRICAS_HOY.prospecto_completado, preguntasIa: METRICAS_HOY.ai_request,
+      ayer: { interaccionesBot: sumaInteracciones(METRICAS_AYER), derivadosAsesor: METRICAS_AYER.agent_handoff, prospectosNuevos: METRICAS_AYER.prospecto_completado, preguntasIa: METRICAS_AYER.ai_request } },
     servicios: { estado: 'ok', afectados },
   });
 });
@@ -510,11 +529,12 @@ app.post('/api/mock/atencion/simular', (req, res) => {
     const elegido = CONFIG_ATENCION.asignacionAutomatica ? elegibles[0]?.agente : null;
     const id = Math.max(...ATENCION.map(item => item.id)) + 1;
     const texto = req.body.texto || 'Hola, necesito hablar con un asesor.';
+    const ts = Date.now() - (Number(req.body.haceMin) || 0) * 60000;
     const nueva = {
-      id, estado: 'open', contacto: { nombre: `Persona demo ${id}`, telefono: `57300${String(id).padStart(7, '0')}` },
+      id, estado: 'open', contacto: { nombre: req.body.nombre ?? `Persona demo ${id}`, telefono: `57300${String(id).padStart(7, '0')}` },
       asignado: elegido ? { id: elegido.id, nombre: elegido.nombre } : null,
-      equipo: { id: 10, nombre: 'Admisiones' }, etiquetas: [], prioridad: null, noLeidos: 1,
-      mensajes: [{ id: Date.now(), tipo: 'in', texto, ts: Date.now(), autor: null, adjuntos: [] }],
+      equipo: req.body.equipo === 'Posgrados' ? { id: 11, nombre: 'Posgrados' } : { id: 10, nombre: 'Admisiones' }, etiquetas: [], prioridad: null, noLeidos: 1,
+      mensajes: [{ id: Date.now(), tipo: 'in', texto, ts, autor: null, adjuntos: [] }],
     };
     ATENCION.push(nueva);
     emitirAtencion({ tipo: 'nueva', conversacionId: id, entrante: true, nombre: nueva.contacto.nombre, texto });
@@ -739,6 +759,7 @@ app.get('/api/tools/crm/:phone', (req, res) => j(res, { ficha: FICHAS[req.params
 app.post('/api/tools/crm/:phone/:ruta', (req, res) => {
   const f = FICHAS[req.params.phone] || (FICHAS[req.params.phone] = { estado: 'nuevo', etiquetas: [], notas: [] });
   if (req.params.ruta === 'estado') f.estado = req.body.estado;
+  f.actualizadoEn = Date.now() - (Number(req.body.haceDias) || 0) * 864e5;
   if (req.params.ruta === 'asignar') f.asignadoA = req.body.username;
   if (req.params.ruta === 'etiquetas') f.etiquetas = req.body.etiquetas ?? f.etiquetas;
   if (req.params.ruta === 'nota') f.notas.unshift({ id: 'n' + Date.now(), autor: 'admin', ts: Date.now(), texto: req.body.texto });
@@ -764,7 +785,7 @@ app.post('/api/tools/recordatorios', (req, res) => {
   if (!/^\+?[\d\s().-]+$/.test(texto) || !/^[1-9]\d{9,14}$/.test(telefono)) {
     return res.status(400).json({ error: 'validation_error', message: 'telefono inválido (usa E.164 de 10–15 dígitos)' });
   }
-  const reminder = { ...req.body, telefono, scheduledAt: Date.parse(req.body.scheduledAt), id: 'r' + Date.now(), estado: 'programado', createdBy: 'admin' };
+  const reminder = { ...req.body, telefono, scheduledAt: Date.parse(req.body.scheduledAt), id: 'r' + Date.now(), estado: 'programado', createdBy: ROL === 'admin' ? 'admin' : 'luis' };
   RECORDATORIOS.unshift(reminder);
   j(res, { ok: true, reminder });
 });

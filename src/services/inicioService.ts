@@ -7,6 +7,22 @@ type EstadoBloque = 'ok' | 'error';
 type EstadoAtencionInicio = EstadoBloque | 'no_configurado';
 type ConteosSeguimiento = Record<EstadoProspecto, number>;
 
+/** Una conversación como la muestra Inicio: quién, de qué equipo, qué dijo y cuánto lleva. */
+export interface ConversacionResumen {
+  id: number;
+  nombre: string;
+  equipo: string | null;
+  vista: string;
+  esperaMin: number;
+}
+
+export interface MetricasDia {
+  interaccionesBot: number | null;
+  derivadosAsesor: number | null;
+  prospectosNuevos: number | null;
+  preguntasIa: number | null;
+}
+
 export interface AtencionInicio {
   estado: EstadoAtencionInicio;
   sinAsignar: number;
@@ -15,6 +31,10 @@ export interface AtencionInicio {
   /** Sin usuario de Chatwoot vinculado no hay "mías": el panel lo explica. */
   vinculado: boolean;
   esperaMasLargaMin: number | null;
+  /** Las sin asignar que más llevan esperando, de la más antigua a la más reciente. */
+  cola?: ConversacionResumen[];
+  /** Conversaciones propias con mensajes sin leer. */
+  sinLeer?: ConversacionResumen[];
   porAsesor?: {
     id: number;
     nombre: string;
@@ -28,14 +48,19 @@ export interface InicioRespuesta {
   rol: UserRole;
   generadoEn: number;
   atencion: AtencionInicio;
-  seguimiento: { estado: EstadoBloque; mios: ConteosSeguimiento; sinAsignar: number };
-  recordatorios: { estado: EstadoBloque; fallidos: number; programadosHoy: number };
-  hoy: {
+  seguimiento: {
     estado: EstadoBloque;
-    interaccionesBot: number | null;
-    derivadosAsesor: number | null;
-    prospectosNuevos: number | null;
-    preguntasIa: number | null;
+    mios: ConteosSeguimiento;
+    sinAsignar: number;
+    /** Propios contactados o interesados sin cambios en `diasSinMovimiento` días. */
+    estancados?: number;
+    diasSinMovimiento?: number;
+  };
+  recordatorios: { estado: EstadoBloque; fallidos: number; programadosHoy: number };
+  hoy: MetricasDia & {
+    estado: EstadoBloque;
+    /** El día anterior completo, como referencia; null si no se pudo leer. */
+    ayer?: MetricasDia | null;
   };
   servicios: {
     estado: EstadoBloque;
@@ -55,6 +80,38 @@ export function contarSeguimiento(fichas: FichaCrm[], username: string) {
   return { mios, sinAsignar };
 }
 
+export const DIAS_SIN_MOVIMIENTO = 5;
+
+export function contarEstancados(fichas: FichaCrm[], username: string, ahora = Date.now(), dias = DIAS_SIN_MOVIMIENTO): number {
+  const limite = ahora - dias * 24 * 60 * 60 * 1000;
+  return fichas.filter((f) => f.asignadoA === username && (f.estado === 'contactado' || f.estado === 'interesado')
+    && f.actualizadoEn > 0 && f.actualizadoEn < limite).length;
+}
+
+const actividadValida = (c: ConversacionAtencion) => Number.isFinite(c.actividadTs) && c.actividadTs > 0;
+
+export function resumenConversacion(c: ConversacionAtencion, ahora = Date.now()): ConversacionResumen {
+  return {
+    id: c.id,
+    nombre: c.contacto.nombre || c.contacto.telefono || 'Sin nombre',
+    equipo: c.equipo?.nombre ?? null,
+    // Sin el formato de WhatsApp (*negrita*, _cursiva_): Inicio muestra una línea plana.
+    vista: (c.ultimoMensaje?.texto ?? '').replace(/[*_~]/g, '').replace(/\s+/g, ' ').trim().slice(0, 140),
+    esperaMin: actividadValida(c) ? Math.max(0, Math.floor((ahora - c.actividadTs) / 60_000)) : 0,
+  };
+}
+
+/** Las conversaciones que cumplen el filtro, de la que más lleva a la que menos. */
+export function masAntiguas(
+  conversaciones: ConversacionAtencion[],
+  filtro: (c: ConversacionAtencion) => boolean,
+  limite: number,
+  ahora = Date.now(),
+): ConversacionResumen[] {
+  const orden = (c: ConversacionAtencion) => (actividadValida(c) ? c.actividadTs : Number.POSITIVE_INFINITY);
+  return conversaciones.filter(filtro).sort((a, b) => orden(a) - orden(b)).slice(0, limite).map((c) => resumenConversacion(c, ahora));
+}
+
 export function esperaMasLargaMin(conversaciones: ConversacionAtencion[], ahora = Date.now()): number | null {
   const actividades = conversaciones
     .filter((c) => !c.asignado && Number.isFinite(c.actividadTs) && c.actividadTs > 0)
@@ -64,7 +121,7 @@ export function esperaMasLargaMin(conversaciones: ConversacionAtencion[], ahora 
 }
 
 const MENSAJES_SERVICIOS: Record<string, string> = {
-  iceberg: 'No se pueden consultar turnos ni descargar recibos',
+  iceberg: 'No se pueden descargar recibos',
   sheets: 'Los registros nuevos del CRM pueden tardar en aparecer',
   google_sheets: 'Los registros nuevos del CRM pueden tardar en aparecer',
   meta: 'Los mensajes de WhatsApp pueden no salir',
@@ -113,6 +170,20 @@ function sumaMetricas(metricas: Record<string, string>, claves: string[]): numbe
   return valores.some((valor) => valor === null) ? null : (valores as number[]).reduce((total, valor) => total + valor, 0);
 }
 
+export function metricasDelDia(metricas: Record<string, string>): MetricasDia {
+  return {
+    interaccionesBot: sumaMetricas(metricas, ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado']),
+    derivadosAsesor: numeroMetrica(metricas, 'agent_handoff'),
+    prospectosNuevos: numeroMetrica(metricas, 'prospecto_completado'),
+    preguntasIa: numeroMetrica(metricas, 'ai_request'),
+  };
+}
+
+/** Clave del día anterior con el mismo corte que usa metrics.ts (fecha UTC). */
+export function claveDiaAnterior(ahora = Date.now()): string {
+  return new Date(ahora - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 /** Inicio del día en Bogotá (UTC-5, sin horario de verano): el servidor corre en UTC. */
 const OFFSET_BOGOTA_MS = 5 * 60 * 60 * 1000;
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -153,7 +224,12 @@ export async function obtenerInicio(username: string, rol: UserRole): Promise<In
     const sinAsignar = conversaciones.filter((c) => !c.asignado).length;
     const mias = miId ? conversaciones.filter((c) => c.asignado?.id === miId).length : 0;
     const misSinLeer = miId ? conversaciones.filter((c) => c.asignado?.id === miId && c.noLeidos > 0).length : 0;
-    const bloque: AtencionInicio = { estado: 'ok', sinAsignar, misSinLeer, mias, vinculado: !!miId, esperaMasLargaMin: esperaMasLargaMin(conversaciones) };
+    const ahora = Date.now();
+    const bloque: AtencionInicio = {
+      estado: 'ok', sinAsignar, misSinLeer, mias, vinculado: !!miId, esperaMasLargaMin: esperaMasLargaMin(conversaciones, ahora),
+      cola: masAntiguas(conversaciones, (c) => !c.asignado, 5, ahora),
+      sinLeer: miId ? masAntiguas(conversaciones, (c) => c.asignado?.id === miId && c.noLeidos > 0, 3, ahora) : [],
+    };
     if (usuariosEquipo) {
       const vinculados = usuariosEquipo.filter((item) => item.chatwootUserId);
       const estados = await Promise.all(vinculados.map((item) => obtenerEstadoAsesor(item.username)));
@@ -172,7 +248,10 @@ export async function obtenerInicio(username: string, rol: UserRole): Promise<In
     return bloque;
   })();
 
-  const seguimientoP: Promise<InicioRespuesta['seguimiento']> = getFichas().then((fichas) => ({ estado: 'ok', ...contarSeguimiento(Object.values(fichas), username) }));
+  const seguimientoP: Promise<InicioRespuesta['seguimiento']> = getFichas().then((fichas) => {
+    const lista = Object.values(fichas);
+    return { estado: 'ok', ...contarSeguimiento(lista, username), estancados: contarEstancados(lista, username), diasSinMovimiento: DIAS_SIN_MOVIMIENTO };
+  });
   const recordatoriosP: Promise<InicioRespuesta['recordatorios']> = listReminders({ limit: 200 }).then((todos) => {
     const visibles = rol === 'admin' ? todos : todos.filter((r) => r.createdBy === username);
     const desde = inicioDiaBogota();
@@ -183,13 +262,10 @@ export async function obtenerInicio(username: string, rol: UserRole): Promise<In
       programadosHoy: visibles.filter((r) => r.estado === 'programado' && r.scheduledAt >= desde && r.scheduledAt < hasta).length,
     };
   });
-  const hoyP: Promise<InicioRespuesta['hoy']> = getMetrics().then((metricas) => ({
-    estado: 'ok',
-    interaccionesBot: sumaMetricas(metricas, ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado']),
-    derivadosAsesor: numeroMetrica(metricas, 'agent_handoff'),
-    prospectosNuevos: numeroMetrica(metricas, 'prospecto_completado'),
-    preguntasIa: numeroMetrica(metricas, 'ai_request'),
-  }));
+  // Si falla leer ayer, Inicio sigue mostrando hoy, solo sin la referencia.
+  const hoyP: Promise<InicioRespuesta['hoy']> = Promise.all([
+    getMetrics(), getMetrics(claveDiaAnterior()).catch(() => null),
+  ]).then(([metricas, ayer]) => ({ estado: 'ok', ...metricasDelDia(metricas), ayer: ayer ? metricasDelDia(ayer) : null }));
   if (!saludCache || Date.now() - saludCache.en > SALUD_TTL_MS) {
     const checks = getDeepHealth().then((salud) => salud.checks);
     saludCache = { en: Date.now(), checks };
