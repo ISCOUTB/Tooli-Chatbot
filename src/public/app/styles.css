@@ -310,9 +310,15 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
   width: 250px; flex-shrink: 0; border-radius: var(--radius-xl); overflow: hidden;
   box-shadow: 0 1px 2px rgba(0, 15, 60, 0.3), 0 24px 48px -20px rgba(0, 20, 80, 0.55);
 }
-.sidebar .logo-wrap { padding: 0 18px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); margin-bottom: 6px; }
-.sidebar .logo-wrap img { height: 27px; filter: brightness(0) invert(1); }
-.sidebar .logo-wrap .product { font-size: 12px; opacity: 0.7; margin-top: 3px; }
+/* El logo crece con la altura de la pantalla para no robarle espacio al menú
+   en pantallas bajas. */
+.sidebar .logo-wrap { padding: 8px 18px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.12); margin-bottom: 6px; }
+.sidebar .logo-wrap img { display: block; height: clamp(32px, 5vh, 42px); width: auto; filter: brightness(0) invert(1); }
+.sidebar .logo-wrap .product { font-size: 12px; font-weight: 500; letter-spacing: 0.02em; opacity: 0.7; margin-top: 8px; }
+@media (max-height: 720px) {
+  .sidebar .logo-wrap { padding-top: 0; padding-bottom: 10px; }
+  .sidebar .logo-wrap .product { margin-top: 4px; }
+}
 /* El menú reparte la altura libre del sidebar: enlaces y títulos de sección
    crecen hasta un tope, así las opciones bajan hasta el bloque del usuario en
    vez de amontonarse arriba. Si no caben (administradores en pantallas
