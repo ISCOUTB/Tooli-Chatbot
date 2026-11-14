@@ -142,7 +142,8 @@ const j = (res, data) => res.json(data);
 app.get('/api/auth/me', (_q, res) => !mockAuthenticated
   ? res.status(401).json({ error: 'no autenticado' })
   : j(res, {
-  user: { username: ROL === 'admin' ? mockAdminUsername : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
+  // Mismos campos que toPublic(user) en el backend: área, correo y cuenta de Atención.
+  user: { ...USUARIOS.find(u => u.username === (ROL === 'admin' ? mockAdminUsername : 'luis')), email: ROL === 'admin' ? 'angel.acero@utb.edu.co' : 'luis.perez@utb.edu.co', username: ROL === 'admin' ? mockAdminUsername : 'luis', fullName: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
   urls: { chatwoot: 'https://chat.example.com', grafana: 'https://grafana.example.com' },
   capabilities: { chatwootSso: true, metaWindow: true },
 }));

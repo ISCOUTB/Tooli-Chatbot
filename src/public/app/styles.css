@@ -357,6 +357,11 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text); m
 
 .sidebar .user-block { display: flex; align-items: center; gap: 8px; padding: 8px 10px 0 21px; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 6px; }
 .sidebar .user-copy { flex: 1; min-width: 0; }
+.sidebar .user-avatar {
+  width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; font-size: 12.5px; font-weight: 700; border: 2px solid rgba(255, 255, 255, 0.28);
+}
+.sidebar .user-avatar:empty { display: none; }
 .sidebar .user-block .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .user-block .role { font-size: 10.5px; opacity: 0.6; }
 .sidebar .user-block button {
@@ -2536,3 +2541,26 @@ textarea.rem-input { resize: vertical; min-height: 84px; line-height: 1.45; }
 .crm-card-row .emoji-icono { color: #475163; margin-right: 2px; }
 .event-bar-icon { color: var(--utb-blue); }
 
+/* ===================================================================
+   Perfil del asesor (menú de cuenta): panel blanco con identidad, datos que
+   definen qué puede hacer y las acciones de la cuenta alineadas a la izquierda.
+   =================================================================== */
+.perfil-sheet { background: var(--surface); border-radius: var(--radius-xl); padding: 18px 14px 12px; box-shadow: var(--shadow-float); }
+.perfil-sheet:focus { outline: none; }
+.perfil-sheet .sheet-header { display: none; }
+.perfil-sheet .sheet-grabber { margin-bottom: 14px; }
+.perfil-sheet .sheet-group { margin: 12px 0 0; box-shadow: none; border: 1px solid #d5dbe5; background: var(--surface); }
+.perfil-sheet .sheet-action { justify-content: flex-start; gap: 12px; padding: 14px 18px; font-size: 15px; font-weight: 500; }
+.perfil-sheet .sheet-action.cancel { justify-content: center; font-weight: 600; }
+.perfil-sheet .sheet-action:hover { background: #f3f6fb; }
+.perfil-id { display: flex; align-items: center; gap: 14px; padding: 2px 6px 16px; border-bottom: 1px solid var(--border); }
+.perfil-avatar { width: 54px; height: 54px; flex: 0 0 54px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 19px; font-weight: 700; }
+.perfil-nombre { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.perfil-nombre strong { color: var(--text); font-size: 17px; line-height: 1.25; overflow-wrap: anywhere; }
+.perfil-nombre > span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #475163; font-size: 13px; }
+.perfil-rol { padding: 2px 9px; border-radius: 999px; background: #e8eef9; color: var(--utb-blue); font-size: 12px; font-weight: 700; }
+.perfil-datos { display: grid; gap: 2px; margin: 10px 0 0; }
+.perfil-datos > div { display: grid; grid-template-columns: 18px 72px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 6px; }
+.perfil-datos svg { color: var(--utb-blue); }
+.perfil-datos dt { color: #475163; font-size: 13px; }
+.perfil-datos dd { margin: 0; color: var(--text); font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }

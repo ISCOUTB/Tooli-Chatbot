@@ -1,5 +1,6 @@
 import { api, doLogout } from './api.js';
 import { $, $$, escapeHtml, haptic } from './dom.js';
+import { avatarTone, initialsFor } from './format.js';
 import { icon } from './icons.js';
 import { newPasswordError } from './password.js';
 import { clearScreenTimers, setPullToRefresh } from './screen.js';
@@ -117,11 +118,35 @@ function openMoreSheet() {
   });
 }
 
+const AREAS_PERFIL = { all: 'Todas las áreas', admisiones: 'Admisiones', ti: 'TI', posgrados: 'Posgrados' };
+
+/* El perfil muestra quién tiene la sesión abierta y lo que define qué puede
+   hacer: rol, área y si tiene cuenta de Atención (sin ella no recibe chats). */
+function perfilAsesor() {
+  const u = sesion.user ?? {};
+  const rol = u.role === 'admin' ? 'Administrador' : 'Asesor';
+  const filas = [
+    u.email ? ['mail', 'Correo', u.email] : null,
+    ['users', 'Área', AREAS_PERFIL[u.area ?? 'all'] ?? u.area],
+    ['headset', 'Atención', u.chatwootUserId ? 'Cuenta vinculada' : 'Sin cuenta: no recibe conversaciones'],
+  ].filter(Boolean);
+  const el = document.createElement('div');
+  el.className = 'perfil';
+  el.innerHTML = `
+    <div class="perfil-id">
+      <span class="perfil-avatar" style="background:${avatarTone(u.username ?? '')}" aria-hidden="true">${escapeHtml(initialsFor('', u.fullName ?? u.username ?? ''))}</span>
+      <div class="perfil-nombre"><strong>${escapeHtml(u.fullName ?? '')}</strong><span><span class="perfil-rol">${rol}</span>@${escapeHtml(u.username ?? '')}</span></div>
+    </div>
+    <dl class="perfil-datos">${filas.map(([nombre, clave, valor]) => `<div>${icon(nombre, 16)}<dt>${clave}</dt><dd>${escapeHtml(valor)}</dd></div>`).join('')}</dl>`;
+  return el;
+}
+
 function openAccountSheet() {
   ActionSheet.open({
-    title: sesion.user?.fullName ?? 'Cuenta',
-    subtitle: sesion.user?.role === 'admin' ? 'Administrador' : 'Asesor',
-    groups: [{ title: 'Cuenta', actions: accionesCuenta() }, [{ label: 'Cancelar', cancel: true }]],
+    title: 'Tu perfil',
+    clase: 'perfil-sheet',
+    contenido: perfilAsesor(),
+    groups: [accionesCuenta(), [{ label: 'Cerrar', cancel: true }]],
   });
 }
 
@@ -232,6 +257,11 @@ async function init() {
   if (data.capabilities) sesion.caps = data.capabilities;
   $('#userName').textContent = sesion.user.fullName;
   $('#userRole').textContent = sesion.user.role === 'admin' ? 'Administrador' : 'Asesor';
+  const avatar = $('#userAvatar');
+  if (avatar) {
+    avatar.textContent = initialsFor('', sesion.user.fullName || sesion.user.username);
+    avatar.style.background = avatarTone(sesion.user.username);
+  }
   renderSidebarNav();
   const accountBtn = $('#accountMenuBtn');
   accountBtn.innerHTML = `${icon('more', 18)}<span class="sr-only">Abrir menú de cuenta</span>`;
