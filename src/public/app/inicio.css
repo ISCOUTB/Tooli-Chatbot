@@ -5,23 +5,70 @@
 .ini-header h1 span { color: #596273; font-size: .72em; font-weight: 500; letter-spacing: 0; }
 .ini-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .ini-card { min-width: 0; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.ini-card-main { grid-column: 1 / -1; padding: clamp(20px, 3vw, 30px); background: #eef5ff; border-color: #c7d9f5; }
-.ini-card-alert { grid-column: 1 / -1; background: #fff9eb; border-color: #f1d58c; }
+.ini-card-main { grid-column: 1 / -1; padding: clamp(20px, 3vw, 30px); box-shadow: var(--shadow-sm); }
+.ini-card-alert { grid-column: 1 / -1; }
 .ini-card-compact { grid-column: 1 / -1; }
+/* Seguimiento y Hoy comparten fila en escritorio; en celular se apilan. */
+.ini-card-half { align-self: stretch; }
+/* La tarjeta de Atención cambia de tono según cuánto lleva la espera más larga. */
+.ini-card-main.ini-nivel-alta { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger), var(--shadow-sm); }
+.ini-sub { margin: -8px 0 12px; color: #475163; font-size: .84rem; }
+.ini-cola-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.ini-cola-total { margin: 0; color: var(--text); font-size: 1.1rem; font-weight: 700; }
+.ini-cola-total strong { margin-right: 4px; color: var(--utb-blue); font-size: clamp(1.7rem, 3.8vw, 2.3rem); font-weight: 800; line-height: 1; }
+.ini-nivel-alta .ini-cola-total strong { color: var(--danger); }
+.ini-espera { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1.5px solid transparent; border-radius: 999px; background: #eef1f6; color: var(--text); font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.ini-espera-media { border-color: var(--danger); background: var(--surface); color: var(--danger); }
+.ini-espera-alta { background: var(--danger); color: #fff; }
+.ini-cola { list-style: none; margin: 14px 0 0; padding: 0; background: var(--surface); border: 1px solid #d5dbe5; border-radius: var(--radius-sm); }
+.ini-cola-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 14px; }
+.ini-cola-fila + .ini-cola-fila { border-top: 1px solid #d5dbe5; }
+.ini-cola-fila-simple { grid-template-columns: minmax(0, 1fr) auto; }
+.ini-cola-texto { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.ini-cola-texto strong { color: var(--text); font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ini-cola-texto small { color: #475163; font-size: .8rem; font-weight: 500; }
+.ini-cola-texto > span { overflow: hidden; color: #3d4656; font-size: .875rem; text-overflow: ellipsis; white-space: nowrap; }
+.ini-cola-mas { margin: 8px 2px 0; font-weight: 600; }
+.ini-cola .ini-btn { border: 1.5px solid var(--utb-blue); color: var(--utb-blue); }
+.ini-cola .ini-btn:hover { background: var(--utb-blue); color: #fff; }
+.ini-btn-sm { min-height: 36px; padding: 6px 14px; font-size: .85rem; }
+.ini-btn-subtle:hover, .ini-btn-secondary:hover { background: #e8eef9; }
+.ini-btn-primary:hover { background: var(--utb-blue-dark); }
+.ini-sinleer { margin-top: 18px; }
+.ini-sinleer-title { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--utb-blue); font-size: .95rem; font-weight: 700; }
+.ini-sinleer .ini-cola { margin-top: 8px; }
+.ini-tareas { display: grid; gap: 8px; }
+.ini-tarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #d5dbe5; border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-size: .9rem; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; text-align: left; }
+.ini-tarea:hover { border-color: var(--utb-blue); background: #f3f6fb; }
+.ini-tarea strong { color: var(--utb-blue); }
+.ini-tarea > .ini-icon:first-child { color: var(--utb-blue); }
+.ini-embudo { display: flex; height: 8px; gap: 2px; margin: 18px 0 8px; overflow: hidden; border-radius: 4px; }
+.ini-embudo-nuevo { background: #8fb3ec; }
+.ini-embudo-contactado { background: #2f6fd6; }
+.ini-embudo-interesado { background: var(--utb-blue); }
+.ini-embudo-inscrito { background: var(--utb-blue-dark); }
+.ini-embudo-descartado { background: #c3c9d3; }
+.ini-embudo-leyenda { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.ini-embudo-leyenda button { min-height: 28px; padding: 2px 0; border: 0; background: transparent; color: #3d4656; font: inherit; font-size: .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ini-embudo-leyenda button:hover { color: var(--utb-blue); text-decoration: underline; }
+.ini-punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.ini-metric-ayer { margin-top: 3px; color: #475163; font-size: .78rem; }
+.ini-card-half .ini-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ini-card-half .ini-metric { padding: 10px 14px; }
 .ini-card-head { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin-bottom: 14px; }
 .ini-card h2, .ini-card > h2 { margin: 0; font-size: 1rem; line-height: 1.35; }
 .ini-icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
 .ini-btn { min-height: 44px; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .ini-btn-primary { color: #fff; background: var(--utb-blue); }
-.ini-btn-secondary { color: var(--utb-blue); background: var(--surface); border-color: #9bb8e3; }
+.ini-btn-secondary { color: var(--utb-blue); background: var(--surface); border: 1.5px solid var(--utb-blue); }
 .ini-btn-subtle { color: var(--utb-blue); background: var(--surface); border-color: var(--border); }
 .ini-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-.ini-help { margin: 10px 0 0; color: #596273; font-size: .82rem; }
+.ini-help { margin: 10px 0 0; color: #475163; font-size: .82rem; }
 .ini-priority-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.ini-priority-grid > div { display: flex; min-height: 80px; padding: 14px; flex-direction: column; justify-content: center; border-radius: var(--radius-sm); background: rgba(255,255,255,.7); }
+.ini-priority-grid > div { display: flex; min-height: 80px; padding: 14px; flex-direction: column; justify-content: center; border-radius: var(--radius-sm); background: #f3f6fb; }
 .ini-priority-grid strong { color: var(--utb-blue); font-size: clamp(1.45rem, 4vw, 2.2rem); line-height: 1.1; }
-.ini-priority-grid span, .ini-metric > span:last-child { margin-top: 4px; color: #596273; font-size: .84rem; }
-.ini-empty { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #315f49; }
+.ini-priority-grid span, .ini-metric > span:nth-child(2) { margin-top: 4px; color: #3d4656; font-size: .84rem; }
+.ini-empty { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--success); }
 .ini-empty-small { min-height: 52px; justify-content: flex-start; color: #596273; }
 .ini-state { min-height: 68px; display: flex; flex-direction: column; justify-content: center; gap: 4px; color: #596273; }
 .ini-state strong { color: var(--text); }
@@ -34,9 +81,11 @@
 .ini-notice small, .ini-advisor small, .ini-pending-row small { color: #596273; font-size: .78rem; }
 .ini-notice-danger { background: #fff2f1; border-color: #f0aaa5; }
 .ini-service-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.ini-service { min-height: 44px; padding: 9px 12px; display: flex; align-items: center; gap: 9px; border-radius: var(--radius-sm); background: rgba(255,255,255,.65); }
-.ini-service-caido { color: #9e211a; }
-.ini-service-degradado { color: #805500; }
+.ini-service { min-height: 44px; padding: 9px 12px; display: flex; align-items: center; gap: 10px; border-radius: var(--radius-sm); background: #f3f6fb; color: var(--text); }
+.ini-service strong { color: var(--text); }
+.ini-service > .ini-icon { width: 26px; height: 26px; border-radius: 50%; color: #fff; }
+.ini-service-caido > .ini-icon { background: var(--danger); }
+.ini-service-degradado > .ini-icon { background: #b45309; }
 .ini-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); }
 .ini-metric { min-width: 0; padding: 8px 14px; background: var(--surface); display: flex; flex-direction: column; }
 .ini-metric-value { font-size: 1.25rem; font-weight: 800; color: var(--utb-blue); }
@@ -68,15 +117,22 @@
 .ini-skeleton i:nth-child(2) { width: 78%; }
 .ini-skeleton i:nth-child(3) { width: 55%; }
 .ini-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.ini-btn:focus-visible, .ini-stage:focus-visible, .ini-notice:focus-visible, .ini-pending-row:focus-visible, .ini-link:focus-visible { outline: 3px solid #67a3f0; outline-offset: 2px; }
+.ini-btn:focus-visible, .ini-tarea:focus-visible, .ini-embudo-leyenda button:focus-visible, .ini-stage:focus-visible, .ini-notice:focus-visible, .ini-pending-row:focus-visible, .ini-link:focus-visible { outline: 3px solid #67a3f0; outline-offset: 2px; }
 @keyframes ini-pulse { 50% { opacity: .45; } }
 
 @media (max-width: 799px) {
   .ini-layout { grid-template-columns: 1fr; }
-  .ini-card, .ini-card-main, .ini-card-alert, .ini-card-compact { grid-column: 1; padding: 16px; }
+  .ini-card, .ini-card-main, .ini-card-alert, .ini-card-compact, .ini-card-half { grid-column: 1; padding: 16px; }
   .ini-pending { grid-template-columns: 1fr; }
+  .ini-actions .ini-btn { flex: 1 1 auto; }
   .ini-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ini-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* En el celular el tiempo baja bajo el mensaje y el botón queda a la derecha. */
+  .ini-cola-fila { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "texto boton" "espera boton"; gap: 4px 10px; padding: 10px 12px; }
+  .ini-cola-texto { grid-area: texto; }
+  .ini-cola-fila .ini-espera { grid-area: espera; justify-self: start; padding: 1px 8px; }
+  .ini-cola-fila .ini-btn { grid-area: boton; }
+  .ini-cola-fila-simple { grid-template-areas: "texto boton"; }
 }
 @media (max-width: 374px) {
   .ini-priority-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

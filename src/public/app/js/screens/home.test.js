@@ -11,9 +11,20 @@ let H;
 before(async () => { H = await import('./home.js'); });
 
 describe('textoEspera', () => {
-  it('expresa minutos y horas sin falsa precisión', () => {
-    assert.equal(H.textoEspera(25), 'hace 25 min');
-    assert.equal(H.textoEspera(125), 'hace 2 h');
+  it('expresa cuánto lleva la espera, en minutos u horas, sin falsa precisión', () => {
+    assert.equal(H.textoEspera(25), '25 min');
+    assert.equal(H.textoEspera(125), '2 h');
+    assert.equal(H.textoEspera(null), '—');
+  });
+});
+
+describe('nivelEspera', () => {
+  it('marca la espera en amarillo desde 15 minutos y en rojo desde 30', () => {
+    assert.equal(H.nivelEspera(14), 'normal');
+    assert.equal(H.nivelEspera(15), 'media');
+    assert.equal(H.nivelEspera(29), 'media');
+    assert.equal(H.nivelEspera(30), 'alta');
+    assert.equal(H.nivelEspera(null), 'normal');
   });
 });
 
@@ -36,7 +47,7 @@ describe('bloquesVisibles', () => {
   it('muestra los bloques propios de cada rol y solo avisa servicios al asesor cuando hace falta', () => {
     assert.deepEqual(H.bloquesVisibles('admin', {}), ['pendiente', 'carga', 'servicios', 'hoy']);
     assert.deepEqual(H.bloquesVisibles('asesor', { servicios: { estado: 'ok', afectados: [] } }), ['atencion', 'seguimiento', 'hoy']);
-    assert.deepEqual(H.bloquesVisibles('asesor', { servicios: { estado: 'ok', afectados: [{}] } }), ['atencion', 'seguimiento', 'servicios', 'hoy']);
-    assert.deepEqual(H.bloquesVisibles('asesor', { servicios: { estado: 'error', afectados: [] } }), ['atencion', 'seguimiento', 'servicios', 'hoy']);
+    assert.deepEqual(H.bloquesVisibles('asesor', { servicios: { estado: 'ok', afectados: [{}] } }), ['atencion', 'servicios', 'seguimiento', 'hoy']);
+    assert.deepEqual(H.bloquesVisibles('asesor', { servicios: { estado: 'error', afectados: [] } }), ['atencion', 'servicios', 'seguimiento', 'hoy']);
   });
 });

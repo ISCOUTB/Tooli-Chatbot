@@ -22,11 +22,21 @@ const ETAPAS = [
 ];
 let limpiarInicioActivo = null;
 
+/* Cuánto lleva esperando alguien (una duración, no "hace X"). */
 function textoEspera(minutos) {
   if (minutos === null || minutos === undefined || !Number.isFinite(Number(minutos))) return '—';
   const valor = Math.max(0, Math.floor(Number(minutos)));
-  if (valor < 60) return `hace ${valor} min`;
-  return `hace ${Math.floor(valor / 60)} h`;
+  if (valor < 60) return `${valor} min`;
+  return `${Math.floor(valor / 60)} h`;
+}
+
+/* La espera se pinta en amarillo desde 15 minutos y en rojo desde 30. */
+function nivelEspera(minutos) {
+  const valor = Number(minutos);
+  if (!Number.isFinite(valor)) return 'normal';
+  if (valor >= 30) return 'alta';
+  if (valor >= 15) return 'media';
+  return 'normal';
 }
 
 function formatoMetrica(valor) {
@@ -43,11 +53,13 @@ function estadoAsesor(estado) {
   return estados[estado] ?? estados.desconectado;
 }
 
+/* Al asesor, el aviso de servicios va justo debajo de la cola: explica por qué
+   algo puede fallar antes de que lo intente. Seguimiento y Hoy comparten fila. */
 function bloquesVisibles(rol, datos) {
   if (rol === 'admin') return ['pendiente', 'carga', 'servicios', 'hoy'];
-  const bloques = ['atencion', 'seguimiento'];
+  const bloques = ['atencion'];
   if (datos?.servicios?.estado === 'error' || datos?.servicios?.afectados?.length) bloques.push('servicios');
-  bloques.push('hoy');
+  bloques.push('seguimiento', 'hoy');
   return bloques;
 }
 
@@ -62,52 +74,107 @@ function tarjeta(id, titulo, contenido, clases = '') {
   return `<section class="ini-card ${clases}" aria-labelledby="${id}"><div class="ini-card-head"><h2 id="${id}">${titulo}</h2></div>${contenido}</section>`;
 }
 
-function metricasHoy(hoy) {
-  if (hoy.estado === 'error') return tarjeta('ini-hoy-title', 'Hoy en el bot', errorBloque('No se pudieron consultar los contadores de hoy.'));
+function metricasHoy(hoy, clases = 'ini-card-compact') {
+  if (hoy.estado === 'error') return tarjeta('ini-hoy-title', 'Hoy en el bot', errorBloque('No se pudieron consultar los contadores de hoy.'), clases);
   const metricas = [
-    ['Interacciones con el bot', hoy.interaccionesBot], ['Derivados a asesor', hoy.derivadosAsesor],
-    ['Prospectos nuevos', hoy.prospectosNuevos], ['Preguntas a la IA', hoy.preguntasIa],
+    ['Interacciones con el bot', 'interaccionesBot'], ['Derivados a asesor', 'derivadosAsesor'],
+    ['Prospectos nuevos', 'prospectosNuevos'], ['Preguntas a la IA', 'preguntasIa'],
   ];
-  return tarjeta('ini-hoy-title', 'Hoy en el bot', `<div class="ini-metrics">${metricas.map(([label, valor]) => `
-    <div class="ini-metric"><span class="ini-metric-value"${valor === null ? ' title="Sin datos"' : ''}>${escapeHtml(formatoMetrica(valor))}</span><span>${escapeHtml(label)}</span></div>
-  `).join('')}</div>`, 'ini-card-compact');
+  // Ayer va completo y hoy va por la mitad: se muestra la cifra de referencia,
+  // no un porcentaje que haría parecer malo cualquier día a media mañana.
+  const ayer = hoy.ayer ?? null;
+  return tarjeta('ini-hoy-title', 'Hoy en el bot', `${ayer ? '<p class="ini-sub">Comparado con el total de ayer</p>' : ''}<div class="ini-metrics">${metricas.map(([label, clave]) => `
+    <div class="ini-metric"><span class="ini-metric-value"${hoy[clave] === null ? ' title="Sin datos"' : ''}>${escapeHtml(formatoMetrica(hoy[clave]))}</span><span>${escapeHtml(label)}</span>${ayer ? `<small class="ini-metric-ayer">Ayer: ${escapeHtml(formatoMetrica(ayer[clave]))}</small>` : ''}</div>
+  `).join('')}</div>`, clases);
+}
+
+function filaConversacion(item, { conEspera }) {
+  const nivel = nivelEspera(item.esperaMin);
+  return `<li class="ini-cola-fila${conEspera ? '' : ' ini-cola-fila-simple'}">
+    <div class="ini-cola-texto"><strong>${escapeHtml(item.nombre)}${item.equipo ? ` <small>· ${escapeHtml(item.equipo)}</small>` : ''}</strong><span>${escapeHtml(item.vista || 'Sin texto (audio, imagen o sticker)')}</span></div>
+    ${conEspera ? `<span class="ini-espera ini-espera-${nivel}">${escapeHtml(textoEspera(item.esperaMin))}</span>` : ''}
+    <button type="button" class="ini-btn ini-btn-subtle ini-btn-sm" data-ini-abrir="${escapeHtml(item.id)}" aria-label="${conEspera ? 'Abrir' : 'Responder'} la conversación de ${escapeHtml(item.nombre)}">${conEspera ? 'Abrir' : 'Responder'}</button>
+  </li>`;
 }
 
 function atencionAsesor(atencion) {
   if (atencion.estado === 'error') return tarjeta('ini-atencion-title', 'Para atender ahora', errorBloque('No se pudo comprobar quién espera atención.'), 'ini-card-main');
   if (atencion.estado === 'no_configurado') return tarjeta('ini-atencion-title', 'Para atender ahora', '<div class="ini-state"><strong>Atención no está configurada.</strong><span>No es posible comprobar si hay personas esperando.</span></div>', 'ini-card-main');
   const vacio = atencion.sinAsignar === 0 && atencion.misSinLeer === 0;
-  // "Tomar una" solo si hay a quién tomar; con la bandeja vacía basta con ir a las propias.
+  const cola = Array.isArray(atencion.cola) ? atencion.cola : null;
+  const sinLeer = Array.isArray(atencion.sinLeer) ? atencion.sinLeer : [];
+  // Con la cola a la vista, el encabezado cita la misma cifra que su primera fila.
+  const esperaMax = cola?.length ? cola[0].esperaMin : atencion.esperaMasLargaMin;
+  const nivel = atencion.sinAsignar > 0 ? nivelEspera(esperaMax) : 'normal';
+  const partes = [];
+
+  if (vacio) partes.push(`<div class="ini-empty">${icono('check', 22)}<strong>Nadie espera a un asesor</strong></div>`);
+  if (atencion.sinAsignar > 0) {
+    partes.push(`<div class="ini-cola-head"><p class="ini-cola-total"><strong>${escapeHtml(atencion.sinAsignar)}</strong> ${plural(atencion.sinAsignar, 'persona espera', 'personas esperan')} un asesor</p><span class="ini-espera ini-espera-${nivel}">${icono('clock', 14)} ${plural(atencion.sinAsignar, 'Lleva', 'La más antigua lleva')} ${escapeHtml(textoEspera(esperaMax))}</span></div>`);
+    if (cola?.length) {
+      const restantes = atencion.sinAsignar - cola.length;
+      partes.push(`<ol class="ini-cola" aria-label="Personas en espera, de la que más lleva a la que menos">${cola.map((item) => filaConversacion(item, { conEspera: true })).join('')}</ol>`);
+      if (restantes > 0) partes.push(`<p class="ini-sub ini-cola-mas">y ${escapeHtml(restantes)} más en la cola</p>`);
+    }
+  }
+  if (sinLeer.length) {
+    partes.push(`<div class="ini-sinleer"><p class="ini-sinleer-title">${icono('message', 16)} ${plural(atencion.misSinLeer, 'Tuya sin leer', `${escapeHtml(atencion.misSinLeer)} tuyas sin leer`)}</p><ol class="ini-cola">${sinLeer.map((item) => filaConversacion(item, { conEspera: false })).join('')}</ol></div>`);
+  } else if (atencion.misSinLeer > 0) {
+    partes.push(`<p class="ini-sub">${escapeHtml(atencion.misSinLeer)} ${plural(atencion.misSinLeer, 'conversación tuya sin leer', 'conversaciones tuyas sin leer')}</p>`);
+  }
+  if (!vacio && atencion.sinAsignar > 0 && !cola) {
+    partes.push(`<div class="ini-priority-grid"><div><strong>${escapeHtml(atencion.sinAsignar)}</strong><span>Sin asignar</span></div><div><strong>${escapeHtml(atencion.misSinLeer)}</strong><span>Tuyas sin leer</span></div><div><strong>${escapeHtml(textoEspera(atencion.esperaMasLargaMin))}</strong><span>Espera más larga</span></div></div>`);
+  }
+
+  // Con la cola a la vista, la acción principal es abrir a quien más lleva.
   const acciones = [
-    atencion.sinAsignar > 0 ? `<button type="button" class="ini-btn ini-btn-primary" data-ini-action="tomar">${icono('headset')} Tomar una</button>` : '',
+    cola?.length ? `<button type="button" class="ini-btn ini-btn-primary" data-ini-abrir="${escapeHtml(cola[0].id)}">${icono('headset')} Abrir la que más lleva</button>` : '',
+    atencion.sinAsignar > 0 ? `<button type="button" class="ini-btn ${cola?.length ? 'ini-btn-secondary' : 'ini-btn-primary'}" data-ini-action="tomar">${cola?.length ? `Ver las ${escapeHtml(atencion.sinAsignar)} en espera` : `${icono('headset')} Tomar una`}</button>` : '',
     atencion.vinculado ? `<button type="button" class="ini-btn ${atencion.sinAsignar > 0 ? 'ini-btn-secondary' : 'ini-btn-primary'}" data-ini-action="mias">Ver las mías ${icono('chevronRight', 15)}</button>` : '',
   ].join('');
-  return tarjeta('ini-atencion-title', 'Para atender ahora', `
-    ${vacio ? `<div class="ini-empty">${icono('check', 22)}<strong>Nadie espera a un asesor</strong></div>` : `
-      <div class="ini-priority-grid"><div><strong>${escapeHtml(atencion.sinAsignar)}</strong><span>Sin asignar</span></div><div><strong>${escapeHtml(atencion.misSinLeer)}</strong><span>Tuyas sin leer</span></div><div><strong>${escapeHtml(textoEspera(atencion.esperaMasLargaMin))}</strong><span>Espera más larga</span></div></div>`}
-    ${acciones ? `<div class="ini-actions">${acciones}</div>` : ''}
-    ${atencion.vinculado ? '' : '<p class="ini-help">Tu usuario no tiene cuenta de Atención vinculada, así que no puedes tener conversaciones propias. Pídele a un administrador que la cree.</p>'}
-  `, 'ini-card-main');
+  partes.push(acciones ? `<div class="ini-actions">${acciones}</div>` : '');
+  if (!atencion.vinculado) partes.push('<p class="ini-help">Tu usuario no tiene cuenta de Atención vinculada, así que no puedes tener conversaciones propias. Pídele a un administrador que la cree.</p>');
+  return tarjeta('ini-atencion-title', 'Para atender ahora', partes.join(''), `ini-card-main ini-nivel-${nivel}`);
+}
+
+function tareaSeguimiento(iconoNombre, texto, atributos, tono = '') {
+  return `<button type="button" class="ini-tarea ${tono}" ${atributos}>${icono(iconoNombre, 17)}<span>${texto}</span>${icono('chevronRight', 15)}</button>`;
 }
 
 function seguimientoAsesor(seguimiento, recordatorios) {
   const partes = [];
   if (seguimiento.estado === 'error') partes.push(errorBloque('No se pudo consultar tu seguimiento.'));
   else {
-    const botones = ETAPAS.filter(([estado]) => seguimiento.mios[estado] > 0).map(([estado, label]) => {
-      const cantidad = seguimiento.mios[estado];
-      return `<button type="button" class="ini-stage" data-ini-etapa="${estado}" aria-label="Ver ${escapeHtml(cantidad)} prospectos ${label.toLowerCase()}"><strong>${escapeHtml(cantidad)}</strong><span>${label}</span>${icono('chevronRight', 14)}</button>`;
-    });
-    partes.push(botones.length ? `<div class="ini-stages">${botones.join('')}</div>` : '<div class="ini-empty ini-empty-small">No tienes prospectos asignados.</div>');
+    const mios = seguimiento.mios;
+    const total = ETAPAS.reduce((suma, [estado]) => suma + (mios[estado] || 0), 0);
+    if (!total) partes.push('<div class="ini-empty ini-empty-small">No tienes prospectos asignados.</div>');
+    else {
+      const tareas = [];
+      if (mios.nuevo > 0) tareas.push(tareaSeguimiento('user', `<strong>${escapeHtml(mios.nuevo)}</strong> ${plural(mios.nuevo, 'nuevo sin contactar', 'nuevos sin contactar')}`, 'data-ini-etapa="nuevo"'));
+      if (seguimiento.estancados > 0) tareas.push(tareaSeguimiento('clock', `<strong>${escapeHtml(seguimiento.estancados)}</strong> sin movimiento hace más de ${escapeHtml(seguimiento.diasSinMovimiento ?? 5)} días`, 'data-ini-etapa="contactado"', 'ini-tarea-aviso'));
+      if (recordatorios.estado !== 'error' && recordatorios.programadosHoy > 0) tareas.push(tareaSeguimiento('bell', `<strong>${escapeHtml(recordatorios.programadosHoy)}</strong> ${plural(recordatorios.programadosHoy, 'recordatorio sale hoy', 'recordatorios salen hoy')}`, 'data-ini-action="recordatorios-hoy"'));
+      partes.push(tareas.length ? `<div class="ini-tareas">${tareas.join('')}</div>` : `<div class="ini-empty ini-empty-small">${icono('check', 18)} Nada pendiente para hoy.</div>`);
+      // El embudo resume la cartera; cada etapa sigue llevando a su lista.
+      const presentes = ETAPAS.filter(([estado]) => mios[estado] > 0);
+      partes.push(`<div class="ini-embudo" aria-hidden="true">${presentes.map(([estado]) => `<span class="ini-embudo-${estado}" style="flex:${mios[estado]}"></span>`).join('')}</div>
+        <div class="ini-embudo-leyenda">${presentes.map(([estado, label]) => `<button type="button" data-ini-etapa="${estado}" aria-label="Ver ${escapeHtml(mios[estado])} prospectos ${label.toLowerCase()}"><i class="ini-punto ini-embudo-${estado}"></i>${escapeHtml(mios[estado])} ${mios[estado] === 1 ? estado : label.toLowerCase()}</button>`).join('')}</div>`);
+    }
   }
   if (recordatorios.estado === 'error') partes.push(errorBloque('No se pudieron comprobar tus recordatorios.'));
   else if (recordatorios.fallidos > 0) partes.push(`<button type="button" class="ini-notice ini-notice-danger" data-ini-action="recordatorios">${icono('bell')}<span><strong>${escapeHtml(recordatorios.fallidos)} ${plural(recordatorios.fallidos, 'recordatorio falló', 'recordatorios fallaron')}</strong><small>Revisar envíos</small></span>${icono('chevronRight', 16)}</button>`);
-  return tarjeta('ini-seguimiento-title', 'Tu seguimiento', partes.join(''), 'ini-card-compact');
+  return tarjeta('ini-seguimiento-title', 'Tu seguimiento de hoy', partes.join(''), 'ini-card-half');
 }
 
+/* Nombre que reconoce un asesor para cada servicio que revisa /health/deep. */
+const NOMBRES_SERVICIO = {
+  iceberg: 'Portal Iceberg', sheets: 'Google Sheets', google_sheets: 'Google Sheets', meta: 'WhatsApp',
+  meta_whatsapp: 'WhatsApp', chatwoot: 'Atención', redis: 'Base de datos del panel', openai: 'IA del bot',
+};
+
 function serviciosAsesor(servicios) {
-  if (servicios.estado === 'error') return tarjeta('ini-servicios-title', 'Disponibilidad', errorBloque('No se pudo comprobar si los servicios están disponibles.'));
-  return tarjeta('ini-servicios-title', 'Esto puede afectar tu trabajo', `<ul class="ini-service-list">${servicios.afectados.map((item) => `<li class="ini-service ${item.nivel === 'caido' ? 'ini-service-caido' : 'ini-service-degradado'}">${icono('bolt')}<span>${escapeHtml(item.mensaje)}</span></li>`).join('')}</ul>`, 'ini-card-alert');
+  if (servicios.estado === 'error') return tarjeta('ini-servicios-title', 'Estado de los servicios', errorBloque('No se pudo comprobar si los servicios están disponibles.'), 'ini-card-alert');
+  const titulo = servicios.afectados.length === 1 ? 'Un servicio tiene fallas' : 'Hay servicios con fallas';
+  return tarjeta('ini-servicios-title', titulo, `<ul class="ini-service-list">${servicios.afectados.map((item) => `<li class="ini-service ${item.nivel === 'caido' ? 'ini-service-caido' : 'ini-service-degradado'}">${icono('bolt', 15)}<span><strong>${escapeHtml(NOMBRES_SERVICIO[item.servicio] ?? item.servicio.replaceAll('_', ' '))}${item.nivel === 'caido' ? ' no responde' : ' va lento'}.</strong> ${escapeHtml(item.mensaje)}.</span></li>`).join('')}</ul>`, 'ini-card-alert');
 }
 
 function pendienteAdmin(datos) {
@@ -162,9 +229,16 @@ function saludo() {
 function conectarAcciones(contenedor, recargar) {
   contenedor.querySelectorAll('[data-ini-retry]').forEach((boton) => boton.addEventListener('click', recargar));
   contenedor.querySelectorAll('[data-ini-etapa]').forEach((boton) => boton.addEventListener('click', () => navigate('registros', { etapa: boton.dataset.iniEtapa, mios: '1' })));
+  // Atención abre la conversación que quede en 'atencion.abrir' (el mismo
+  // camino que usan los avisos), esté en la lista filtrada o no.
+  contenedor.querySelectorAll('[data-ini-abrir]').forEach((boton) => boton.addEventListener('click', () => {
+    try { sessionStorage.setItem('atencion.abrir', boton.dataset.iniAbrir); } catch { /* sin almacenamiento solo se abre la bandeja */ }
+    navigate('atencion', { asignado: 'todas' });
+  }));
   const acciones = {
     tomar: () => navigate('atencion', { asignado: 'sin_asignar' }), mias: () => navigate('atencion', { asignado: 'mias' }),
-    recordatorios: () => navigate('recordatorios', { estado: 'fallido' }), 'sin-asignar': () => navigate('registros', { sinAsignar: '1' }),
+    recordatorios: () => navigate('recordatorios', { estado: 'fallido' }), 'recordatorios-hoy': () => navigate('recordatorios', { estado: 'programado' }),
+    'sin-asignar': () => navigate('registros', { sinAsignar: '1' }),
     health: () => navigate('health'), actividad: () => navigate('actividad'),
   };
   contenedor.querySelectorAll('[data-ini-action]').forEach((boton) => boton.addEventListener('click', acciones[boton.dataset.iniAction]));
@@ -173,7 +247,7 @@ function conectarAcciones(contenedor, recargar) {
 async function renderHome(main) {
   limpiarInicioActivo?.();
   const rol = sesion.user.role === 'admin' ? 'admin' : 'asesor';
-  const nombres = rol === 'admin' ? ['Pendiente del equipo', 'Carga por asesor', 'Estado técnico', 'Hoy en el bot'] : ['Para atender ahora', 'Tu seguimiento', 'Hoy en el bot'];
+  const nombres = rol === 'admin' ? ['Pendiente del equipo', 'Carga por asesor', 'Estado técnico', 'Hoy en el bot'] : ['Para atender ahora', 'Tu seguimiento de hoy', 'Hoy en el bot'];
   main.innerHTML = `<div class="ini-page" id="inicioPanel">${saludo()}<div class="ini-layout">${nombres.map(esqueleto).join('')}</div></div>`;
   const panel = main.querySelector('#inicioPanel');
   let solicitud = 0;
@@ -190,7 +264,7 @@ async function renderHome(main) {
       const vistas = rol === 'admin' ? {
         pendiente: () => pendienteAdmin(datos), carga: () => cargaAdmin(datos.atencion), hoy: () => metricasHoy(datos.hoy), servicios: () => serviciosAdmin(datos.servicios),
       } : {
-        atencion: () => atencionAsesor(datos.atencion), seguimiento: () => seguimientoAsesor(datos.seguimiento, datos.recordatorios), servicios: () => serviciosAsesor(datos.servicios), hoy: () => metricasHoy(datos.hoy),
+        atencion: () => atencionAsesor(datos.atencion), seguimiento: () => seguimientoAsesor(datos.seguimiento, datos.recordatorios), servicios: () => serviciosAsesor(datos.servicios), hoy: () => metricasHoy(datos.hoy, 'ini-card-half'),
       };
       panel.querySelector('.ini-layout').innerHTML = bloques.map((bloque) => vistas[bloque]()).join('');
       panel.removeAttribute('aria-busy');
@@ -224,4 +298,4 @@ async function renderHome(main) {
   await cargar();
 }
 
-export { bloquesVisibles, estadoAsesor, formatoMetrica, renderHome, textoEspera };
+export { bloquesVisibles, estadoAsesor, formatoMetrica, nivelEspera, renderHome, textoEspera };
