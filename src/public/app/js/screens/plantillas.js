@@ -1,19 +1,17 @@
 import { api } from '../core/api.js';
-import {
-  MAX_POR_ENVIO, SECTORES, enLotes, fechaEvento, parseNumerosPegados, telefonosContactables,
-} from '../core/asistencia.js';
+import { MAX_POR_ENVIO, SECTORES, enLotes, fechaEvento } from '../core/asistencia.js';
 import { escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible, formatTelefono, formatWhatsApp, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import {
-  CATEGORIAS, claveDePlantilla, estadoEnvio, motivoNoEnviable, partesPlantilla, variablesDePlantilla,
+  CATEGORIAS, armarDestinatarios, claveDePlantilla, estadoEnvio, estadoPlantilla, llenarTexto, motivoNoEnviable,
+  nombreTecnico, partesPlantilla, plantillaDesdeFormulario, ranurasDePlantilla, variablesDePlantilla,
 } from '../core/plantillas.js';
 import { parametrosRuta } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
 import { abrirDialogo } from '../ui/dialog.js';
-import { ActionSheet } from '../ui/sheet.js';
 
 /* ============= PLANTILLAS DE WHATSAPP =============
    Fuera de las 24 h desde el último mensaje de una persona, Meta solo deja
@@ -35,8 +33,10 @@ function cuerpoHtml(texto) {
   return formatWhatsApp(escapeHtml(texto)).replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, '<span class="plt-variable">{{$1}}</span>');
 }
 
-function burbujaHtml(plantilla) {
-  const p = partesPlantilla(plantilla);
+/** `valores`: { 'cuerpo:1': 'Ana', … } para mostrar el mensaje como le llega a alguien. */
+function burbujaHtml(plantilla, valores = null) {
+  const original = partesPlantilla(plantilla);
+  const p = { ...original, encabezado: llenarTexto(original.encabezado, valores, 'encabezado'), cuerpo: llenarTexto(original.cuerpo, valores, 'cuerpo') };
   return `
     <div class="plt-burbuja">
       ${p.encabezadoMedia === 'IMAGE' && p.encabezadoEjemplo
@@ -57,13 +57,14 @@ async function renderPlantillas(main) {
     <div class="page-header">
       <div><h1>${icon('megaphone', 26)} Plantillas</h1><div class="subtitle">Mensajes aprobados por Meta: lo único que WhatsApp deja enviar a quien no ha escrito en las últimas 24 horas</div></div>
       <div class="asis-acciones">
-        <a class="btn btn-secondary plt-meta" href="${ADMINISTRADOR_META}" target="_blank" rel="noopener noreferrer">${icon('external', 16)} Crear o editar en Meta</a>
         <button type="button" class="btn btn-secondary" id="pltRefresh"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
+        <a class="btn btn-secondary plt-meta" href="${ADMINISTRADOR_META}" target="_blank" rel="noopener noreferrer">${icon('external', 16)} Abrir Meta</a>
+        <button type="button" class="btn btn-primary" id="pltNueva">${icon('plus', 16)} Nueva plantilla</button>
       </div>
     </div>
     <div class="plt-layout">
       <section class="card plt-lista" aria-labelledby="pltListaTitulo">
-        <h2 id="pltListaTitulo">Plantillas aprobadas</h2>
+        <h2 id="pltListaTitulo">Plantillas</h2>
         <div id="pltLista">${Array.from({ length: 3 }).map(() => '<div class="skeleton skeleton-line" style="height:44px;margin:8px 0;"></div>').join('')}</div>
       </section>
       <div class="plt-derecha">
@@ -88,8 +89,13 @@ async function renderPlantillas(main) {
   let eventos = [];
   let fuente = 'evento';
   let eventoId = eventoInicial;
-  let contactables = null;       // { eventoId, telefonos, total } del evento elegido
+  let contactables = null;       // { eventoId, asistentes, total } del evento elegido
   let numerosTexto = '';
+  let origenes = {};             // clave de la variable → { origen, texto }
+  let porPersona = false;        // números: cada línea trae sus propios datos
+  let pendienteDeElegir = '';    // la plantilla recién creada, para mostrarla al recargar
+  let errorEnvio = '';           // del último envío; se borran al empezar otro
+  let avisoEnvio = '';
   let enviando = false;
   let trabajos = [];             // ids de los envíos creados en esta visita
   let secuenciaEvento = 0;
@@ -106,27 +112,38 @@ async function renderPlantillas(main) {
       listaEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">${icon('megaphone', 40)}</div>
-          <div class="empty-state-title">No hay plantillas aprobadas</div>
-          <div class="empty-state-sub">Se crean en el <a href="${ADMINISTRADOR_META}" target="_blank" rel="noopener noreferrer">administrador de WhatsApp de Meta</a>. Cuando Meta apruebe una, aparece aquí sola.</div>
+          <div class="empty-state-title">Todavía no hay plantillas</div>
+          <div class="empty-state-sub">Crea la primera con <strong>Nueva plantilla</strong>. Meta la revisa y, cuando la apruebe, se puede enviar desde aquí.</div>
         </div>`;
       return;
     }
-    listaEl.innerHTML = plantillas.map((t, i) => {
+    const item = (t) => {
+      const i = plantillas.indexOf(t);
       const categoria = CATEGORIAS[String(t.category).toUpperCase()] ?? { label: t.category || 'Otra', color: '#475163' };
       const activa = elegida && claveDePlantilla(elegida) === claveDePlantilla(t);
-      const variables = variablesDePlantilla(t);
+      const estado = estadoPlantilla(t);
+      let datos = 0;
+      try { datos = ranurasDePlantilla(t).length; } catch { datos = variablesDePlantilla(t); }
       return `
-        <button type="button" class="plt-item${activa ? ' activa' : ''}" data-idx="${i}" aria-pressed="${activa}">
+        <button type="button" class="plt-item${activa ? ' activa' : ''}${estado.aprobada ? '' : ' no-aprobada'}" data-idx="${i}" aria-pressed="${activa}">
           <span class="plt-item-nombre">${escapeHtml(t.name)}</span>
           <span class="plt-item-meta">
+            ${estado.aprobada ? '' : `<span class="badge plt-tono-${estado.tono}">${escapeHtml(estado.texto)}</span>`}
             <span class="badge" style="background:${categoria.color}1f;color:${colorTextoLegible(categoria.color)};">${escapeHtml(categoria.label)}</span>
             <span>${escapeHtml(t.language)}</span>
-            ${variables ? `<span class="plt-item-variables">${variables} variable${variables === 1 ? '' : 's'}</span>` : ''}
+            ${datos ? `<span class="plt-item-variables">${datos} dato${datos === 1 ? '' : 's'} por llenar</span>` : ''}
           </span>
         </button>`;
-    }).join('');
+    };
+    const aprobadas = plantillas.filter(t => estadoPlantilla(t).aprobada);
+    const otras = plantillas.filter(t => !estadoPlantilla(t).aprobada);
+    listaEl.innerHTML = `
+      ${aprobadas.length ? aprobadas.map(item).join('') : '<div class="widget-empty">Todavía no hay plantillas aprobadas.</div>'}
+      ${otras.length ? `<div class="plt-lista-grupo">En revisión o sin aprobar</div>${otras.map(item).join('')}` : ''}`;
     listaEl.querySelectorAll('.plt-item').forEach(boton => boton.addEventListener('click', () => {
-      elegida = plantillas[Number(boton.dataset.idx)];
+      const nueva = plantillas[Number(boton.dataset.idx)];
+      if (!elegida || claveDePlantilla(elegida) !== claveDePlantilla(nueva)) { origenes = {}; porPersona = false; }
+      elegida = nueva;
       haptic(10);
       pintarLista();
       pintarPrevia();
@@ -137,7 +154,7 @@ async function renderPlantillas(main) {
   function pintarPrevia() {
     if (!elegida) { previaEl.innerHTML = '<div class="widget-empty">Elige una plantilla para verla.</div>'; return; }
     const { encabezadoMedia, encabezadoEjemplo } = partesPlantilla(elegida);
-    previaEl.innerHTML = `<div class="plt-chat">${burbujaHtml(elegida)}</div>
+    previaEl.innerHTML = `<div class="plt-chat">${burbujaHtml(elegida, valoresDeMuestra())}</div>
       ${encabezadoMedia && encabezadoEjemplo ? `<p class="plt-previa-nota">Se envía con ${encabezadoMedia === 'IMAGE' ? 'la misma imagen' : 'el mismo archivo'} con que Meta aprobó la plantilla.</p>` : ''}`;
     // Si la imagen no carga (dirección vencida), queda el marcador en su lugar.
     previaEl.querySelector('.plt-media-img')?.addEventListener('error', (event) => {
@@ -150,7 +167,7 @@ async function renderPlantillas(main) {
 
   async function cargarPlantillas() {
     try {
-      const r = await api('/api/tools/broadcast/templates');
+      const r = await api('/api/tools/broadcast/templates/todas');
       if (!listaEl.isConnected || !r) return;
       if (!r.ok) throw new Error((await leerJson(r)).message || 'No se pudieron consultar las plantillas de Meta');
       const data = await r.json();
@@ -158,6 +175,10 @@ async function renderPlantillas(main) {
       plantillas = Array.isArray(data.templates) ? data.templates : [];
       if (elegida) elegida = plantillas.find(t => claveDePlantilla(t) === claveDePlantilla(elegida)) ?? null;
       if (!elegida && plantillas.length === 1) elegida = plantillas[0];
+      if (pendienteDeElegir) {
+        elegida = plantillas.find(t => claveDePlantilla(t) === pendienteDeElegir) ?? elegida;
+        pendienteDeElegir = '';
+      }
       pintarLista();
       pintarPrevia();
       pintarEnvio();
@@ -170,9 +191,24 @@ async function renderPlantillas(main) {
 
   /* ── Destinatarios ── */
 
-  function destinatarios() {
-    if (fuente === 'evento') return contactables && contactables.eventoId === eventoId ? contactables.telefonos : [];
-    return parseNumerosPegados(numerosTexto).validos;
+  function ranurasElegida() {
+    if (!elegida) return [];
+    try { return ranurasDePlantilla(elegida); } catch { return []; }
+  }
+
+  /** { listos: [{ telefono, parametros }], incompletos, invalidos, repetidos } */
+  function calcular() {
+    const ranuras = ranurasElegida();
+    const asistentes = fuente === 'evento' && contactables?.eventoId === eventoId ? contactables.asistentes : [];
+    return armarDestinatarios({ ranuras, origenes, fuente, asistentes, texto: numerosTexto, porPersona });
+  }
+
+  /** Los valores de la primera persona lista, o lo escrito, para la vista previa. */
+  function valoresDeMuestra() {
+    const ranuras = ranurasElegida();
+    if (!ranuras.length) return null;
+    const primero = calcular().listos[0];
+    return Object.fromEntries(ranuras.map((r, i) => [r.clave, primero?.parametros[i] ?? String(origenes[r.clave]?.texto ?? '').trim()]));
   }
 
   function etiquetaEnvio() {
@@ -193,12 +229,15 @@ async function renderPlantillas(main) {
       const data = await r.json();
       if (!envioEl.isConnected || seq !== secuenciaEvento) return;
       const asistentes = Array.isArray(data.asistentes) ? data.asistentes : [];
-      contactables = { eventoId, telefonos: telefonosContactables(asistentes), total: asistentes.length };
+      // Solo quien autorizó el contacto y tiene un número al que Meta entrega.
+      const aptos = asistentes.filter(a => a.consentimiento && /^[1-9]\d{9,14}$/.test(String(a.whatsapp ?? '')));
+      contactables = { eventoId, asistentes: aptos, total: asistentes.length };
     } catch {
       if (!envioEl.isConnected || seq !== secuenciaEvento) return;
-      contactables = { eventoId, telefonos: [], total: 0, error: true };
+      contactables = { eventoId, asistentes: [], total: 0, error: true };
     }
     pintarResumen();
+    pintarPrevia();
   }
 
   function pintarResumen() {
@@ -214,19 +253,27 @@ async function renderPlantillas(main) {
       else if (!contactables || contactables.eventoId !== eventoId) texto = '<span class="spinner"></span> Contando asistentes…';
       else if (contactables.error) texto = 'No se pudo cargar la lista de ese evento.';
       else {
-        total = contactables.telefonos.length;
-        texto = total
-          ? `<strong>${total}</strong> de ${contactables.total} asistente${contactables.total === 1 ? '' : 's'} recibirá${total === 1 ? '' : 'n'} la plantilla. Los demás no tienen WhatsApp registrado o no autorizaron el contacto.`
+        const { listos, incompletos } = calcular();
+        total = listos.length;
+        const aptos = contactables.asistentes.length;
+        texto = aptos
+          ? `<strong>${total}</strong> de ${contactables.total} asistente${contactables.total === 1 ? '' : 's'} recibirá${total === 1 ? '' : 'n'} la plantilla. ${aptos < contactables.total ? 'Los demás no tienen WhatsApp registrado o no autorizaron el contacto.' : ''}`
           : `Ninguno de los ${contactables.total} asistentes tiene WhatsApp y autorización de contacto.`;
+        if (incompletos) texto += ` <span class="plt-resumen-falta">${incompletos} quedan por fuera porque les falta un dato del mensaje (por ejemplo, el nombre).</span>`;
       }
     } else {
-      const { validos, invalidos, repetidos } = parseNumerosPegados(numerosTexto);
-      total = validos.length;
+      const { listos, invalidos, repetidos, incompletos } = calcular();
+      total = listos.length;
       const notas = [
         invalidos ? `${invalidos} no ${invalidos === 1 ? 'es un número válido' : 'son números válidos'}` : '',
         repetidos ? `${repetidos} repetido${repetidos === 1 ? '' : 's'}` : '',
+        incompletos ? `${incompletos} sin todos los datos del mensaje` : '',
       ].filter(Boolean).join(' · ');
-      texto = total ? `<strong>${total}</strong> número${total === 1 ? '' : 's'} válido${total === 1 ? '' : 's'}.${notas ? ` ${notas}.` : ''}` : (notas || 'Escribe al menos un número.');
+      texto = total ? `<strong>${total}</strong> persona${total === 1 ? '' : 's'} lista${total === 1 ? '' : 's'}.${notas ? ` ${notas}.` : ''}` : (notas || 'Escribe al menos un número.');
+    }
+    if (total && ranurasElegida().some(r => !String(origenes[r.clave]?.texto ?? '').trim() && (origenes[r.clave]?.origen ?? 'fijo') === 'fijo') && !(fuente === 'numeros' && porPersona)) {
+      texto = 'Llena los datos del mensaje.';
+      total = 0;
     }
     const lotes = Math.ceil(total / MAX_POR_ENVIO);
     resumen.innerHTML = `${texto}${lotes > 1 ? ` Se hará en ${lotes} envíos de hasta ${MAX_POR_ENVIO}.` : ''}`;
@@ -241,6 +288,7 @@ async function renderPlantillas(main) {
       ${motivo ? `<div class="alert alert-warning" role="status">${escapeHtml(motivo)}</div>` : ''}
       <div class="plt-fuente" id="pltFuente"></div>
       <div id="pltFuenteCuerpo"></div>
+      <div id="pltVariables"></div>
       <p class="plt-resumen" id="pltResumen" role="status" aria-live="polite"></p>
       <button type="button" class="btn btn-primary" id="pltEnviar" disabled>${icon('send', 16)} Enviar plantilla</button>
       <div id="pltProgreso"></div>`;
@@ -260,49 +308,142 @@ async function renderPlantillas(main) {
         </div>`;
       cuerpo.querySelector('#pltEvento').addEventListener('change', (event) => { eventoId = event.target.value; void cargarContactables(); });
     } else {
+      const ranuras = ranurasElegida();
+      const lineaEjemplo = ['3001234567', ...ranuras.map(r => r.ejemplo || r.etiqueta.split(' ')[0])].join('; ');
       cuerpo.innerHTML = `
-        <div class="field"><label for="pltNumeros">Números de WhatsApp</label>
-          <textarea id="pltNumeros" rows="4" placeholder="3001234567&#10;573009876543">${escapeHtml(numerosTexto)}</textarea>
-          <div class="field-help">Uno por línea o separados por comas. Asegúrate de que autorizaron que la UTB los contacte.</div>
+        ${ranuras.length ? `<label class="asis-check plt-por-persona"><input type="checkbox" id="pltPorPersona"${porPersona ? ' checked' : ''}> <span>Cada número lleva sus propios datos</span></label>` : ''}
+        <div class="field"><label for="pltNumeros">${porPersona && ranuras.length ? 'Una persona por línea' : 'Números de WhatsApp'}</label>
+          <textarea id="pltNumeros" rows="4" placeholder="${porPersona && ranuras.length ? escapeHtml(lineaEjemplo) : '3001234567&#10;573009876543'}">${escapeHtml(numerosTexto)}</textarea>
+          <div class="field-help">${porPersona && ranuras.length
+            ? `Número y luego cada dato en orden (${ranuras.map(r => escapeHtml(r.etiqueta.split(' ')[0] === 'Final' ? 'final del enlace' : r.etiqueta.split(' ')[0])).join(', ')}), separados por punto y coma. Puedes pegar las columnas desde Excel.`
+            : 'Uno por línea o separados por comas.'} Asegúrate de que autorizaron que la UTB los contacte.</div>
         </div>`;
-      cuerpo.querySelector('#pltNumeros').addEventListener('input', (event) => { numerosTexto = event.target.value; pintarResumen(); });
+      cuerpo.querySelector('#pltNumeros').addEventListener('input', (event) => { numerosTexto = event.target.value; pintarResumen(); pintarPrevia(); });
+      cuerpo.querySelector('#pltPorPersona')?.addEventListener('change', (event) => { porPersona = event.target.checked; pintarEnvio(); pintarPrevia(); });
     }
+    pintarVariables();
     envioEl.querySelector('#pltEnviar').addEventListener('click', confirmarEnvio);
     pintarResumen();
     pintarProgreso();
   }
 
+  /* Un campo por cada variable de la plantilla. Con asistentes, el nombre
+     puede salir de cada persona; lo demás es igual para todos. */
+  function pintarVariables() {
+    const caja = envioEl.querySelector('#pltVariables');
+    if (!caja) return;
+    const ranuras = ranurasElegida();
+    if (!ranuras.length || (fuente === 'numeros' && porPersona)) { caja.innerHTML = ''; return; }
+    caja.innerHTML = `
+      <fieldset class="plt-variables">
+        <legend>Datos del mensaje</legend>
+        ${ranuras.map(r => {
+          const actual = origenes[r.clave] ?? { origen: 'fijo', texto: '' };
+          const id = `pltVar_${r.clave.replace(':', '_')}`;
+          return `
+            <div class="plt-variable-campo">
+              <label for="${id}">${escapeHtml(r.etiqueta)}</label>
+              <div class="plt-variable-fila">
+                ${fuente === 'evento' && r.lugar !== 'boton' ? `
+                  <select data-origen="${escapeHtml(r.clave)}" aria-label="De dónde sale ${escapeHtml(r.etiqueta)}">
+                    <option value="fijo"${actual.origen === 'fijo' ? ' selected' : ''}>Igual para todos</option>
+                    <option value="primer_nombre"${actual.origen === 'primer_nombre' ? ' selected' : ''}>Primer nombre de cada asistente</option>
+                    <option value="nombre"${actual.origen === 'nombre' ? ' selected' : ''}>Nombre completo de cada asistente</option>
+                  </select>` : ''}
+                <input type="text" id="${id}" data-texto="${escapeHtml(r.clave)}" maxlength="200" value="${escapeHtml(actual.texto ?? '')}"
+                  placeholder="${r.ejemplo ? `Ej.: ${escapeHtml(r.ejemplo)}` : ''}"${actual.origen !== 'fijo' ? ' hidden' : ''}>
+              </div>
+              ${r.lugar === 'boton' ? `<div class="field-help">Se agrega al final de ${escapeHtml(r.base)}</div>` : ''}
+            </div>`;
+        }).join('')}
+      </fieldset>`;
+    caja.querySelectorAll('[data-origen]').forEach(select => select.addEventListener('change', () => {
+      const clave = select.dataset.origen;
+      origenes[clave] = { ...(origenes[clave] ?? { texto: '' }), origen: select.value };
+      const input = caja.querySelector(`[data-texto="${clave}"]`);
+      if (input) input.hidden = select.value !== 'fijo';
+      pintarResumen();
+      pintarPrevia();
+    }));
+    caja.querySelectorAll('[data-texto]').forEach(input => input.addEventListener('input', () => {
+      const clave = input.dataset.texto;
+      origenes[clave] = { origen: origenes[clave]?.origen ?? 'fijo', texto: input.value };
+      pintarResumen();
+      pintarPrevia();
+    }));
+  }
+
+  /* Antes de enviar se muestra exactamente qué va a llegar y a quién: el
+     mensaje no se puede retirar una vez sale. */
   function confirmarEnvio() {
-    const telefonos = destinatarios();
-    if (!elegida || !telefonos.length || enviando) return;
-    ActionSheet.open({
-      title: `¿Enviar "${elegida.name}" a ${telefonos.length} persona${telefonos.length === 1 ? '' : 's'}?`,
-      subtitle: `${etiquetaEnvio()}. Los mensajes salen por WhatsApp y no se pueden retirar.`,
-      groups: [
-        [{ label: `Enviar a ${telefonos.length}`, icon: icon('send', 16), onClick: () => enviar(telefonos) }],
-        [{ label: 'Cancelar', cancel: true }],
-      ],
+    const ranuras = ranurasElegida();
+    const listos = calcular().listos;
+    if (!elegida || !listos.length || enviando) return;
+    const plantilla = elegida;
+    const total = listos.length;
+    const personas = `${total} persona${total === 1 ? '' : 's'}`;
+    const { encabezadoMedia } = partesPlantilla(plantilla);
+    const categoria = CATEGORIAS[String(plantilla.category).toUpperCase()] ?? { label: plantilla.category || 'Otra', color: '#475163' };
+    const lotes = Math.ceil(total / MAX_POR_ENVIO);
+    const muestra = listos.slice(0, 6).map(d => `<li><span>${escapeHtml(formatTelefono(d.telefono))}</span>${d.parametros.length ? `<span class="plt-confirmar-datos-persona">${escapeHtml(d.parametros.join(' · '))}</span>` : ''}</li>`).join('');
+    const valoresPrimero = Object.fromEntries(ranuras.map((r, i) => [r.clave, listos[0].parametros[i]]));
+    const avisos = [
+      encabezadoMedia ? `Va con ${encabezadoMedia === 'IMAGE' ? 'la imagen' : 'el archivo'} con que Meta aprobó la plantilla; si pesa más de lo que WhatsApp admite, se envía una versión más liviana.` : '',
+      String(plantilla.category).toUpperCase() === 'MARKETING' ? 'Es de marketing: Meta puede no entregarla a quien ya recibió varias plantillas de marketing hace poco. Esos casos aparecen como fallidos en el historial.' : '',
+      lotes > 1 ? `Se hará en ${lotes} envíos de hasta ${MAX_POR_ENVIO} personas.` : '',
+    ].filter(Boolean);
+    const dialogo = abrirDialogo({
+      titulo: 'Revisa antes de enviar',
+      ancho: true,
+      cuerpo: `
+        <div class="plt-confirmar">
+          <div class="plt-chat">${burbujaHtml(plantilla, valoresPrimero)}${total > 1 && ranuras.length ? '<p class="plt-previa-nota">Así le llega a la primera persona de la lista.</p>' : ''}</div>
+          <div class="plt-confirmar-datos">
+            <dl class="plt-detalle">
+              <div><dt>Plantilla</dt><dd>${escapeHtml(plantilla.name)} <span class="badge" style="background:${categoria.color}1f;color:${colorTextoLegible(categoria.color)};">${escapeHtml(categoria.label)}</span></dd></div>
+              <div><dt>Para</dt><dd>${escapeHtml(personas)}<span class="asis-sub">${escapeHtml(etiquetaEnvio())}</span></dd></div>
+            </dl>
+            <ul class="plt-confirmar-numeros" aria-label="Destinatarios">${muestra}${total > 6 ? `<li class="plt-confirmar-mas">y ${total - 6} más</li>` : ''}</ul>
+            ${avisos.length ? `<ul class="plt-confirmar-avisos">${avisos.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>` : ''}
+          </div>
+        </div>
+        <p class="plt-confirmar-final">${icon('alert', 15)} El mensaje sale por WhatsApp apenas confirmes y no se puede retirar.</p>
+        <div class="password-dialog-actions">
+          <button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button>
+          <button type="button" class="btn btn-primary" id="pltConfirmarEnvio" autofocus>${icon('send', 16)} Enviar a ${escapeHtml(personas)}</button>
+        </div>`,
+    });
+    dialogo.el.querySelector('#pltConfirmarEnvio').addEventListener('click', () => {
+      dialogo.cerrar();
+      void enviar(listos, ranuras.length > 0);
     });
   }
 
-  async function enviar(telefonos) {
+  async function enviar(listos, conDatos) {
     enviando = true;
+    errorEnvio = '';
+    avisoEnvio = '';
     pintarResumen();
     const progreso = envioEl.querySelector('#pltProgreso');
-    const lotes = enLotes(telefonos);
+    const lotes = enLotes(listos);
     const etiqueta = etiquetaEnvio();
     const creados = [];
+    let repetidos = 0;
     let error = '';
     for (let i = 0; i < lotes.length; i++) {
       if (progreso) progreso.innerHTML = `<div class="plt-progreso-linea"><span class="spinner"></span> Creando el envío${lotes.length > 1 ? ` ${i + 1} de ${lotes.length}` : ''}…</div>`;
       try {
         const r = await api('/api/tools/broadcast/send', {
           method: 'POST',
-          body: JSON.stringify({ templateName: elegida.name, language: elegida.language, telefonos: lotes[i], etiqueta }),
+          body: JSON.stringify({
+            templateName: elegida.name, language: elegida.language, etiqueta,
+            ...(conDatos ? { destinatarios: lotes[i] } : { telefonos: lotes[i].map(d => d.telefono) }),
+          }),
         });
         if (!r) return;
         const data = await leerJson(r);
         if (!r.ok || !data.job?.id) { error = data.message || `No se pudo crear el envío (HTTP ${r.status})`; break; }
+        if (data.repetido) repetidos++;
         creados.push(data.job.id);
       } catch {
         error = 'Se perdió la conexión al crear el envío.';
@@ -311,19 +452,27 @@ async function renderPlantillas(main) {
     }
     enviando = false;
     if (!envioEl.isConnected) return;
-    trabajos = [...creados, ...trabajos].slice(0, 10);
-    if (creados.length) {
+    // Un envío repetido devuelve el mismo trabajo: se muestra una sola vez.
+    trabajos = [...new Set([...creados, ...trabajos])].slice(0, 10);
+    if (creados.length > repetidos) {
       haptic([10, 20, 10]);
       toast(creados.length === lotes.length ? 'Envío en marcha: puedes seguir trabajando' : 'Solo se creó una parte del envío');
     }
+    const aviso = repetidos
+      ? `Hoy ya enviaste esta plantilla con los mismos datos a ${repetidos === lotes.length ? 'estas personas' : 'parte de estas personas'}, así que no se volvió a enviar. Para repetirla hay que esperar 24 horas o cambiar algún dato.`
+      : '';
+    errorEnvio = error;
+    avisoEnvio = aviso;
     pintarResumen();
-    pintarProgreso(error);
+    pintarProgreso();
     void cargarHistorial();
   }
 
   let avance = new Map();   // id → resumen del envío
 
-  function pintarProgreso(error = '') {
+  function pintarProgreso() {
+    const error = errorEnvio;
+    const aviso = avisoEnvio;
     const progreso = envioEl.querySelector('#pltProgreso');
     if (!progreso) return;
     const lineas = trabajos.map(id => avance.get(id)).filter(Boolean).map(job => {
@@ -334,7 +483,7 @@ async function renderPlantillas(main) {
         <span><strong>${escapeHtml(job.templateName)}</strong> · ${job.estado === 'completado' ? `${job.enviados} de ${job.solicitados} enviados${job.fallidos ? `, ${job.fallidos} con fallo` : ''}` : `${revisados} de ${job.solicitados} revisados`}</span>
       </div>`;
     });
-    progreso.innerHTML = `${error ? `<div class="alert alert-error" role="alert">${escapeHtml(error)}</div>` : ''}${lineas.join('')}`;
+    progreso.innerHTML = `${error ? `<div class="alert alert-error" role="alert">${escapeHtml(error)}</div>` : ''}${aviso ? `<div class="alert alert-info" role="status">${escapeHtml(aviso)}</div>` : ''}${lineas.join('')}`;
   }
 
   /* ── Historial ── */
@@ -438,6 +587,10 @@ async function renderPlantillas(main) {
     await Promise.all([cargarPlantillas(), cargarEventos(), cargarHistorial()]);
   }
 
+  main.querySelector('#pltNueva').addEventListener('click', () => abrirNuevaPlantilla((creada) => {
+    pendienteDeElegir = `${creada.name}|${creada.language}`;
+    void cargarPlantillas();
+  }));
   main.querySelector('#pltRefresh').addEventListener('click', () => {
     main.querySelector('#pltRefresh .refresh-icon')?.classList.add('spin-once');
     void cargarTodo();
@@ -450,6 +603,179 @@ async function renderPlantillas(main) {
     if (!envioEl.isConnected || document.hidden) return;
     if ([...avance.values()].some(job => job.estado !== 'completado')) void cargarHistorial();
   }, 4000);
+}
+
+/* ───────────────────────── Nueva plantilla ───────────────────────── */
+
+/** Una foto del celular puede pesar 8 MB: se achica aquí para no subirla entera. */
+async function imagenLigera(archivo) {
+  const LADO = 1600;
+  const bitmap = await createImageBitmap(archivo);
+  const escala = Math.min(1, LADO / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * escala));
+  canvas.height = Math.max(1, Math.round(bitmap.height * escala));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return canvas.toDataURL('image/jpeg', 0.86);
+}
+
+function abrirNuevaPlantilla(alCrear) {
+  const f = { nombre: '', categoria: 'MARKETING', idioma: 'es', encabezado: 'ninguno', titulo: '', imagen: '', cuerpo: '', pie: '', botones: [] };
+  const dialogo = abrirDialogo({
+    titulo: 'Nueva plantilla',
+    ayuda: 'Meta la revisa antes de que se pueda enviar; suele tardar de minutos a 24 horas. Se crea con texto fijo, sin variables.',
+    ancho: true,
+    cuerpo: `
+      <form id="npForm" class="np" novalidate>
+        <div class="np-campos">
+          <div class="field"><label for="npNombre">Nombre</label>
+            <input type="text" id="npNombre" maxlength="80" placeholder="Invitación Feria de Posgrados" autocomplete="off" required>
+            <div class="field-help" id="npNombreAyuda">Solo para identificarla en el panel; quien la recibe no lo ve.</div>
+          </div>
+          <div class="field"><div class="np-etiqueta" id="npCategoriaEtiqueta">Tipo de mensaje</div><div id="npCategoria" role="group" aria-labelledby="npCategoriaEtiqueta"></div>
+            <div class="field-help" id="npCategoriaAyuda"></div>
+          </div>
+          <div class="field"><label for="npIdioma">Idioma</label>
+            <select id="npIdioma"><option value="es">Español</option><option value="es_CO">Español (Colombia)</option><option value="en_US">Inglés</option></select>
+          </div>
+          <div class="field"><div class="np-etiqueta" id="npEncEtiqueta">Encabezado (opcional)</div><div id="npEncabezado" role="group" aria-labelledby="npEncEtiqueta"></div>
+            <div id="npEncCampo"></div>
+          </div>
+          <div class="field"><label for="npCuerpo">Mensaje</label>
+            <textarea id="npCuerpo" rows="6" maxlength="1024" placeholder="¡Hola! 👋 Te invitamos a…" required></textarea>
+            <div class="field-help"><span id="npCuenta">0</span>/1.024 · *negrita*, _cursiva_. Sin variables {{1}}.</div>
+          </div>
+          <div class="field"><label for="npPie">Pie (opcional)</label>
+            <input type="text" id="npPie" maxlength="60" placeholder="Posgrados UTB">
+          </div>
+          <div class="field"><div class="np-etiqueta">Botones (opcional)</div>
+            <div id="npBotones"></div>
+            <div class="np-botones-acciones">
+              <button type="button" class="btn btn-secondary crm-mini-btn" id="npAddRespuesta">${icon('plus', 13)} Respuesta rápida</button>
+              <button type="button" class="btn btn-secondary crm-mini-btn" id="npAddEnlace">${icon('link', 13)} Botón con enlace</button>
+            </div>
+          </div>
+        </div>
+        <div class="np-previa">
+          <div class="np-etiqueta">Así le llegará</div>
+          <div class="plt-chat" id="npPrevia"></div>
+        </div>
+        <div class="np-pie">
+          <div class="password-dialog-message" id="npMensaje" role="alert" aria-live="polite"></div>
+          <div class="password-dialog-actions"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary" id="npEnviar">${icon('send', 15)} Enviar a revisión</button></div>
+        </div>
+      </form>`,
+  });
+  const el = dialogo.el;
+  const $f = (sel) => el.querySelector(sel);
+  const AYUDA_CATEGORIA = {
+    MARKETING: 'Invitaciones, eventos, convocatorias y novedades. Meta limita cuántas recibe cada persona.',
+    UTILITY: 'Avisos sobre algo que la persona ya pidió o inició: su inscripción, una cita, un trámite. Si suena promocional, Meta la pasa a marketing.',
+  };
+
+  function pintarPrevia() {
+    $f('#npPrevia').innerHTML = burbujaHtml(plantillaDesdeFormulario(f));
+    const nombre = nombreTecnico(f.nombre);
+    $f('#npNombreAyuda').textContent = nombre ? `Se guardará en Meta como «${nombre}». Quien la recibe no ve el nombre.` : 'Solo para identificarla en el panel; quien la recibe no lo ve.';
+    $f('#npCategoriaAyuda').textContent = AYUDA_CATEGORIA[f.categoria];
+  }
+
+  function pintarEncabezado() {
+    const campo = $f('#npEncCampo');
+    if (f.encabezado === 'texto') {
+      campo.innerHTML = '<input type="text" id="npTitulo" maxlength="60" placeholder="Feria de Posgrados UTB" aria-label="Título del mensaje"><div class="field-help">Hasta 60 caracteres, en una línea.</div>';
+      $f('#npTitulo').value = f.titulo;
+      $f('#npTitulo').addEventListener('input', (e) => { f.titulo = e.target.value; pintarPrevia(); });
+    } else if (f.encabezado === 'imagen') {
+      campo.innerHTML = '<input type="file" id="npImagen" accept="image/jpeg,image/png" aria-label="Imagen del encabezado"><div class="field-help">JPG o PNG. Se achica sola si es muy pesada.</div>';
+      $f('#npImagen').addEventListener('change', async (e) => {
+        const archivo = e.target.files?.[0];
+        f.imagen = '';
+        if (archivo) {
+          try { f.imagen = await imagenLigera(archivo); } catch { $f('#npMensaje').textContent = 'No se pudo leer esa imagen. Prueba con otra.'; }
+        }
+        pintarPrevia();
+      });
+    } else {
+      campo.innerHTML = '';
+    }
+    pintarPrevia();
+  }
+
+  function pintarBotones() {
+    const caja = $f('#npBotones');
+    caja.innerHTML = f.botones.map((b, i) => `
+      <div class="np-boton">
+        <span class="np-boton-tipo">${b.tipo === 'enlace' ? icon('link', 14) : icon('message', 14)}</span>
+        <input type="text" data-boton="${i}" data-campo="texto" maxlength="25" value="${escapeHtml(b.texto)}" placeholder="${b.tipo === 'enlace' ? 'Ver programas' : 'Quiero más información'}" aria-label="Texto del botón">
+        ${b.tipo === 'enlace' ? `<input type="url" data-boton="${i}" data-campo="url" value="${escapeHtml(b.url ?? '')}" placeholder="https://www.utb.edu.co/…" aria-label="Enlace del botón">` : ''}
+        <button type="button" class="btn btn-ghost np-quitar" data-quitar="${i}" aria-label="Quitar botón">${icon('x', 14)}</button>
+      </div>`).join('');
+    caja.querySelectorAll('[data-boton]').forEach(input => input.addEventListener('input', () => {
+      f.botones[Number(input.dataset.boton)][input.dataset.campo] = input.value;
+      pintarPrevia();
+    }));
+    caja.querySelectorAll('[data-quitar]').forEach(b => b.addEventListener('click', () => {
+      f.botones.splice(Number(b.dataset.quitar), 1);
+      pintarBotones();
+    }));
+    $f('#npAddRespuesta').disabled = f.botones.filter(b => b.tipo === 'respuesta').length >= 3;
+    $f('#npAddEnlace').disabled = f.botones.some(b => b.tipo === 'enlace');
+    pintarPrevia();
+  }
+
+  $f('#npCategoria').appendChild(buildSegmented(
+    [{ value: 'MARKETING', label: 'Marketing' }, { value: 'UTILITY', label: 'Utilidad' }],
+    f.categoria, (v) => { f.categoria = v; pintarPrevia(); },
+  ));
+  $f('#npEncabezado').appendChild(buildSegmented(
+    [{ value: 'ninguno', label: 'Ninguno' }, { value: 'texto', label: 'Título' }, { value: 'imagen', label: 'Imagen' }],
+    f.encabezado, (v) => { f.encabezado = v; pintarEncabezado(); },
+  ));
+  $f('#npNombre').addEventListener('input', (e) => { f.nombre = e.target.value; pintarPrevia(); });
+  $f('#npIdioma').addEventListener('change', (e) => { f.idioma = e.target.value; });
+  $f('#npCuerpo').addEventListener('input', (e) => { f.cuerpo = e.target.value; $f('#npCuenta').textContent = e.target.value.length; pintarPrevia(); });
+  $f('#npPie').addEventListener('input', (e) => { f.pie = e.target.value; pintarPrevia(); });
+  $f('#npAddRespuesta').addEventListener('click', () => { f.botones.push({ tipo: 'respuesta', texto: '' }); pintarBotones(); });
+  $f('#npAddEnlace').addEventListener('click', () => { f.botones.push({ tipo: 'enlace', texto: '', url: '' }); pintarBotones(); });
+  pintarEncabezado();
+  pintarBotones();
+
+  $f('#npForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const mensaje = $f('#npMensaje');
+    mensaje.textContent = '';
+    if (nombreTecnico(f.nombre).length < 3) { mensaje.textContent = 'Ponle un nombre a la plantilla.'; $f('#npNombre').focus(); return; }
+    if (!f.cuerpo.trim()) { mensaje.textContent = 'Escribe el mensaje.'; $f('#npCuerpo').focus(); return; }
+    if (f.encabezado === 'texto' && !f.titulo.trim()) { mensaje.textContent = 'Escribe el título o elige «Ninguno».'; $f('#npTitulo')?.focus(); return; }
+    if (f.encabezado === 'imagen' && !f.imagen) { mensaje.textContent = 'Elige la imagen del encabezado.'; $f('#npImagen')?.focus(); return; }
+    const boton = $f('#npEnviar');
+    boton.disabled = true;
+    try {
+      const r = await api('/api/tools/broadcast/templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre: f.nombre, categoria: f.categoria, idioma: f.idioma, cuerpo: f.cuerpo, pie: f.pie,
+          encabezado: f.encabezado === 'texto' ? { tipo: 'texto', texto: f.titulo } : { tipo: f.encabezado },
+          botones: f.botones.filter(b => b.texto.trim() || b.url),
+          ...(f.encabezado === 'imagen' ? { imagen: { base64: f.imagen.split(',')[1] ?? '', mime: 'image/jpeg' } } : {}),
+        }),
+      });
+      if (!r || !dialogo.abierto()) return;
+      const data = await leerJson(r);
+      if (!r.ok) { mensaje.textContent = data.message || 'No se pudo crear la plantilla.'; boton.disabled = false; return; }
+      haptic([10, 20, 10]);
+      toast('Plantilla enviada a Meta para revisión ✓', 3500);
+      dialogo.cerrar();
+      alCrear?.(data.plantilla);
+    } catch {
+      if (dialogo.abierto()) { mensaje.textContent = 'No se pudo crear la plantilla. Revisa tu conexión.'; boton.disabled = false; }
+    }
+  });
 }
 
 export { renderPlantillas };

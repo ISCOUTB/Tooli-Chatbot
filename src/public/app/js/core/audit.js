@@ -32,6 +32,7 @@ const AUDIT_LABELS = {
   asistencia_importada: { label: 'Importó una lista de asistencia', icon: '📋' },
   asistencia_persona_agregada: { label: 'Anotó a un asistente', icon: '➕' },
   asistencia_persona_eliminada: { label: 'Quitó a un asistente', icon: '✖️' },
+  plantilla_creada: { label: 'Creó una plantilla de WhatsApp', icon: '📣' },
 };
 
 /* Agrupa cada acción de auditoría por área real de negocio, para poder
@@ -42,7 +43,7 @@ const AUDIT_AREAS = {
   pregrado: { label: 'Pregrado', color: '#2f6fd6', actions: ['turno_consultado', 'recibo_descargado'] },
   posgrado: { label: 'Posgrado', color: '#003087', actions: ['seguimiento_evento_actualizado', 'invitacion_evento_enviada'] },
   eventos: { label: 'Eventos', color: '#0f766e', actions: ['asistencia_evento_creado', 'asistencia_evento_actualizado', 'asistencia_evento_eliminado', 'asistencia_importada', 'asistencia_persona_agregada', 'asistencia_persona_eliminada'] },
-  atencion: { label: 'Atención directa', color: '#003087', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada'] },
+  atencion: { label: 'Atención directa', color: '#003087', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'plantilla_creada', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada'] },
   administracion: { label: 'Administración', color: '#64748b', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_actualizado', 'usuario_vinculado_atencion', 'usuario_eliminado', 'ia_activada', 'ia_desactivada'] },
   sistema: { label: 'Sistema', color: '#64748b', actions: ['login'] },
 };

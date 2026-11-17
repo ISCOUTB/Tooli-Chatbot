@@ -812,12 +812,50 @@ const MOCK_TEMPLATES = [
     { type: 'BODY', text: '¡Hola! 👋 Te invitamos a la *Feria de Posgrados UTB* este viernes en el Campus Tecnológico.' },
     { type: 'FOOTER', text: 'Posgrados UTB' },
   ] },
+  { name: 'vehiculo_listo', language: 'es', category: 'UTILITY', components: [
+    { type: 'HEADER', format: 'TEXT', text: 'Tu vehículo está listo' },
+    { type: 'BODY', text: '🚗 ¡Hola! Tu vehículo de la orden #{{1}} ya está listo para recoger. ¡Gracias por confiar en nosotros! 🙌', example: { body_text: [['42']] } },
+    { type: 'FOOTER', text: 'SentraWash' },
+  ] },
+  { name: 'nodo_recordatorio_evento', language: 'es', category: 'UTILITY', components: [
+    { type: 'HEADER', format: 'IMAGE', example: { header_handle: ['/app/apple-touch-icon.png'] } },
+    { type: 'BODY', text: 'Hola {{1}}, mañana es tu evento.\n\n*{{2}}*\n🗓 {{3}}\n📍 {{4}}\n\nSi ya no puedes ir, retira tu inscripción.', example: { body_text: [['Manuel', 'CTW Hackathon — Cartagena Edition', 'jueves 13 de agosto, 8:00 a. m.', 'Centro de Convenciones, Cartagena']] } },
+    { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Ver el evento', url: 'https://nodo-eventos.duckdns.org/eventos/{{1}}', example: ['https://nodo-eventos.duckdns.org/eventos/ctw-hackathon-cartagena'] }, { type: 'QUICK_REPLY', text: 'No podré ir' }] },
+  ] },
   { name: 'campana_posgrado_pregrado', language: 'es_CO', category: 'MARKETING', components: [
     { type: 'BODY', text: 'Hola {{1}}, por tu pregrado en {{2}} hay posgrados de la UTB pensados para ti.', example: { body_text: [['Ana', 'Ingeniería de Sistemas']] } },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver mis opciones' }, { type: 'QUICK_REPLY', text: 'No me interesa' }] },
   ] },
 ];
 app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: process.env.MOCK_NO_TEMPLATES ? [] : MOCK_TEMPLATES }));
+// Plantillas que alguien propuso y Meta todavía no aprueba (o rechazó).
+const MOCK_SIN_APROBAR = [
+  { id: 't-pend', name: 'recordatorio_entrevista', language: 'es', category: 'UTILITY', status: 'PENDING', rejectedReason: '', components: [{ type: 'BODY', text: 'Te recordamos tu entrevista de admisión mañana a las 9:00 a. m.' }] },
+  { id: 't-rech', name: 'descuento_matricula', language: 'es', category: 'UTILITY', status: 'REJECTED', rejectedReason: 'PROMOTIONAL', components: [{ type: 'BODY', text: '¡20 % de descuento si te inscribes esta semana!' }] },
+];
+app.get('/api/tools/broadcast/templates/todas', (_q, res) => j(res, {
+  templates: process.env.MOCK_NO_TEMPLATES ? [] : [...MOCK_TEMPLATES.map(t => ({ ...t, id: t.name, status: 'APPROVED', rejectedReason: '' })), ...MOCK_SIN_APROBAR],
+}));
+app.post('/api/tools/broadcast/templates', (req, res) => {
+  const nombre = String(req.body.nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  const cuerpo = String(req.body.cuerpo ?? '').trim();
+  if (nombre.length < 3) return res.status(400).json({ error: 'validation_error', message: 'Ponle un nombre a la plantilla (al menos 3 letras).' });
+  if (!cuerpo) return res.status(400).json({ error: 'validation_error', message: 'Escribe el mensaje.' });
+  if ([...MOCK_TEMPLATES, ...MOCK_SIN_APROBAR].some(t => t.name === nombre && t.language === (req.body.idioma ?? 'es'))) {
+    return res.status(400).json({ error: 'validation_error', message: 'Meta no aceptó la plantilla: Ya existe contenido en este idioma con ese nombre: usa otro nombre.' });
+  }
+  const enc = req.body.encabezado ?? {};
+  const components = [];
+  if (enc.tipo === 'texto') components.push({ type: 'HEADER', format: 'TEXT', text: enc.texto });
+  if (enc.tipo === 'imagen') components.push({ type: 'HEADER', format: 'IMAGE', example: { header_handle: [`data:image/jpeg;base64,${req.body.imagen?.base64 ?? ''}`] } });
+  components.push({ type: 'BODY', text: cuerpo });
+  if (req.body.pie) components.push({ type: 'FOOTER', text: req.body.pie });
+  const botones = Array.isArray(req.body.botones) ? req.body.botones : [];
+  if (botones.length) components.push({ type: 'BUTTONS', buttons: botones.map(b => b.tipo === 'enlace' ? { type: 'URL', text: b.texto, url: b.url } : { type: 'QUICK_REPLY', text: b.texto }) });
+  const plantilla = { id: `t-${Date.now()}`, name: nombre, language: req.body.idioma ?? 'es', category: req.body.categoria, status: 'PENDING', rejectedReason: '', components };
+  MOCK_SIN_APROBAR.unshift(plantilla);
+  res.status(201).json({ ok: true, plantilla: { id: plantilla.id, name: nombre, language: plantilla.language, status: 'PENDING', category: plantilla.category } });
+});
 const REVIEWS = [{
   id: '00000000-0000-4000-8000-000000000001', source: 'meta', from: '573001234567',
   messageId: 'wamid.demo.1', createdAt: hoy - 600000,
@@ -831,18 +869,23 @@ app.post('/api/tools/inbound/reviews/:id/resolve', (req, res) => {
   j(res, { ok: true });
 });
 app.post('/api/tools/broadcast/send', (req, res) => {
-  const { templateName, language, telefonos } = req.body;
+  const { templateName, language } = req.body;
+  // Igual que el servidor: `telefonos` sin datos o `destinatarios` con los valores de cada persona.
+  const conDatos = Array.isArray(req.body.destinatarios) && req.body.relacion === undefined;
+  const telefonos = conDatos ? req.body.destinatarios.map(d => String(d.telefono)) : req.body.telefonos;
+  const parametrosDe = new Map(conDatos ? req.body.destinatarios.map(d => [String(d.telefono), d.parametros]) : []);
   if (!MOCK_TEMPLATES.some(t => t.name === templateName && t.language === language)) return res.status(400).json({ error: 'validation_error', message: 'Template no aprobado' });
   if (!Array.isArray(telefonos) || !telefonos.length || telefonos.length > 200) return res.status(400).json({ error: 'validation_error', message: 'Destinatarios inválidos' });
   const numeros = [...new Set(telefonos)].sort();
-  const key = JSON.stringify({ templateName, language, numeros });
+  const key = JSON.stringify({ templateName, language, numeros, datos: numeros.map(n => parametrosDe.get(n) ?? []) });
   const previous = BROADCAST_DEDUPE.get(key);
-  if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous) });
-  if (JSON.stringify(MOCK_TEMPLATES.find(t => t.name === templateName).components).replace(/"example":\{.*?\}\}/, '').includes('{{')) return res.status(400).json({ error: 'validation_error', message: 'Ese template usa variables {{1}}; envíalo como campaña, con los datos de cada destinatario' });
+  if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous), repetido: true });
+  const usaVariables = JSON.stringify(MOCK_TEMPLATES.find(t => t.name === templateName).components.map(c => ({ ...c, example: undefined }))).includes('{{');
+  if (usaVariables && !conDatos) return res.status(400).json({ error: 'validation_error', message: 'Esa plantilla usa variables ({{1}}…): hay que enviar los datos de cada destinatario' });
   const job = { id: require('node:crypto').randomUUID(), templateName, language, createdBy: ROL === 'admin' ? 'admin' : 'luis', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0, etiqueta: String(req.body.etiqueta ?? '').slice(0, 80) };
   BROADCAST_JOBS.set(job.id, job);
   BROADCAST_DEDUPE.set(key, job.id);
-  res.status(202).json({ ok: true, job });
+  res.status(202).json({ ok: true, job, repetido: false });
 });
 // Un envío de hace dos días, para que el historial no arranque vacío.
 BROADCAST_JOBS.set('11111111-1111-4111-8111-111111111111', {

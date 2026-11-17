@@ -40,7 +40,11 @@ function buildSegmented(options, activeValue, onChange) {
     wrap.appendChild(btn);
     return btn;
   });
+  // El valor vigente, no el inicial: si alguien elige antes del primer cuadro
+  // de animación, el ajuste diferido de abajo no debe devolverlo al inicial.
+  let actual = activeValue;
   function setActive(value) {
+    actual = value;
     buttons.forEach(b => {
       const active = b.dataset.value === value;
       b.classList.toggle('active', active);
@@ -68,7 +72,7 @@ function buildSegmented(options, activeValue, onChange) {
   // El estado accesible debe existir al insertar el control; solo la posición
   // del thumb necesita esperar a que el elemento tenga medidas en el DOM.
   setActive(activeValue);
-  requestAnimationFrame(() => setActive(activeValue));
+  requestAnimationFrame(() => setActive(actual));
   return wrap;
 }
 
