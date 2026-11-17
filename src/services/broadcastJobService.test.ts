@@ -144,3 +144,51 @@ it('un asesor ve sus envíos y un administrador ve los de todos', async () => {
   assert.equal(limpiarEtiqueta({ etiqueta: 'x' }), '');
   assert.equal(limpiarEtiqueta('x'.repeat(200)).length, 80);
 });
+
+it('cada persona con sus datos: otro valor no es un envío repetido y cada uno va en su lugar', async () => {
+  const originalGet = axios.get;
+  const originalMeta = { ...config.metaCloud };
+  const values = new Map<string, string>();
+  const store = {
+    async get(key: string) { return values.get(key) ?? null; },
+    async eval(_script: string, numKeys: number, ...args: string[]) {
+      const [dedupeKey, jobKey] = args.slice(0, numKeys);
+      const [id, payload] = args.slice(numKeys);
+      if (values.has(dedupeKey)) return values.get(dedupeKey)!;
+      values.set(jobKey, payload);
+      values.set(dedupeKey, id);
+      return id;
+    },
+  };
+  Object.assign(config.metaCloud, { token: 'test-token', phoneNumberId: '123', wabaId: '456' });
+  clearTemplateCache();
+  axios.get = (async () => ({ data: { data: [{
+    name: 'vehiculo_listo', language: 'es', category: 'UTILITY',
+    components: [{ type: 'HEADER', format: 'TEXT', text: 'Tu vehículo está listo' }, { type: 'BODY', text: 'Tu vehículo de la orden #{{1}} ya está listo' }],
+  }] } })) as typeof axios.get;
+  try {
+    const orden42 = await enqueueBroadcast('vehiculo_listo', 'es', [{ telefono: '3001112233', parametros: ['42'] }].map(d => ({ ...d, telefono: `57${d.telefono}` })), 'manuel', store);
+    const otraVez = await enqueueBroadcast('vehiculo_listo', 'es', [{ telefono: '573001112233', parametros: ['42'] }], 'manuel', store);
+    const orden43 = await enqueueBroadcast('vehiculo_listo', 'es', [{ telefono: '573001112233', parametros: ['43'] }], 'manuel', store);
+    assert.equal(otraVez.id, orden42.id, 'los mismos datos el mismo día no salen de nuevo');
+    assert.notEqual(orden43.id, orden42.id, 'otro número de orden sí es otro mensaje');
+    assert.deepEqual(orden43.parametros, [['43']]);
+    assert.deepEqual(orden43.ranuras, [{ lugar: 'cuerpo', numero: 1 }]);
+
+    const enviados: unknown[][] = [];
+    const send = (async (...args: unknown[]) => { enviados.push(args); }) as never;
+    const deps = { estaDadoDeBaja: async () => false, guardarContextoCampana: async () => {} };
+    assert.equal(await enviarADestinatario(orden43, 0, send, deps), undefined);
+    assert.deepEqual(enviados[0], ['vehiculo_listo', 'es', '573001112233', ['43'], null, [{ lugar: 'cuerpo', numero: 1 }]]);
+
+    // A quien le falta el dato no se le envía: queda en fallidos.
+    const incompleto = await enqueueBroadcast('vehiculo_listo', 'es', [{ telefono: '573004445566', parametros: [''] }, { telefono: '573007778899', parametros: ['50'] }], 'manuel', store);
+    assert.deepEqual(incompleto.destinatarios, ['573007778899']);
+    assert.match(incompleto.fallidos[0].error, /Faltan datos/);
+  } finally {
+    axios.get = originalGet;
+    Object.assign(config.metaCloud, originalMeta);
+    clearTemplateCache();
+  }
+});
+

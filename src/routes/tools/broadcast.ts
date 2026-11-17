@@ -29,9 +29,62 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
 
 // Enviar plantillas es parte del trabajo de un asesor: cualquier sesión del
 // panel puede hacerlo. Cada envío queda a nombre de quien lo creó.
+/**
+ * Todas las plantillas de la cuenta con su estado (aprobada, en revisión,
+ * rechazada…). La pantalla Plantillas la usa para mostrar también las que
+ * alguien creó y Meta todavía no aprueba.
+ */
+broadcastRouter.get('/broadcast/templates/todas', async (_req, res) => {
+  try {
+    const { listarPlantillasConEstado } = await import('../../services/broadcastService');
+    res.json({ templates: await listarPlantillasConEstado() });
+  } catch (err: unknown) {
+    console.error('[tools/broadcast/templates/todas] error:', describeError(err));
+    res.status(502).json({ error: 'templates_error', message: 'No se pudieron consultar las plantillas de Meta' });
+  }
+});
+
+/**
+ * Crea una plantilla en Meta. Cualquier asesor puede proponerla: no todos
+ * tienen acceso al administrador de WhatsApp. Meta la revisa antes de que se
+ * pueda enviar. Con tope por persona para no saturar el límite de la cuenta.
+ */
+broadcastRouter.post('/broadcast/templates', async (req: AuthedRequest, res: Response) => {
+  try {
+    const { checkRateLimit } = await import('../../services/rateLimit');
+    const limite = await checkRateLimit(`plantilla:${req.user!.username}`, 10, 60 * 60);
+    if (!limite.allowed) {
+      res.status(429).json({ error: 'too_many_requests', message: 'Ya creaste varias plantillas en la última hora. Espera un poco antes de crear otra.' });
+      return;
+    }
+    const { PlantillaInvalidaError, validarPlantillaNueva } = await import('../../services/plantillaNueva');
+    const { crearPlantillaEnMeta } = await import('../../services/plantillasMeta');
+    try {
+      const plantilla = validarPlantillaNueva(req.body ?? {});
+      const imagen = req.body?.imagen && typeof req.body.imagen === 'object'
+        ? { base64: String(req.body.imagen.base64 ?? ''), mime: String(req.body.imagen.mime ?? '') }
+        : null;
+      const creada = await crearPlantillaEnMeta(plantilla, imagen);
+      const { logAudit } = await import('../../services/auditService');
+      await logAudit(req.user!.username, 'plantilla_creada', `${creada.name} (${creada.language}) · ${creada.category}`);
+      res.status(201).json({ ok: true, plantilla: creada });
+    } catch (err) {
+      if (err instanceof PlantillaInvalidaError) {
+        res.status(400).json({ error: 'validation_error', message: err.message });
+        return;
+      }
+      throw err;
+    }
+  } catch (err: unknown) {
+    console.error('[tools/broadcast/templates] crear:', describeError(err));
+    res.status(502).json({ error: 'create_failed', message: 'No se pudo crear la plantilla en Meta. Intenta de nuevo en unos minutos.' });
+  }
+});
+
 broadcastRouter.post('/broadcast/send', async (req: AuthedRequest, res: Response) => {
-  // Dos formas: `telefonos` (prospectos seleccionados, plantilla sin variables)
-  // o `destinatarios` + `relacion` (campaña por pregrado: {{1}} nombre, {{2}} pregrado).
+  // Tres formas: `telefonos` (plantilla sin variables), `destinatarios` con
+  // `{ telefono, parametros }` (cada persona con sus datos) o `destinatarios` +
+  // `relacion` (campaña por pregrado: {{1}} nombre, {{2}} pregrado).
   const { templateName, language, telefonos, destinatarios, relacion, etiqueta } = req.body ?? {};
   const lista: unknown[] | null = Array.isArray(destinatarios) ? destinatarios : Array.isArray(telefonos) ? telefonos : null;
   if (!templateName || !language || !lista) {
@@ -55,11 +108,20 @@ broadcastRouter.post('/broadcast/send', async (req: AuthedRequest, res: Response
     // en vez de desaparecer en silencio.
     const { prepararDestinatariosCampana } = await import('../../flows/campanaReco');
     const recipients = Array.isArray(destinatarios)
-      ? prepararDestinatariosCampana(destinatarios, relacion)
+      ? (relacion !== undefined
+        ? prepararDestinatariosCampana(destinatarios, relacion)
+        // Solo teléfono y valores: el contexto del bot lo pone únicamente la campaña.
+        : destinatarios.map((d: unknown) => {
+          const item = (d && typeof d === 'object' ? d : {}) as { telefono?: unknown; parametros?: unknown };
+          return { telefono: String(item.telefono ?? ''), parametros: Array.isArray(item.parametros) ? item.parametros.map(v => String(v ?? '')) : [] };
+        }))
       : lista.map(v => String(v ?? '').trim());
     const { enqueueBroadcast } = await import('../../services/broadcastJobService');
+    const inicio = Date.now();
     const job = await enqueueBroadcast(templateName, language, recipients, req.user!.username, undefined, etiqueta);
-    res.status(job.estado === 'completado' ? 200 : 202).json({ ok: true, job });
+    // El mismo envío dentro de 24 h devuelve el trabajo original y no sale de nuevo.
+    const repetido = job.createdAt < inicio;
+    res.status(job.estado === 'completado' ? 200 : 202).json({ ok: true, job, repetido });
   } catch (err: unknown) {
     const { CampanaInvalidaError } = await import('../../flows/campanaReco');
     if (err instanceof BroadcastValidationError || err instanceof CampanaInvalidaError) {

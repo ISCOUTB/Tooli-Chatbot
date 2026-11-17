@@ -4,10 +4,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { config } from '../config';
-import { BroadcastValidationError, clasificarDestinatariosConDatos } from './broadcastValidation';
+import { BroadcastValidationError, type Ranura, clasificarDestinatariosConDatos } from './broadcastValidation';
 import { describeError } from './logSafe';
 import {
-  TEMPLATE_CON_VARIABLES, type EncabezadoEnvio, ensureApprovedTemplate, extractError, prepararEncabezado,
+  TEMPLATE_CON_VARIABLES, type EncabezadoEnvio, extractError, prepararEncabezado, ranurasAprobadas,
   sendTemplateToRecipient, validarLanguage, validarTemplateName,
 } from './broadcastService';
 import { estaDadoDeBaja, guardarContextoCampana } from './campanaService';
@@ -49,6 +49,8 @@ export interface BroadcastJob {
   etiqueta?: string;
   /** Archivo del encabezado, ya subido a Meta, para las plantillas que lo llevan. */
   encabezado?: EncabezadoEnvio;
+  /** Dónde va cada valor de `parametros` (cuerpo, encabezado o botón). */
+  ranuras?: Ranura[];
 }
 
 function parseJob(raw: string): BroadcastJob {
@@ -58,6 +60,7 @@ function parseJob(raw: string): BroadcastJob {
   if (!Array.isArray(job.fallidos)) job.fallidos = [];
   if (job.parametros !== undefined && !Array.isArray(job.parametros)) delete job.parametros;
   if (job.contextos !== undefined && !Array.isArray(job.contextos)) delete job.contextos;
+  if (job.ranuras !== undefined && !Array.isArray(job.ranuras)) delete job.ranuras;
   return job;
 }
 
@@ -73,8 +76,12 @@ export async function enqueueBroadcast(
   const classified = clasificarDestinatariosConDatos(recipients);
   const hash = createHash('sha256').update(JSON.stringify({
     // Mismo conjunto en distinto orden o formato sigue siendo el mismo envío.
-    // Repetirlo intencionalmente requiere esperar 24 h.
-    createdBy, name, lang, recipients: [...classified.validos].sort(),
+    // Repetirlo intencionalmente requiere esperar 24 h. Los datos cuentan: la
+    // misma plantilla con otro número de orden es otro mensaje.
+    createdBy, name, lang,
+    recipients: classified.validos
+      .map((numero, i) => [numero, classified.datos[i].parametros] as const)
+      .sort((a, b) => a[0].localeCompare(b[0])),
   })).digest('hex');
   const dedupeKey = DEDUPE_KEY(hash);
   const existingId = await store.get(dedupeKey);
@@ -84,11 +91,13 @@ export async function enqueueBroadcast(
   }
 
   let variables = 0;
+  let ranuras: Ranura[] = [];
   let encabezado: EncabezadoEnvio | null = null;
   if (classified.validos.length) {
     const { token, phoneNumberId, wabaId } = config.metaCloud;
     if (!token || !phoneNumberId || !wabaId) throw new Error('Faltan credenciales de Meta');
-    variables = await ensureApprovedTemplate(name, lang);
+    ranuras = await ranurasAprobadas(name, lang);
+    variables = ranuras.length;
     // Un envío sin datos por destinatario (selección de prospectos) no puede llenar variables.
     if (variables > 0 && classified.datos.every(d => d.parametros.length === 0)) {
       throw new BroadcastValidationError(TEMPLATE_CON_VARIABLES);
@@ -123,6 +132,7 @@ export async function enqueueBroadcast(
     ...(datos.some(d => d.contexto) ? { contextos: datos.map(d => d.contexto) } : {}),
     ...(limpiarEtiqueta(etiqueta) ? { etiqueta: limpiarEtiqueta(etiqueta) } : {}),
     ...(encabezado ? { encabezado } : {}),
+    ...(ranuras.length ? { ranuras } : {}),
   };
   const id = await store.eval(
     `local existing = redis.call('GET', KEYS[1])
@@ -344,7 +354,10 @@ export async function enviarADestinatario(
   try {
     if (await deps.estaDadoDeBaja(numero)) return ERROR_BAJA;
     const encabezado = job.encabezado?.mediaId ? job.encabezado : null;
-    await send(job.templateName, job.language, numero, job.parametros?.[index] ?? [], ...(encabezado ? [encabezado] : []));
+    const parametros = job.parametros?.[index] ?? [];
+    if (job.ranuras?.length) await send(job.templateName, job.language, numero, parametros, encabezado, job.ranuras);
+    else if (encabezado) await send(job.templateName, job.language, numero, parametros, encabezado);
+    else await send(job.templateName, job.language, numero, parametros);
     return undefined;
   } catch (err) {
     return extractError(err);

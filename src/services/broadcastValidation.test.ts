@@ -5,7 +5,7 @@ import {
   validarTemplateName, validarLanguage,
   normalizarTelefonoBroadcast, clasificarDestinatarios,
   clasificarDestinatariosConDatos, contarVariablesCuerpo, limpiarVariable, MAX_LARGO_VARIABLE,
-  encabezadoMediaDe, urlDeMetaSegura,
+  encabezadoMediaDe, urlDeMetaSegura, ranurasDePlantilla, valorParaRanura,
 } from './broadcastValidation';
 
 /**
@@ -194,3 +194,33 @@ describe('encabezado con archivo', () => {
     }
   });
 });
+
+describe('ranurasDePlantilla', () => {
+  it('ordena cuerpo, encabezado y botones, como las plantillas reales de la cuenta', () => {
+    // nodo_recordatorio_evento: imagen, cuatro variables y un enlace con {{1}} al final.
+    assert.deepEqual(ranurasDePlantilla([
+      { type: 'HEADER', format: 'IMAGE', example: { header_handle: ['https://scontent.whatsapp.net/a.png'] } },
+      { type: 'BODY', text: 'Hola {{1}}, mañana es tu evento. *{{2}}* 🗓 {{3}} 📍 {{4}}', example: { body_text: [['Manuel', 'CTW', 'jueves', 'Centro']] } },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Ver el evento', url: 'https://nodo-eventos.duckdns.org/eventos/{{1}}' }, { type: 'QUICK_REPLY', text: 'No podré ir' }] },
+    ]), [
+      { lugar: 'cuerpo', numero: 1 }, { lugar: 'cuerpo', numero: 2 }, { lugar: 'cuerpo', numero: 3 }, { lugar: 'cuerpo', numero: 4 },
+      { lugar: 'boton', indice: 0, numero: 1 },
+    ]);
+    assert.deepEqual(ranurasDePlantilla([{ type: 'HEADER', format: 'TEXT', text: 'Orden {{1}}' }, { type: 'BODY', text: 'Total {{1}}' }]), [
+      { lugar: 'cuerpo', numero: 1 }, { lugar: 'encabezado', numero: 1 },
+    ]);
+    assert.deepEqual(ranurasDePlantilla([{ type: 'BODY', text: 'Sin variables' }, { type: 'FOOTER', text: 'UTB' }]), []);
+  });
+
+  it('rechaza variables con nombre o en botones que no son enlaces', () => {
+    assert.throws(() => ranurasDePlantilla([{ type: 'BODY', text: 'Hola {{nombre}}' }]), /variables con nombre/);
+    assert.throws(() => ranurasDePlantilla([{ type: 'BUTTONS', buttons: [{ type: 'COPY_CODE', example: '{{1}}', text: '{{1}}' }] }]), /botón con variables/);
+  });
+
+  it('el final de un enlace se codifica y el texto del cuerpo no', () => {
+    assert.equal(valorParaRanura({ lugar: 'boton', indice: 0, numero: 1 }, ' feria de posgrados '), 'feria%20de%20posgrados');
+    assert.equal(valorParaRanura({ lugar: 'boton', indice: 0, numero: 1 }, 'eventos/ctw-2026'), 'eventos/ctw-2026');
+    assert.equal(valorParaRanura({ lugar: 'cuerpo', numero: 1 }, 'Lavado básico, Encerado'), 'Lavado básico, Encerado');
+  });
+});
+

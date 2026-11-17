@@ -144,8 +144,66 @@ export function urlDeMetaSegura(raw: string): string {
   return url.toString();
 }
 
-/** Largo máximo de una variable de plantilla (nombre, pregrado). */
-export const MAX_LARGO_VARIABLE = 60;
+/**
+ * Un lugar de la plantilla que se llena con un valor al enviarla. El orden es
+ * siempre: variables del cuerpo ({{1}}, {{2}}…), la del encabezado de texto y
+ * las del final de los enlaces de los botones. Los valores de cada persona
+ * siguen ese mismo orden.
+ */
+export type Ranura =
+  | { lugar: 'cuerpo'; numero: number }
+  | { lugar: 'encabezado'; numero: number }
+  | { lugar: 'boton'; indice: number; numero: number };
+
+const VARIABLE = /\{\{\s*([^{}\s]+)\s*\}\}/g;
+
+function numerosDe(texto: string): number[] {
+  const nombres = [...texto.matchAll(VARIABLE)].map(m => m[1]);
+  if (nombres.some(n => !/^\d+$/.test(n))) {
+    throw new BroadcastValidationError('La plantilla usa variables con nombre; por ahora solo se admiten {{1}}, {{2}}…');
+  }
+  return nombres.map(Number);
+}
+
+/** Los lugares que hay que llenar para enviar la plantilla (vacío si ninguno). */
+export function ranurasDePlantilla(components: unknown[]): Ranura[] {
+  const cuerpo: Ranura[] = [];
+  const encabezado: Ranura[] = [];
+  const botones: Ranura[] = [];
+  for (const c of components) {
+    if (!c || typeof c !== 'object') continue;
+    const comp = c as Record<string, unknown>;
+    const tipo = String(comp.type ?? '').toUpperCase();
+    if (tipo === 'BODY') {
+      const maximo = Math.max(0, ...numerosDe(String(comp.text ?? '')));
+      for (let n = 1; n <= maximo; n++) cuerpo.push({ lugar: 'cuerpo', numero: n });
+    } else if (tipo === 'HEADER' && String(comp.format ?? 'TEXT').toUpperCase() === 'TEXT') {
+      for (const n of new Set(numerosDe(String(comp.text ?? '')))) encabezado.push({ lugar: 'encabezado', numero: n });
+    } else if (tipo === 'BUTTONS' && Array.isArray(comp.buttons)) {
+      comp.buttons.forEach((b: unknown, indice: number) => {
+        const boton = (b ?? {}) as Record<string, unknown>;
+        const enUrl = numerosDe(String(boton.url ?? ''));
+        if (String(boton.type ?? '').toUpperCase() === 'URL' && enUrl.length) {
+          botones.push({ lugar: 'boton', indice, numero: enUrl[0] });
+        } else if (JSON.stringify({ ...boton, example: undefined }).includes('{{')) {
+          throw new BroadcastValidationError('La plantilla tiene un botón con variables que el panel todavía no llena');
+        }
+      });
+    }
+  }
+  return [...cuerpo, ...encabezado, ...botones];
+}
+
+/**
+ * El valor listo para Meta. El de un botón se pega al final del enlace: se
+ * codifica para que un espacio o una tilde no rompan la dirección.
+ */
+export function valorParaRanura(ranura: Ranura, valor: string): string {
+  return ranura.lugar === 'boton' ? encodeURI(valor.trim()) : valor;
+}
+
+/** Largo máximo de una variable de plantilla (nombre, número de orden, fecha…). */
+export const MAX_LARGO_VARIABLE = 200;
 
 /** Meta rechaza variables con saltos de línea, tabulaciones o 4+ espacios seguidos. */
 export function limpiarVariable(raw: unknown): string {
