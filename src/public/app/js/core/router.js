@@ -15,10 +15,12 @@ const NAV_SECTIONS = [
     { route: 'atencion', icon: 'headset', label: 'Atención' },
     { route: 'conversaciones', icon: 'message', label: 'Conversaciones' },
     { route: 'recordatorios', icon: 'clock', label: 'Recordatorios' },
+    { route: 'plantillas', icon: 'megaphone', label: 'Plantillas' },
   ] },
   { title: 'Prospectos', routes: [
     { route: 'registros', icon: 'users', label: 'CRM' },
     { route: 'evento-posgrado', icon: 'calendar', label: 'Evento posgrados' },
+    { route: 'asistencia', icon: 'qr', label: 'Asistencia' },
   ] },
   { title: 'Estudiantes', routes: [
     { route: 'recibo', icon: 'receipt', label: 'Descargar recibo' },

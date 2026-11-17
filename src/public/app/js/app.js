@@ -25,6 +25,8 @@ import { renderHealth } from './screens/health.js';
 import { renderUsuarios } from './screens/usuarios.js';
 import { renderActividad } from './screens/actividad.js';
 import { renderInformes } from './screens/informes.js';
+import { renderAsistencia } from './screens/asistencia.js';
+import { renderPlantillas } from './screens/plantillas.js';
 
 registrarPantallas({
   home: renderHome,
@@ -40,6 +42,8 @@ registrarPantallas({
   usuarios: renderUsuarios,
   actividad: renderActividad,
   informes: renderInformes,
+  asistencia: renderAsistencia,
+  plantillas: renderPlantillas,
 });
 
 init();
