@@ -37,7 +37,13 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
 broadcastRouter.get('/broadcast/templates/todas', async (_req, res) => {
   try {
     const { listarPlantillasConEstado } = await import('../../services/broadcastService');
-    res.json({ templates: await listarPlantillasConEstado() });
+    const { leerSignificados } = await import('../../services/significadosPlantillas');
+    const [templates, significados] = await Promise.all([
+      listarPlantillasConEstado(),
+      // Sin Redis la lista sigue sirviendo: solo no se llenan solas las variables.
+      leerSignificados().catch(() => ({} as Record<string, Record<string, string>>)),
+    ]);
+    res.json({ templates: templates.map(t => ({ ...t, significados: significados[`${t.name}|${t.language}`] ?? {} })) });
   } catch (err: unknown) {
     console.error('[tools/broadcast/templates/todas] error:', describeError(err));
     res.status(502).json({ error: 'templates_error', message: 'No se pudieron consultar las plantillas de Meta' });
@@ -65,6 +71,13 @@ broadcastRouter.post('/broadcast/templates', async (req: AuthedRequest, res: Res
         ? { base64: String(req.body.imagen.base64 ?? ''), mime: String(req.body.imagen.mime ?? '') }
         : null;
       const creada = await crearPlantillaEnMeta(plantilla, imagen);
+      try {
+        const { guardarSignificados } = await import('../../services/significadosPlantillas');
+        await guardarSignificados(creada.name, creada.language, plantilla.significados);
+      } catch (err) {
+        // La plantilla ya está en Meta: perder esto solo hace que se llene a mano.
+        console.error('[tools/broadcast/templates] significados:', describeError(err));
+      }
       const { logAudit } = await import('../../services/auditService');
       await logAudit(req.user!.username, 'plantilla_creada', `${creada.name} (${creada.language}) · ${creada.category}`);
       res.status(201).json({ ok: true, plantilla: creada });

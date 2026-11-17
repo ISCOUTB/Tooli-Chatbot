@@ -4,9 +4,10 @@
  * Probado en plantillaNueva.test.ts; las llamadas a Meta viven en
  * plantillasMeta.ts.
  *
- * Alcance a propósito: texto fijo, sin variables {{1}}. Una plantilla con
- * variables exige ejemplos para cada una y Meta la revisa con más rigor; por
- * ahora se crean desde el administrador de Meta.
+ * Admite variables numeradas ({{1}}, {{2}}…) en el mensaje, una en el título
+ * y una al final del enlace, como el administrador de Meta. Meta exige un
+ * ejemplo de cada una para revisarla. Además se guarda qué significa cada
+ * variable (primer nombre, programa…) para llenarla sola al enviar.
  */
 
 export class PlantillaInvalidaError extends Error {}
@@ -18,17 +19,30 @@ export const MAX_RESPUESTAS = 3;
 export interface BotonNuevo {
   tipo: 'respuesta' | 'enlace';
   texto: string;
+  /** Sin la variable: si el enlace es dinámico, Meta le agrega {{1}} al final. */
   url?: string;
+  /** El final del enlace cambia por persona. */
+  dinamico?: boolean;
+  /** Lo que iría al final del enlace en el ejemplo para Meta. */
+  ejemplo?: string;
 }
+
+/** Qué dato va en cada variable; el panel lo usa para llenarla al enviar. */
+export const SIGNIFICADOS = ['primer_nombre', 'nombre_completo', 'programa', 'fecha', 'lugar', 'otro'] as const;
+export type Significado = typeof SIGNIFICADOS[number];
 
 export interface PlantillaNuevaValidada {
   name: string;
   language: typeof IDIOMAS_NUEVA[number];
   category: typeof CATEGORIAS_NUEVA[number];
-  encabezado: { tipo: 'ninguno' } | { tipo: 'texto'; texto: string } | { tipo: 'imagen' };
+  encabezado: { tipo: 'ninguno' } | { tipo: 'texto'; texto: string; ejemplo?: string } | { tipo: 'imagen' };
   cuerpo: string;
+  /** Un ejemplo por variable del mensaje, en orden ({{1}}, {{2}}…). */
+  ejemplosCuerpo: string[];
   pie: string;
   botones: BotonNuevo[];
+  /** 'cuerpo:1', 'encabezado:1' o 'boton:<índice>' → qué dato es. */
+  significados: Record<string, Significado>;
 }
 
 /** "Invitación Feria 2026" → "invitacion_feria_2026", el nombre que Meta acepta. */
@@ -64,10 +78,39 @@ function primeraMayuscula(s: string): string {
 
 function sinVariables(valor: string, campo: string): void {
   if (/\{\{|\}\}/.test(valor)) {
-    throw new PlantillaInvalidaError(
-      `${primeraMayuscula(campo)} no puede llevar variables ({{1}}): desde el panel se crean plantillas de texto fijo.`,
-    );
+    throw new PlantillaInvalidaError(`${primeraMayuscula(campo)} no puede llevar datos variables.`);
   }
+}
+
+/** Los números de las variables {{n}} del texto; rechaza las que no son números. */
+function numerosEn(texto: string, campo: string): number[] {
+  const llaves = texto.match(/\{\{[^{}]*\}\}/g) ?? [];
+  const sueltas = texto.replace(/\{\{[^{}]*\}\}/g, '');
+  if (/\{\{|\}\}/.test(sueltas)) throw new PlantillaInvalidaError(`${primeraMayuscula(campo)} tiene llaves {{ }} sin cerrar.`);
+  return llaves.map((llave) => {
+    const m = /^\{\{\s*(\d+)\s*\}\}$/.exec(llave);
+    if (!m) throw new PlantillaInvalidaError(`${primeraMayuscula(campo)} solo admite datos numerados como {{1}}.`);
+    return Number(m[1]);
+  });
+}
+
+function ejemplo(raw: unknown, que: string): string {
+  const valor = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!valor) throw new PlantillaInvalidaError(`Escribe un ejemplo para ${que}: Meta lo pide para revisar la plantilla.`);
+  if (valor.length > 200) throw new PlantillaInvalidaError(`El ejemplo para ${que} puede tener hasta 200 caracteres.`);
+  if (/\{\{|\}\}/.test(valor)) throw new PlantillaInvalidaError(`El ejemplo para ${que} no puede llevar llaves.`);
+  return valor;
+}
+
+function significadosValidos(raw: unknown): Record<string, Significado> {
+  const out: Record<string, Significado> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [clave, valor] of Object.entries(raw as Record<string, unknown>)) {
+    if (/^(cuerpo:\d{1,2}|encabezado:1)$/.test(clave) && (SIGNIFICADOS as readonly unknown[]).includes(valor)) {
+      out[clave] = valor as Significado;
+    }
+  }
+  return out;
 }
 
 export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
@@ -86,8 +129,13 @@ export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
   let encabezado: PlantillaNuevaValidada['encabezado'];
   if (enc.tipo === 'texto') {
     const t = unaLinea(enc.texto, 'el título', 60, true);
-    sinVariables(t, 'el título');
-    encabezado = { tipo: 'texto', texto: t };
+    const enTitulo = numerosEn(t, 'el título');
+    if (enTitulo.length > 1 || (enTitulo.length && enTitulo[0] !== 1)) {
+      throw new PlantillaInvalidaError('El título admite un solo dato variable.');
+    }
+    encabezado = enTitulo.length
+      ? { tipo: 'texto', texto: t, ejemplo: ejemplo(enc.ejemplo, 'el dato del título') }
+      : { tipo: 'texto', texto: t };
   } else if (enc.tipo === 'imagen') {
     encabezado = { tipo: 'imagen' };
   } else if (enc.tipo === 'ninguno' || enc.tipo === undefined) {
@@ -99,7 +147,17 @@ export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
   const cuerpo = texto(datos.cuerpo);
   if (!cuerpo) throw new PlantillaInvalidaError('Escribe el mensaje.');
   if (cuerpo.length > 1024) throw new PlantillaInvalidaError('El mensaje puede tener hasta 1.024 caracteres.');
-  sinVariables(cuerpo, 'el mensaje');
+  // Meta exige variables seguidas desde {{1}} y que el mensaje no empiece ni termine con una.
+  const enCuerpo = [...new Set(numerosEn(cuerpo, 'el mensaje'))];
+  const total = enCuerpo.length ? Math.max(...enCuerpo) : 0;
+  if (enCuerpo.length !== total) {
+    throw new PlantillaInvalidaError('Los datos del mensaje deben ir numerados en orden: {{1}}, {{2}}, {{3}}…');
+  }
+  if (/^\{\{/.test(cuerpo) || /\}\}$/.test(cuerpo)) {
+    throw new PlantillaInvalidaError('El mensaje no puede empezar ni terminar con un dato variable: agrega texto antes o después.');
+  }
+  const crudosEjemplos = Array.isArray(datos.ejemplosCuerpo) ? datos.ejemplosCuerpo : [];
+  const ejemplosCuerpo = Array.from({ length: total }, (_x, i) => ejemplo(crudosEjemplos[i], `{{${i + 1}}}`));
 
   const pie = unaLinea(datos.pie, 'el pie', 60, false);
   sinVariables(pie, 'el pie');
@@ -121,7 +179,13 @@ export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
         throw new PlantillaInvalidaError(`El enlace del botón «${etiqueta}» debe ser una dirección completa que empiece por https://`);
       }
       sinVariables(url, 'el enlace');
-      enlaces.push({ tipo: 'enlace', texto: etiqueta, url: valida.toString() });
+      if (b.dinamico === true) {
+        const final = ejemplo(b.ejemplo, 'el final del enlace');
+        if (/\s/.test(final)) throw new PlantillaInvalidaError('El ejemplo del final del enlace no puede tener espacios.');
+        enlaces.push({ tipo: 'enlace', texto: etiqueta, url, dinamico: true, ejemplo: final });
+      } else {
+        enlaces.push({ tipo: 'enlace', texto: etiqueta, url: valida.toString() });
+      }
     } else {
       throw new PlantillaInvalidaError('Un botón no es válido.');
     }
@@ -132,9 +196,17 @@ export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
   if (new Set(etiquetas).size !== etiquetas.length) throw new PlantillaInvalidaError('Dos botones no pueden decir lo mismo.');
 
   // Meta exige agrupar los botones: primero las respuestas rápidas, luego el enlace.
+  const botones = [...respuestas, ...enlaces];
+  const significados = significadosValidos(datos.significados);
+  // Solo se guardan los de variables que de verdad quedaron en la plantilla.
+  for (const clave of Object.keys(significados)) {
+    const [lugar, n] = clave.split(':');
+    const existe = lugar === 'cuerpo' ? Number(n) <= total : encabezado.tipo === 'texto' && !!encabezado.ejemplo;
+    if (!existe) delete significados[clave];
+  }
   return {
     name, language: idioma as PlantillaNuevaValidada['language'], category: datos.categoria as PlantillaNuevaValidada['category'],
-    encabezado, cuerpo, pie, botones: [...respuestas, ...enlaces],
+    encabezado, cuerpo, ejemplosCuerpo, pie, botones, significados,
   };
 }
 
@@ -142,18 +214,26 @@ export function validarPlantillaNueva(input: unknown): PlantillaNuevaValidada {
 export function componentesParaMeta(p: PlantillaNuevaValidada, handleImagen = ''): Record<string, unknown>[] {
   const componentes: Record<string, unknown>[] = [];
   if (p.encabezado.tipo === 'texto') {
-    componentes.push({ type: 'HEADER', format: 'TEXT', text: p.encabezado.texto });
+    componentes.push({
+      type: 'HEADER', format: 'TEXT', text: p.encabezado.texto,
+      ...(p.encabezado.ejemplo ? { example: { header_text: [p.encabezado.ejemplo] } } : {}),
+    });
   } else if (p.encabezado.tipo === 'imagen') {
     if (!handleImagen) throw new PlantillaInvalidaError('Falta la imagen del encabezado.');
     componentes.push({ type: 'HEADER', format: 'IMAGE', example: { header_handle: [handleImagen] } });
   }
-  componentes.push({ type: 'BODY', text: p.cuerpo });
+  componentes.push({
+    type: 'BODY', text: p.cuerpo,
+    ...(p.ejemplosCuerpo.length ? { example: { body_text: [p.ejemplosCuerpo] } } : {}),
+  });
   if (p.pie) componentes.push({ type: 'FOOTER', text: p.pie });
   if (p.botones.length) {
     componentes.push({
       type: 'BUTTONS',
       buttons: p.botones.map(b => (b.tipo === 'enlace'
-        ? { type: 'URL', text: b.texto, url: b.url }
+        ? (b.dinamico
+          ? { type: 'URL', text: b.texto, url: `${b.url}{{1}}`, example: [`${b.url}${b.ejemplo}`] }
+          : { type: 'URL', text: b.texto, url: b.url })
         : { type: 'QUICK_REPLY', text: b.texto })),
     });
   }

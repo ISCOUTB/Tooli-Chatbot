@@ -55,7 +55,16 @@ describe('validarPlantillaNueva', () => {
       [{ idioma: 'fr' }, /idioma/],
       [{ cuerpo: '' }, /Escribe el mensaje/],
       [{ cuerpo: 'x'.repeat(1025) }, /1\.024/],
-      [{ cuerpo: 'Hola {{1}}' }, /variables/],
+      [{ cuerpo: 'Hola {{nombre}}, te esperamos' }, /numerados como \{\{1\}\}/],
+      [{ cuerpo: 'Hola {{1}}, te esperamos', ejemplosCuerpo: [''] }, /ejemplo para \{\{1\}\}/],
+      [{ cuerpo: 'Hola {{2}}, te esperamos', ejemplosCuerpo: ['Ana'] }, /en orden/],
+      [{ cuerpo: '{{1}}, te esperamos', ejemplosCuerpo: ['Ana'] }, /empezar ni terminar/],
+      [{ cuerpo: 'Te esperamos, {{1}}', ejemplosCuerpo: ['Ana'] }, /empezar ni terminar/],
+      [{ cuerpo: 'Hola {{1}, te esperamos' }, /sin cerrar/],
+      [{ encabezado: { tipo: 'texto', texto: '{{1}} y {{2}}' } }, /un solo dato/],
+      [{ encabezado: { tipo: 'texto', texto: 'Hola {{1}}' } }, /ejemplo para el dato del título/],
+      [{ pie: 'UTB {{1}}' }, /no puede llevar datos variables/],
+      [{ botones: [{ tipo: 'enlace', texto: 'Ver', url: 'https://utb.edu.co/eventos/', dinamico: true, ejemplo: 'feria 2026' }] }, /espacios/],
       [{ encabezado: { tipo: 'texto', texto: 'Dos\nlíneas' } }, /una sola línea/],
       [{ encabezado: { tipo: 'texto', texto: 'x'.repeat(61) } }, /60 caracteres/],
       [{ pie: 'x'.repeat(61) }, /60 caracteres/],
@@ -148,3 +157,35 @@ describe('crearPlantillaEnMeta', () => {
     }
   });
 });
+
+describe('plantillas con datos variables', () => {
+  it('arma los ejemplos que Meta exige y recuerda qué dato es cada variable', () => {
+    const p = validarPlantillaNueva({
+      ...BASE,
+      encabezado: { tipo: 'texto', texto: 'Hola, {{1}}', ejemplo: 'Ana' },
+      cuerpo: 'Te esperamos en {{1}} el {{2}} para hablar de {{3}}.',
+      ejemplosCuerpo: ['Campus Tecnológico', ' viernes  20 de noviembre ', 'Maestría en Ingeniería', 'sobrante'],
+      botones: [
+        { tipo: 'enlace', texto: 'Ver evento', url: 'https://www.utb.edu.co/eventos/', dinamico: true, ejemplo: 'feria-2026' },
+        { tipo: 'respuesta', texto: 'Ahí estaré' },
+      ],
+      significados: { 'encabezado:1': 'primer_nombre', 'cuerpo:1': 'lugar', 'cuerpo:2': 'fecha', 'cuerpo:3': 'programa', 'cuerpo:9': 'otro', 'raro': 'fecha', 'cuerpo:4': 'inventado' },
+    });
+    assert.deepEqual(p.significados, { 'encabezado:1': 'primer_nombre', 'cuerpo:1': 'lugar', 'cuerpo:2': 'fecha', 'cuerpo:3': 'programa' });
+    assert.deepEqual(componentesParaMeta(p), [
+      { type: 'HEADER', format: 'TEXT', text: 'Hola, {{1}}', example: { header_text: ['Ana'] } },
+      { type: 'BODY', text: 'Te esperamos en {{1}} el {{2}} para hablar de {{3}}.', example: { body_text: [['Campus Tecnológico', 'viernes 20 de noviembre', 'Maestría en Ingeniería']] } },
+      { type: 'FOOTER', text: 'Posgrados UTB' },
+      { type: 'BUTTONS', buttons: [
+        { type: 'QUICK_REPLY', text: 'Ahí estaré' },
+        { type: 'URL', text: 'Ver evento', url: 'https://www.utb.edu.co/eventos/{{1}}', example: ['https://www.utb.edu.co/eventos/feria-2026'] },
+      ] },
+    ]);
+  });
+
+  it('una variable repetida cuenta una sola vez', () => {
+    const p = validarPlantillaNueva({ ...BASE, cuerpo: 'Hola {{1}}, sí, {{1}}: te esperamos.', ejemplosCuerpo: ['Ana'] });
+    assert.deepEqual(p.ejemplosCuerpo, ['Ana']);
+  });
+});
+
