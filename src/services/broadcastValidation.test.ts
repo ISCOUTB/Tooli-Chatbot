@@ -152,3 +152,48 @@ describe('clasificarDestinatariosConDatos', () => {
     assert.equal(res.datos[0].contexto!.largo.length, 100);
   });
 });
+
+describe('encabezado con archivo', () => {
+  const EJEMPLO = 'https://scontent.whatsapp.net/v/t61.29466-34/123_456_n.png?ccb=1-7&oh=abc&oe=6F000000';
+
+  it('toma el archivo con el que Meta aprobó la plantilla', async () => {
+    const { encabezadoMediaDe } = await import('./broadcastValidation');
+    assert.deepEqual(
+      encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [EJEMPLO] } }, { type: 'BODY', text: 'Hola' }]),
+      { tipo: 'image', ejemplo: EJEMPLO },
+    );
+    assert.equal(encabezadoMediaDe([{ type: 'header', format: 'document', example: { header_handle: [EJEMPLO] } }])?.tipo, 'document');
+  });
+
+  it('un encabezado de texto o ausente no lleva archivo', async () => {
+    const { encabezadoMediaDe } = await import('./broadcastValidation');
+    assert.equal(encabezadoMediaDe([{ type: 'HEADER', format: 'TEXT', text: 'Hola' }]), null);
+    assert.equal(encabezadoMediaDe([{ type: 'HEADER', text: 'Sin formato declarado' }]), null);
+    assert.equal(encabezadoMediaDe([{ type: 'BODY', text: 'Solo cuerpo' }]), null);
+    assert.equal(encabezadoMediaDe([]), null);
+  });
+
+  it('sin archivo de ejemplo o con un tipo no admitido no se puede enviar', async () => {
+    const { encabezadoMediaDe } = await import('./broadcastValidation');
+    assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE' }]), /no entregó el archivo/);
+    assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [] } }]), BroadcastValidationError);
+    assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'LOCATION' }]), /no envía/);
+  });
+
+  it('el archivo solo se descarga de Meta y por HTTPS', async () => {
+    const { urlDeMetaSegura } = await import('./broadcastValidation');
+    assert.equal(urlDeMetaSegura(EJEMPLO), EJEMPLO);
+    for (const mala of [
+      'http://scontent.whatsapp.net/a.png',            // sin cifrar
+      'https://127.0.0.1/a.png',                       // red interna
+      'https://redis:6379/',                           // servicio interno del compose
+      'https://scontent.whatsapp.net.evil.example/a',  // dominio que solo se parece
+      'https://evilwhatsapp.net/a.png',
+      'https://usuario:clave@scontent.whatsapp.net/a.png',
+      'file:///etc/passwd',
+      'no es una url',
+    ]) {
+      assert.throws(() => urlDeMetaSegura(mala), BroadcastValidationError, mala);
+    }
+  });
+});

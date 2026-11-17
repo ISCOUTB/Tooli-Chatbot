@@ -233,9 +233,13 @@ Reglas que conviene conocer:
 - A los asistentes de un evento solo se les envía si **autorizaron el contacto**
   y tienen un número. Los importados sin esa autorización quedan en la lista,
   pero fuera de los envíos.
-- Las plantillas con variables `{{1}}` o con imagen en el encabezado se ven,
-  pero no se envían desde aquí: las de variables siguen saliendo por *CRM →
-  Campaña por pregrado*.
+- Las plantillas con **imagen, video o documento en el encabezado** sí se
+  envían: el servidor toma el archivo con el que Meta aprobó la plantilla
+  (`example.header_handle`), lo sube a Meta y lo adjunta a cada mensaje. El
+  asesor no adjunta nada y no puede cambiar la imagen: para otra imagen hay
+  que crear otra plantilla.
+- Las plantillas con variables `{{1}}` se ven, pero no se envían desde aquí:
+  siguen saliendo por *CRM → Campaña por pregrado*.
 - **Cualquier asesor puede enviar plantillas**, desde esta pantalla y desde el
   CRM; antes era solo para administradores. Cada envío queda a nombre de quien
   lo creó: un asesor ve en el historial los suyos y un administrador ve los de

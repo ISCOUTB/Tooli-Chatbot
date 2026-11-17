@@ -90,6 +90,60 @@ export function contarVariablesCuerpo(components: unknown[]): number {
   return maximo;
 }
 
+export type TipoEncabezado = 'image' | 'video' | 'document';
+
+export interface EncabezadoMedia {
+  tipo: TipoEncabezado;
+  /** Dirección del archivo con el que Meta aprobó la plantilla. */
+  ejemplo: string;
+}
+
+const FORMATOS_MEDIA: Record<string, TipoEncabezado> = { IMAGE: 'image', VIDEO: 'video', DOCUMENT: 'document' };
+
+/**
+ * El archivo que lleva el encabezado de la plantilla, o null si el encabezado
+ * es de texto o no existe. Una plantilla así no se puede enviar sin adjuntar
+ * un archivo del mismo tipo: se usa el mismo con el que Meta la aprobó, que
+ * viene en `example.header_handle`.
+ */
+export function encabezadoMediaDe(components: unknown[]): EncabezadoMedia | null {
+  for (const c of components) {
+    if (!c || typeof c !== 'object') continue;
+    const comp = c as Record<string, unknown>;
+    if (String(comp.type ?? '').toUpperCase() !== 'HEADER') continue;
+    const formato = String(comp.format ?? 'TEXT').toUpperCase();
+    if (formato === 'TEXT') return null;
+    const tipo = FORMATOS_MEDIA[formato];
+    if (!tipo) {
+      throw new BroadcastValidationError('El encabezado de la plantilla es de un tipo que el panel no envía (por ejemplo, una ubicación)');
+    }
+    const handles = (comp.example as { header_handle?: unknown } | undefined)?.header_handle;
+    const ejemplo = Array.isArray(handles) && typeof handles[0] === 'string' ? handles[0] : '';
+    if (!ejemplo) {
+      throw new BroadcastValidationError('La plantilla lleva un archivo en el encabezado, pero Meta no entregó el archivo con el que fue aprobada');
+    }
+    return { tipo, ejemplo: urlDeMetaSegura(ejemplo) };
+  }
+  return null;
+}
+
+/** Hosts desde los que Meta sirve los archivos de las plantillas. */
+const HOSTS_DE_META = ['.whatsapp.net', '.fbcdn.net', '.facebook.com', '.fbsbx.com'];
+
+/**
+ * El archivo se descarga desde el servidor, así que la dirección solo puede
+ * apuntar a Meta por HTTPS: nunca a una red interna ni a un tercero.
+ */
+export function urlDeMetaSegura(raw: string): string {
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new BroadcastValidationError('El archivo del encabezado no tiene una dirección válida'); }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.username || url.password || !HOSTS_DE_META.some(sufijo => host.endsWith(sufijo))) {
+    throw new BroadcastValidationError('El archivo del encabezado no está alojado en Meta');
+  }
+  return url.toString();
+}
+
 /** Largo máximo de una variable de plantilla (nombre, pregrado). */
 export const MAX_LARGO_VARIABLE = 60;
 

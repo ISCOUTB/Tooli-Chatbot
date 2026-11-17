@@ -114,6 +114,11 @@ it('al procesar: no se le envía a quien se dio de baja y el contexto se guarda 
   // Si Meta falla, se reporta el error y no hay contexto que guardar
   const falla = (async () => { throw new Error('caída'); }) as never;
   assert.ok(await enviarADestinatario(job, 0, falla, deps));
+
+  // Una plantilla con imagen lleva el archivo ya subido a cada destinatario.
+  const conImagen = { ...job, parametros: undefined, encabezado: { tipo: 'image', mediaId: '987654321' } } as BroadcastJob;
+  assert.equal(await enviarADestinatario(conImagen, 0, send, deps), undefined);
+  assert.deepEqual(enviados[1], ['campana_posgrados', 'es_CO', '573001112233', [], { tipo: 'image', mediaId: '987654321' }]);
 });
 
 it('un asesor ve sus envíos y un administrador ve los de todos', async () => {

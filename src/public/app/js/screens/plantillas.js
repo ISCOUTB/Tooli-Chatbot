@@ -39,7 +39,9 @@ function burbujaHtml(plantilla) {
   const p = partesPlantilla(plantilla);
   return `
     <div class="plt-burbuja">
-      ${p.encabezadoMedia ? `<div class="plt-media">${icon('paperclip', 16)} ${p.encabezadoMedia === 'IMAGE' ? 'Imagen' : p.encabezadoMedia === 'VIDEO' ? 'Video' : 'Documento'}</div>` : ''}
+      ${p.encabezadoMedia === 'IMAGE' && p.encabezadoEjemplo
+        ? `<img class="plt-media-img" src="${escapeHtml(p.encabezadoEjemplo)}" alt="Imagen que acompaña la plantilla" loading="lazy" referrerpolicy="no-referrer">`
+        : p.encabezadoMedia ? `<div class="plt-media">${icon('paperclip', 16)} ${p.encabezadoMedia === 'VIDEO' ? 'Video' : p.encabezadoMedia === 'DOCUMENT' ? 'Documento' : 'Archivo'}</div>` : ''}
       ${p.encabezado ? `<div class="plt-encabezado">${cuerpoHtml(p.encabezado)}</div>` : ''}
       <div class="plt-cuerpo">${p.cuerpo ? cuerpoHtml(p.cuerpo) : '<em>Sin texto</em>'}</div>
       ${p.pie ? `<div class="plt-pie">${escapeHtml(p.pie)}</div>` : ''}
@@ -134,7 +136,16 @@ async function renderPlantillas(main) {
 
   function pintarPrevia() {
     if (!elegida) { previaEl.innerHTML = '<div class="widget-empty">Elige una plantilla para verla.</div>'; return; }
-    previaEl.innerHTML = `<div class="plt-chat">${burbujaHtml(elegida)}</div>`;
+    const { encabezadoMedia, encabezadoEjemplo } = partesPlantilla(elegida);
+    previaEl.innerHTML = `<div class="plt-chat">${burbujaHtml(elegida)}</div>
+      ${encabezadoMedia && encabezadoEjemplo ? `<p class="plt-previa-nota">Se envía con ${encabezadoMedia === 'IMAGE' ? 'la misma imagen' : 'el mismo archivo'} con que Meta aprobó la plantilla.</p>` : ''}`;
+    // Si la imagen no carga (dirección vencida), queda el marcador en su lugar.
+    previaEl.querySelector('.plt-media-img')?.addEventListener('error', (event) => {
+      const marcador = document.createElement('div');
+      marcador.className = 'plt-media';
+      marcador.innerHTML = `${icon('paperclip', 16)} Imagen`;
+      event.target.replaceWith(marcador);
+    });
   }
 
   async function cargarPlantillas() {

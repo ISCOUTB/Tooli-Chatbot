@@ -1,8 +1,8 @@
 import axios from 'axios';
 import { config } from '../config';
 import {
-  BroadcastValidationError,
-  validarTemplateName, validarLanguage, clasificarDestinatarios, contarVariablesCuerpo,
+  BroadcastValidationError, type TipoEncabezado,
+  validarTemplateName, validarLanguage, clasificarDestinatarios, contarVariablesCuerpo, encabezadoMediaDe,
 } from './broadcastValidation';
 import { describeExternalError } from './logSafe';
 import { metaRecipient } from './whatsappId';
@@ -140,6 +140,7 @@ export async function sendBroadcast(
   if (await ensureApprovedTemplate(name, lang) > 0) {
     throw new BroadcastValidationError(TEMPLATE_CON_VARIABLES);
   }
+  const encabezado = await prepararEncabezado(name, lang);
 
   const enviados: string[] = [];
   const fallidos: { numero: string; error: string }[] = [...invalidos];
@@ -148,7 +149,7 @@ export async function sendBroadcast(
     const to = validos[i];
     if (i > 0) await new Promise<void>(resolve => setTimeout(resolve, 300));
     try {
-      await sendTemplateToRecipient(name, lang, to);
+      await sendTemplateToRecipient(name, lang, to, [], encabezado);
       enviados.push(to);
     } catch (err: unknown) {
       fallidos.push({ numero: to, error: extractError(err) });
@@ -173,14 +174,96 @@ export async function ensureApprovedTemplate(name: string, lang: string): Promis
   return contarVariablesCuerpo(approved.components);
 }
 
+/** Archivo ya subido a Meta, listo para adjuntarse como encabezado de la plantilla. */
+export interface EncabezadoEnvio {
+  tipo: TipoEncabezado;
+  mediaId: string;
+}
+
+/** Topes de WhatsApp por tipo de archivo; el de documentos se acota para no cargar la memoria. */
+const MAX_BYTES_ENCABEZADO: Record<TipoEncabezado, number> = {
+  image: 5 * 1024 * 1024, video: 16 * 1024 * 1024, document: 20 * 1024 * 1024,
+};
+// Meta conserva un archivo subido 30 días; aquí se reutiliza unas horas.
+const ENCABEZADO_TTL_MS = 6 * 60 * 60 * 1000;
+const encabezados = new Map<string, { encabezado: EncabezadoEnvio; at: number }>();
+
+/** Limpia la caché de archivos subidos (útil para tests). */
+export function clearEncabezadoCache(): void {
+  encabezados.clear();
+}
+
+/**
+ * Si la plantilla lleva imagen, video o documento en el encabezado, deja ese
+ * archivo subido a Meta y devuelve su identificador; si no, null.
+ *
+ * Se usa el mismo archivo con el que Meta aprobó la plantilla: el asesor no
+ * tiene que adjuntar nada y el mensaje sale igual al que se aprobó. Se sube a
+ * Meta en vez de enviar la dirección porque esa dirección está firmada y vence.
+ */
+export async function prepararEncabezado(name: string, lang: string): Promise<EncabezadoEnvio | null> {
+  const approved = (await listApprovedTemplates()).find(t => t.name === name && t.language === lang);
+  if (!approved) {
+    throw new BroadcastValidationError(`El template ${name} (${lang}) no está aprobado o no existe`);
+  }
+  const media = encabezadoMediaDe(approved.components);
+  if (!media) return null;
+
+  // La firma de la dirección cambia; la ruta identifica el archivo.
+  const clave = `${name}|${lang}|${new URL(media.ejemplo).pathname}`;
+  const guardado = encabezados.get(clave);
+  if (guardado && Date.now() - guardado.at < ENCABEZADO_TTL_MS) return guardado.encabezado;
+
+  const { token, phoneNumberId } = config.metaCloud;
+  if (!token || !phoneNumberId) throw new Error('Faltan credenciales de Meta');
+  try {
+    const descarga = await axios.get<ArrayBuffer>(media.ejemplo, {
+      responseType: 'arraybuffer', timeout: 30_000, maxRedirects: 0,
+      maxContentLength: MAX_BYTES_ENCABEZADO[media.tipo],
+    });
+    const mime = String(descarga.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (!mime || (media.tipo !== 'document' && !mime.startsWith(`${media.tipo}/`))) {
+      throw new BroadcastValidationError('El archivo del encabezado no es del tipo que declara la plantilla');
+    }
+    const form = new FormData();
+    form.append('file', new Blob([descarga.data], { type: mime }), `encabezado.${mime.split('/')[1] ?? 'bin'}`);
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    const subida = await axios.post(`${GRAPH_URL}/${phoneNumberId}/media`, form, {
+      headers: { Authorization: `Bearer ${token}` }, timeout: 60_000,
+    });
+    const mediaId = String(subida.data?.id ?? '');
+    if (!/^\d{5,40}$/.test(mediaId)) throw new Error('Meta no devolvió el identificador del archivo');
+    const encabezado: EncabezadoEnvio = { tipo: media.tipo, mediaId };
+    encabezados.set(clave, { encabezado, at: Date.now() });
+    return encabezado;
+  } catch (err) {
+    if (err instanceof BroadcastValidationError) throw err;
+    console.error('[broadcast] encabezado:', describeExternalError(err));
+    // Mensaje para el asesor: el envío no se creó y nadie recibió nada.
+    throw new BroadcastValidationError(
+      'No se pudo preparar el archivo del encabezado de la plantilla en Meta. Intenta de nuevo en unos minutos.',
+    );
+  }
+}
+
 /**
  * Un único intento externo. El job registra su inicio ANTES de llamar aquí.
- * `parametros` llena las variables del cuerpo en orden ({{1}}, {{2}}…).
+ * `parametros` llena las variables del cuerpo en orden ({{1}}, {{2}}…);
+ * `encabezado` adjunta el archivo de las plantillas que lo exigen.
  */
-export async function sendTemplateToRecipient(name: string, lang: string, to: string, parametros: string[] = []): Promise<void> {
+export async function sendTemplateToRecipient(
+  name: string, lang: string, to: string, parametros: string[] = [], encabezado: EncabezadoEnvio | null = null,
+): Promise<void> {
   const { token, phoneNumberId } = config.metaCloud;
   if (!token || !phoneNumberId) throw new Error('Faltan credenciales de Meta');
   const url = `${GRAPH_URL}/${phoneNumberId}/messages`;
+  const components = [
+    ...(encabezado
+      ? [{ type: 'header', parameters: [{ type: encabezado.tipo, [encabezado.tipo]: { id: encabezado.mediaId } }] }]
+      : []),
+    ...(parametros.length ? [{ type: 'body', parameters: parametros.map(text => ({ type: 'text', text })) }] : []),
+  ];
   await axios.post(
         url,
         {
@@ -190,9 +273,7 @@ export async function sendTemplateToRecipient(name: string, lang: string, to: st
           template: {
             name,
             language: { code: lang },
-            ...(parametros.length
-              ? { components: [{ type: 'body', parameters: parametros.map(text => ({ type: 'text', text })) }] }
-              : {}),
+            ...(components.length ? { components } : {}),
           },
         },
         {

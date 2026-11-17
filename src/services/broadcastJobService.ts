@@ -7,8 +7,8 @@ import { config } from '../config';
 import { BroadcastValidationError, clasificarDestinatariosConDatos } from './broadcastValidation';
 import { describeError } from './logSafe';
 import {
-  TEMPLATE_CON_VARIABLES, ensureApprovedTemplate, extractError, sendTemplateToRecipient,
-  validarLanguage, validarTemplateName,
+  TEMPLATE_CON_VARIABLES, type EncabezadoEnvio, ensureApprovedTemplate, extractError, prepararEncabezado,
+  sendTemplateToRecipient, validarLanguage, validarTemplateName,
 } from './broadcastService';
 import { estaDadoDeBaja, guardarContextoCampana } from './campanaService';
 
@@ -47,6 +47,8 @@ export interface BroadcastJob {
   contextos?: (Record<string, string> | null)[];
   /** A quiénes iba el envío, en palabras del asesor ("Asistentes: Feria de posgrados"). */
   etiqueta?: string;
+  /** Archivo del encabezado, ya subido a Meta, para las plantillas que lo llevan. */
+  encabezado?: EncabezadoEnvio;
 }
 
 function parseJob(raw: string): BroadcastJob {
@@ -82,6 +84,7 @@ export async function enqueueBroadcast(
   }
 
   let variables = 0;
+  let encabezado: EncabezadoEnvio | null = null;
   if (classified.validos.length) {
     const { token, phoneNumberId, wabaId } = config.metaCloud;
     if (!token || !phoneNumberId || !wabaId) throw new Error('Faltan credenciales de Meta');
@@ -90,6 +93,9 @@ export async function enqueueBroadcast(
     if (variables > 0 && classified.datos.every(d => d.parametros.length === 0)) {
       throw new BroadcastValidationError(TEMPLATE_CON_VARIABLES);
     }
+    // Si falla aquí el envío no se crea: mejor que encolar 200 mensajes que
+    // Meta rechazaría uno por uno por faltarles la imagen.
+    encabezado = await prepararEncabezado(name, lang);
   }
 
   // A quien le falte algún valor para las variables no se le envía; queda en fallidos.
@@ -116,6 +122,7 @@ export async function enqueueBroadcast(
     ...(variables > 0 ? { parametros: datos.map(d => d.parametros.slice(0, variables)) } : {}),
     ...(datos.some(d => d.contexto) ? { contextos: datos.map(d => d.contexto) } : {}),
     ...(limpiarEtiqueta(etiqueta) ? { etiqueta: limpiarEtiqueta(etiqueta) } : {}),
+    ...(encabezado ? { encabezado } : {}),
   };
   const id = await store.eval(
     `local existing = redis.call('GET', KEYS[1])
@@ -336,7 +343,8 @@ export async function enviarADestinatario(
   const numero = job.destinatarios[index];
   try {
     if (await deps.estaDadoDeBaja(numero)) return ERROR_BAJA;
-    await send(job.templateName, job.language, numero, job.parametros?.[index] ?? []);
+    const encabezado = job.encabezado?.mediaId ? job.encabezado : null;
+    await send(job.templateName, job.language, numero, job.parametros?.[index] ?? [], ...(encabezado ? [encabezado] : []));
     return undefined;
   } catch (err) {
     return extractError(err);

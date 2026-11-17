@@ -102,3 +102,104 @@ describe('sendTemplateToRecipient', () => {
     }
   });
 });
+
+describe('plantillas con archivo en el encabezado', () => {
+  const EJEMPLO = 'https://scontent.whatsapp.net/v/t61/invitacion.png?oh=firma&oe=6F000000';
+  const PLANTILLAS = [
+    { name: 'invitacion', language: 'es', category: 'MARKETING', components: [{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [EJEMPLO] } }, { type: 'BODY', text: 'Te invitamos' }] },
+    { name: 'aviso', language: 'es', category: 'UTILITY', components: [{ type: 'BODY', text: 'Aviso' }] },
+  ];
+
+  it('sube a Meta la imagen aprobada una sola vez y la adjunta al enviar', async () => {
+    const { clearEncabezadoCache, prepararEncabezado, sendTemplateToRecipient } = await import('./broadcastService');
+    const originalGet = axios.get;
+    const originalPost = axios.post;
+    const originalMeta = { ...config.metaCloud };
+    const descargas: string[] = [];
+    const subidas: Array<{ url: string; tipo: unknown; archivo: unknown }> = [];
+    const mensajes: unknown[] = [];
+    Object.assign(config.metaCloud, { token: 'test-token', phoneNumberId: '123', wabaId: '456' });
+    clearTemplateCache();
+    clearEncabezadoCache();
+    axios.get = (async (url: string) => {
+      if (url.includes('/message_templates')) return { data: { data: PLANTILLAS } };
+      descargas.push(url);
+      return { data: Buffer.from('png-de-prueba'), headers: { 'content-type': 'image/png; charset=binary' } };
+    }) as typeof axios.get;
+    axios.post = (async (url: string, body: unknown) => {
+      if (url.endsWith('/media')) {
+        const form = body as FormData;
+        subidas.push({ url, tipo: form.get('type'), archivo: (form.get('file') as File).name });
+        return { data: { id: '987654321' } };
+      }
+      mensajes.push(body);
+      return { data: {} };
+    }) as typeof axios.post;
+    try {
+      const encabezado = await prepararEncabezado('invitacion', 'es');
+      assert.deepEqual(encabezado, { tipo: 'image', mediaId: '987654321' });
+      assert.deepEqual(descargas, [EJEMPLO]);
+      assert.deepEqual(subidas, [{ url: 'https://graph.facebook.com/v20.0/123/media', tipo: 'image/png', archivo: 'encabezado.png' }]);
+
+      // Un segundo envío de la misma plantilla reutiliza el archivo ya subido.
+      assert.deepEqual(await prepararEncabezado('invitacion', 'es'), encabezado);
+      assert.equal(subidas.length, 1);
+      // Una plantilla sin archivo no descarga ni sube nada.
+      assert.equal(await prepararEncabezado('aviso', 'es'), null);
+      assert.equal(descargas.length, 1);
+
+      await sendTemplateToRecipient('invitacion', 'es', '573001112233', [], encabezado);
+      assert.deepEqual((mensajes[0] as { template: unknown }).template, {
+        name: 'invitacion',
+        language: { code: 'es' },
+        components: [{ type: 'header', parameters: [{ type: 'image', image: { id: '987654321' } }] }],
+      });
+    } finally {
+      axios.get = originalGet;
+      axios.post = originalPost;
+      Object.assign(config.metaCloud, originalMeta);
+      clearTemplateCache();
+      clearEncabezadoCache();
+    }
+  });
+
+  it('si el archivo no se puede preparar, el envío no se crea y el asesor lo sabe', async () => {
+    const { BroadcastValidationError, clearEncabezadoCache, prepararEncabezado } = await import('./broadcastService');
+    const originalGet = axios.get;
+    const originalPost = axios.post;
+    const originalMeta = { ...config.metaCloud };
+    const originalError = console.error;
+    let subidas = 0;
+    Object.assign(config.metaCloud, { token: 'test-token', phoneNumberId: '123', wabaId: '456' });
+    clearTemplateCache();
+    clearEncabezadoCache();
+    console.error = () => {};
+    axios.post = (async () => { subidas++; return { data: { id: '987654321' } }; }) as typeof axios.post;
+    try {
+      // La descarga falla (dirección vencida).
+      axios.get = (async (url: string) => {
+        if (url.includes('/message_templates')) return { data: { data: PLANTILLAS } };
+        throw new Error('403 URL signature expired');
+      }) as typeof axios.get;
+      await assert.rejects(prepararEncabezado('invitacion', 'es'), (err: unknown) =>
+        err instanceof BroadcastValidationError && /No se pudo preparar el archivo/.test(err.message));
+
+      // Llega algo que no es una imagen.
+      axios.get = (async (url: string) => {
+        if (url.includes('/message_templates')) return { data: { data: PLANTILLAS } };
+        return { data: Buffer.from('<html>'), headers: { 'content-type': 'text/html' } };
+      }) as typeof axios.get;
+      await assert.rejects(prepararEncabezado('invitacion', 'es'), /no es del tipo que declara/);
+      assert.equal(subidas, 0, 'nunca se sube a Meta un archivo que no se pudo validar');
+
+      await assert.rejects(prepararEncabezado('no_existe', 'es'), /no está aprobado o no existe/);
+    } finally {
+      axios.get = originalGet;
+      axios.post = originalPost;
+      console.error = originalError;
+      Object.assign(config.metaCloud, originalMeta);
+      clearTemplateCache();
+      clearEncabezadoCache();
+    }
+  });
+});

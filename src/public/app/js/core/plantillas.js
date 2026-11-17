@@ -18,10 +18,13 @@ function partesPlantilla(plantilla) {
   const encabezado = componente(components, 'HEADER');
   const formato = String(encabezado?.format ?? 'TEXT').toUpperCase();
   const botones = componente(components, 'BUTTONS');
+  const ejemplos = encabezado?.example?.header_handle;
   return {
     encabezado: encabezado && formato === 'TEXT' ? String(encabezado.text ?? '') : '',
-    /** Imagen, video o documento: el panel no puede adjuntarlo. */
+    /** IMAGE, VIDEO o DOCUMENT cuando el encabezado es un archivo. */
     encabezadoMedia: encabezado && formato !== 'TEXT' ? formato : '',
+    /** El archivo con el que Meta aprobó la plantilla; es el que se envía. */
+    encabezadoEjemplo: encabezado && formato !== 'TEXT' && Array.isArray(ejemplos) && typeof ejemplos[0] === 'string' ? ejemplos[0] : '',
     cuerpo: String(componente(components, 'BODY')?.text ?? ''),
     pie: String(componente(components, 'FOOTER')?.text ?? ''),
     botones: (Array.isArray(botones?.buttons) ? botones.buttons : [])
@@ -43,7 +46,8 @@ function variablesDePlantilla(plantilla) {
 
 /**
  * Por qué una plantilla no se puede enviar desde esta pantalla, o '' si sí.
- * Aquí todos reciben el mismo mensaje: no hay datos por persona ni adjuntos.
+ * Aquí todos reciben el mismo mensaje: no hay datos por persona. Las que
+ * llevan imagen, video o documento salen con el archivo que Meta aprobó.
  */
 function motivoNoEnviable(plantilla) {
   const variables = variablesDePlantilla(plantilla);
@@ -51,9 +55,12 @@ function motivoNoEnviable(plantilla) {
     return `Usa ${variables === 1 ? 'una variable' : `${variables} variables`} ({{1}}…) que cambian por persona. ` +
       'Se envía desde CRM → Campaña por pregrado, que sí llena esos datos.';
   }
-  const { encabezadoMedia } = partesPlantilla(plantilla);
-  if (encabezadoMedia) {
-    return 'Su encabezado lleva un archivo (imagen, video o documento) y el panel todavía no lo adjunta.';
+  const { encabezadoMedia, encabezadoEjemplo } = partesPlantilla(plantilla);
+  if (encabezadoMedia && !['IMAGE', 'VIDEO', 'DOCUMENT'].includes(encabezadoMedia)) {
+    return 'Su encabezado es de un tipo que el panel no envía (por ejemplo, una ubicación).';
+  }
+  if (encabezadoMedia && !encabezadoEjemplo) {
+    return 'Su encabezado lleva un archivo, pero Meta no entregó el archivo con el que fue aprobada.';
   }
   return '';
 }

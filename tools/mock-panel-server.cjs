@@ -807,6 +807,11 @@ const MOCK_TEMPLATES = [
     { type: 'FOOTER', text: 'Universidad Tecnológica de Bolívar' },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Quiero más información' }, { type: 'URL', text: 'Ver programas', url: 'https://www.utb.edu.co/posgrados/' }] },
   ] },
+  { name: 'invitacion_con_imagen', language: 'es', category: 'MARKETING', components: [
+    { type: 'HEADER', format: 'IMAGE', example: { header_handle: ['/app/apple-touch-icon.png'] } },
+    { type: 'BODY', text: '¡Hola! 👋 Te invitamos a la *Feria de Posgrados UTB* este viernes en el Campus Tecnológico.' },
+    { type: 'FOOTER', text: 'Posgrados UTB' },
+  ] },
   { name: 'campana_posgrado_pregrado', language: 'es_CO', category: 'MARKETING', components: [
     { type: 'BODY', text: 'Hola {{1}}, por tu pregrado en {{2}} hay posgrados de la UTB pensados para ti.', example: { body_text: [['Ana', 'Ingeniería de Sistemas']] } },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver mis opciones' }, { type: 'QUICK_REPLY', text: 'No me interesa' }] },
