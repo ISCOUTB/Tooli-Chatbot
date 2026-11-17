@@ -238,8 +238,25 @@ Reglas que conviene conocer:
   (`example.header_handle`), lo sube a Meta y lo adjunta a cada mensaje. El
   asesor no adjunta nada y no puede cambiar la imagen: para otra imagen hay
   que crear otra plantilla.
-- Las plantillas con variables `{{1}}` se ven, pero no se envían desde aquí:
-  siguen saliendo por *CRM → Campaña por pregrado*.
+- Las plantillas con **variables** (`{{1}}`, `{{2}}`… en el mensaje, en el
+  título o al final de un enlace) se llenan en *Datos del mensaje*: igual para
+  todos, con el primer nombre o el nombre completo de cada asistente, o con
+  una línea por persona (`número; dato1; dato2`) pegada desde Excel. Meta
+  guarda un ejemplo por variable, que el formulario muestra como guía. A quien
+  le falte un dato no se le envía.
+- Si una imagen aprobada pesa más de los 5 MB que admite WhatsApp, el servidor
+  la convierte en un JPEG más liviano antes de subirla (`imagenLigera.ts`).
+- El mismo envío el mismo día no sale dos veces: si la plantilla, las personas
+  y los datos son iguales, la pantalla lo avisa y muestra el envío original.
+  Con otro dato (otro número de orden, por ejemplo) sí sale.
+- **Crear plantillas desde el panel** (*Nueva plantilla*): cualquier asesor la
+  propone con texto fijo, título o imagen, pie y hasta tres respuestas rápidas
+  y un enlace, con vista previa en vivo. El servidor sube la imagen de muestra
+  a Meta (API de subidas reanudables de la app) y la crea; Meta la revisa. La
+  lista muestra también las plantillas en revisión, rechazadas (con el
+  motivo) o pausadas, que no se pueden enviar. Tope de 10 creaciones por
+  asesor por hora. Todavía no se crean plantillas con variables ni se
+  eliminan desde el panel.
 - **Cualquier asesor puede enviar plantillas**, desde esta pantalla y desde el
   CRM; antes era solo para administradores. Cada envío queda a nombre de quien
   lo creó: un asesor ve en el historial los suyos y un administrador ve los de

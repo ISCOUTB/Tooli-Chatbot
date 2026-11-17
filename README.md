@@ -257,9 +257,10 @@ en nombre de un estudiante, ver métricas de uso del bot, administrar las sesion
 gestionar las cuentas de los asesores. Incluye inicio de sesión unificado hacia Chatwoot.
 
 Dos pantallas cubren los eventos y el contacto posterior: **Asistencia** (eventos con QR, lista en
-vivo, importación de Excel/CSV y exportación) y **Plantillas** (las plantillas aprobadas por Meta
-con su vista previa, el envío a los asistentes de un evento o a una lista de números y el historial
-de envíos). Cualquier asesor puede enviar plantillas; cada uno ve sus envíos y un administrador ve
+vivo, importación de Excel/CSV y exportación) y **Plantillas** (las plantillas de Meta con su estado
+y vista previa, el llenado de variables por persona, el envío a los asistentes de un evento o a una
+lista de números, la creación de plantillas nuevas para que Meta las revise y el historial de
+envíos). Cualquier asesor puede enviar plantillas; cada uno ve sus envíos y un administrador ve
 los de todo el equipo.
 
 El panel es JavaScript sin framework ni paso de compilación: módulos ES nativos bajo
@@ -396,6 +397,8 @@ producción, después de pasar typecheck, build y pruebas.
 | `POST` | `/api/tools/asistencia/eventos/:id/importar` | JWT | Importar asistentes desde .xlsx o .csv |
 | `GET` | `/api/tools/broadcast/templates` | JWT | Plantillas aprobadas por Meta |
 | `POST` | `/api/tools/broadcast/send` | JWT | Enviar una plantilla a una lista |
+| `GET` | `/api/tools/broadcast/templates/todas` | JWT | Todas las plantillas con su estado en Meta |
+| `POST` | `/api/tools/broadcast/templates` | JWT | Crear una plantilla para que Meta la revise |
 | `GET` | `/api/tools/broadcast/jobs` | JWT | Historial de envíos (un asesor ve los suyos) |
 | `GET` | `/health` | — | Estado del servicio |
 | `GET` | `/metrics` | — | Métricas en formato Prometheus |

@@ -2774,7 +2774,10 @@ button.np-quitar { padding: 6px; min-width: 32px; min-height: 32px; justify-cont
 .plt-confirmar-mas { color: var(--text-muted); }
 .plt-confirmar-avisos { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 12.5px; line-height: 1.45; }
 .plt-confirmar-avisos li + li { margin-top: 4px; }
-.plt-confirmar-final { display: flex; align-items: center; gap: 8px; margin: 14px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: #fff9eb; color: #805500; font-size: 13px; }
+/* Aviso de que el envío no se puede retirar: en el azul institucional, no en
+   ámbar, porque informa una regla y no un error. */
+.plt-confirmar-final { display: flex; align-items: center; gap: 8px; margin: 14px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: #eaf0fb; border: 1px solid #c8d6f0; color: #0b2f6b; font-size: 13px; font-weight: 600; }
+.plt-confirmar-final .icon-svg { flex: none; color: var(--utb-blue); }
 
 @media (max-width: 900px) {
   .plt-layout { grid-template-columns: minmax(0, 1fr); }
