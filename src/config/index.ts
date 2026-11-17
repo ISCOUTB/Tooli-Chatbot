@@ -19,6 +19,9 @@ const schema = z.object({
   WHATSAPP_WABA_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
+  // Número del bot para los enlaces wa.me de los QR (solo dígitos, con indicativo).
+  // Opcional: con Meta Cloud se consulta solo si no se define.
+  WHATSAPP_PUBLIC_NUMBER: z.string().optional(),
   // ── Google Sheets — registro de prospectos de posgrado ───────────────────────
   // ID del spreadsheet donde se guardan los registros (compartir con service account)
   POSGRADO_REGISTRO_SHEET_ID: z.string().optional(),
@@ -88,6 +91,7 @@ export const config = {
     wabaId: env.WHATSAPP_WABA_ID ?? '',
     verifyToken: env.WHATSAPP_VERIFY_TOKEN ?? env.WEBHOOK_SECRET,
     appSecret: env.META_APP_SECRET ?? '',
+    publicNumber: (env.WHATSAPP_PUBLIC_NUMBER ?? '').replace(/\D/g, ''),
   },
   redis: {
     url: env.REDIS_URL,

@@ -26,6 +26,7 @@ import { quickRepliesRouter } from './tools/quickReplies';
 import { inboundRouter } from './tools/inbound';
 import { atencionRouter } from './tools/atencion';
 import { inicioRouter } from './tools/inicio';
+import { asistenciaRouter } from './tools/asistencia';
 
 export const toolsRouter = Router();
 
@@ -48,3 +49,4 @@ toolsRouter.use(quickRepliesRouter);
 toolsRouter.use(inboundRouter);
 toolsRouter.use(atencionRouter);
 toolsRouter.use(inicioRouter);
+toolsRouter.use(asistenciaRouter);

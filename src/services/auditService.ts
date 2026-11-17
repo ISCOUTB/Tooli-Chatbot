@@ -39,7 +39,13 @@ export type AuditAction =
   | 'atencion_adjunto'
   | 'atencion_macro'
   | 'atencion_macro_creada'
-  | 'atencion_config_actualizada';
+  | 'atencion_config_actualizada'
+  | 'asistencia_evento_creado'
+  | 'asistencia_evento_actualizado'
+  | 'asistencia_evento_eliminado'
+  | 'asistencia_importada'
+  | 'asistencia_persona_agregada'
+  | 'asistencia_persona_eliminada';
 
 export interface AuditEntry {
   ts: number;
