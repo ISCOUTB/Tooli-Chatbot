@@ -35,7 +35,7 @@ $env:MOCK_ROL = 'asesor'
 node tools/mock-panel-server.cjs
 ```
 
-En otra terminal, ejecutar `node tools/qa-panel-asesor.cjs`. La prueba confirma que no aparece la selección de broadcast y que las rutas administrativas redirigen a Inicio.
+En otra terminal, ejecutar `node tools/qa-panel-asesor.cjs`. La prueba confirma que el asesor sí tiene la selección para enviar plantillas y que las rutas administrativas redirigen a Inicio.
 
 Estas pruebas usan respuestas sintéticas. La descarga PDF de prueba contiene un archivo mínimo; no entra al portal Iceberg. El trabajo de broadcast simulado marca destinatarios como enviados sin llamar a Meta. Las pruebas tampoco envían WhatsApp, consultan Google Sheets, operan Chatwoot real ni verifican el despliegue del VPS. Esas integraciones requieren las credenciales y el entorno de ensayo indicados en `docs/produccion-seguridad.md`.
 

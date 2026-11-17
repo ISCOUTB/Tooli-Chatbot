@@ -115,3 +115,27 @@ it('al procesar: no se le envía a quien se dio de baja y el contexto se guarda 
   const falla = (async () => { throw new Error('caída'); }) as never;
   assert.ok(await enviarADestinatario(job, 0, falla, deps));
 });
+
+it('un asesor ve sus envíos y un administrador ve los de todos', async () => {
+  const { limpiarEtiqueta, puedeVerEnvio, resumirBroadcast } = await import('./broadcastJobService');
+  const job = {
+    id: '11111111-1111-4111-8111-111111111111', templateName: 'gracias', language: 'es_CO', createdBy: 'manuelseveriche',
+    createdAt: 1, estado: 'completado', destinatarios: ['573001234567', '573009876543'], solicitados: 2, duplicadosOmitidos: 0,
+    enviados: ['573001234567'], fallidos: [{ numero: '573009876543', error: 'Meta rechazó el envío' }], nextIndex: 2,
+    etiqueta: 'Asistentes: Feria',
+  } as BroadcastJob;
+  assert.equal(puedeVerEnvio(job, { username: 'manuelseveriche', role: 'asesor' }), true);
+  assert.equal(puedeVerEnvio(job, { username: 'jersondiaz', role: 'asesor' }), false);
+  assert.equal(puedeVerEnvio(job, { username: 'admin', role: 'admin' }), true);
+
+  // El resumen del historial no lleva los teléfonos de los destinatarios.
+  const resumen = resumirBroadcast(job);
+  assert.deepEqual(resumen, {
+    id: job.id, templateName: 'gracias', language: 'es_CO', createdBy: 'manuelseveriche', createdAt: 1,
+    estado: 'completado', solicitados: 2, enviados: 1, fallidos: 1, etiqueta: 'Asistentes: Feria',
+  });
+  assert.equal(JSON.stringify(resumen).includes('5730'), false);
+  assert.equal(limpiarEtiqueta('  Asistentes:\n  Feria  '), 'Asistentes: Feria');
+  assert.equal(limpiarEtiqueta({ etiqueta: 'x' }), '');
+  assert.equal(limpiarEtiqueta('x'.repeat(200)).length, 80);
+});

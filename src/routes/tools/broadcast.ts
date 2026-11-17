@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import { AuthedRequest, requireAdmin } from '../../middleware/auth';
+import { AuthedRequest } from '../../middleware/auth';
 import { Response } from 'express';
 import { describeError } from '../../services/logSafe';
 import { BroadcastValidationError } from '../../services/broadcastValidation';
@@ -27,7 +27,9 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
   }
 });
 
-broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest, res: Response) => {
+// Enviar plantillas es parte del trabajo de un asesor: cualquier sesión del
+// panel puede hacerlo. Cada envío queda a nombre de quien lo creó.
+broadcastRouter.post('/broadcast/send', async (req: AuthedRequest, res: Response) => {
   // Dos formas: `telefonos` (prospectos seleccionados, plantilla sin variables)
   // o `destinatarios` + `relacion` (campaña por pregrado: {{1}} nombre, {{2}} pregrado).
   const { templateName, language, telefonos, destinatarios, relacion, etiqueta } = req.body ?? {};
@@ -78,22 +80,26 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
   }
 });
 
-/** Historial de la pantalla Plantillas. Los teléfonos se consultan por envío, no aquí. */
-broadcastRouter.get('/broadcast/jobs', requireAdmin, async (_req: AuthedRequest, res: Response) => {
+/**
+ * Historial de la pantalla Plantillas. Un asesor ve sus envíos; un
+ * administrador, los de todos. Los teléfonos se consultan por envío, no aquí.
+ */
+broadcastRouter.get('/broadcast/jobs', async (req: AuthedRequest, res: Response) => {
   try {
     const { listBroadcastJobs } = await import('../../services/broadcastJobService');
-    res.json({ jobs: await listBroadcastJobs() });
+    res.json({ jobs: await listBroadcastJobs(30, req.user!) });
   } catch (err) {
     console.error('[tools/broadcast/jobs] error:', describeError(err));
     res.status(503).json({ error: 'queue_unavailable', message: 'No se pudo consultar el historial de envíos' });
   }
 });
 
-broadcastRouter.get('/broadcast/jobs/:id', requireAdmin, async (req: AuthedRequest, res: Response) => {
+broadcastRouter.get('/broadcast/jobs/:id', async (req: AuthedRequest, res: Response) => {
   try {
-    const { getBroadcastJob } = await import('../../services/broadcastJobService');
+    const { getBroadcastJob, puedeVerEnvio } = await import('../../services/broadcastJobService');
     const job = await getBroadcastJob(String(req.params.id ?? ''));
-    if (!job) {
+    // El envío de otro asesor responde igual que uno que no existe.
+    if (!job || !puedeVerEnvio(job, req.user!)) {
       res.status(404).json({ error: 'not_found', message: 'Envío no encontrado' });
       return;
     }

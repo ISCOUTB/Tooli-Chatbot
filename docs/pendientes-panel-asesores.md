@@ -53,8 +53,8 @@ detalle por tipo de acción) en `renderActividad` dentro de
 
 ## 6. Mensajes masivos con plantillas — ✅ implementado; pendiente ensayo real
 
-El CRM permite a un administrador seleccionar prospectos filtrados y escoger
-una plantilla aprobada. La API lista las plantillas de Meta, comprueba que la
+El CRM permite a un asesor seleccionar prospectos filtrados y escoger
+una plantilla aprobada (hasta el 17 nov 2026 era solo para administradores). La API lista las plantillas de Meta, comprueba que la
 elegida no necesite parámetros, crea un trabajo persistente en Redis y evita
 repetir el mismo envío durante 24 horas. El worker procesa destinatarios de
 forma individual; un resultado incierto queda registrado para revisión y no
@@ -236,6 +236,9 @@ Reglas que conviene conocer:
 - Las plantillas con variables `{{1}}` o con imagen en el encabezado se ven,
   pero no se envían desde aquí: las de variables siguen saliendo por *CRM →
   Campaña por pregrado*.
-- Enviar sigue siendo solo para administradores.
+- **Cualquier asesor puede enviar plantillas**, desde esta pantalla y desde el
+  CRM; antes era solo para administradores. Cada envío queda a nombre de quien
+  lo creó: un asesor ve en el historial los suyos y un administrador ve los de
+  todo el equipo.
 - Las plantillas se crean y se aprueban en el administrador de WhatsApp de
   Meta: <https://business.facebook.com/wa/manage/message-templates/>.

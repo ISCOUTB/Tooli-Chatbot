@@ -833,9 +833,8 @@ app.post('/api/tools/broadcast/send', (req, res) => {
   const key = JSON.stringify({ templateName, language, numeros });
   const previous = BROADCAST_DEDUPE.get(key);
   if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous) });
-  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden' });
   if (JSON.stringify(MOCK_TEMPLATES.find(t => t.name === templateName).components).replace(/"example":\{.*?\}\}/, '').includes('{{')) return res.status(400).json({ error: 'validation_error', message: 'Ese template usa variables {{1}}; envíalo como campaña, con los datos de cada destinatario' });
-  const job = { id: require('node:crypto').randomUUID(), templateName, language, createdBy: 'admin', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0, etiqueta: String(req.body.etiqueta ?? '').slice(0, 80) };
+  const job = { id: require('node:crypto').randomUUID(), templateName, language, createdBy: ROL === 'admin' ? 'admin' : 'luis', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0, etiqueta: String(req.body.etiqueta ?? '').slice(0, 80) };
   BROADCAST_JOBS.set(job.id, job);
   BROADCAST_DEDUPE.set(key, job.id);
   res.status(202).json({ ok: true, job });
@@ -847,8 +846,9 @@ BROADCAST_JOBS.set('11111111-1111-4111-8111-111111111111', {
   duplicadosOmitidos: 0, enviados: ['573001234567', '573009876543'], fallidos: [{ numero: '573015550101', error: 'Meta rechazó el envío (HTTP 400, código 131026)' }],
   nextIndex: 3, etiqueta: 'Asistentes: Feria de posgrados 2026',
 });
+// Un asesor ve sus envíos; un administrador, los de todos.
+const veEnvio = (job) => ROL === 'admin' || job.createdBy === 'luis';
 app.get('/api/tools/broadcast/jobs', (_q, res) => {
-  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden' });
   // Cada consulta avanza un poco los envíos pendientes, como haría la cola real.
   for (const job of BROADCAST_JOBS.values()) {
     if (job.estado === 'completado') continue;
@@ -858,14 +858,14 @@ app.get('/api/tools/broadcast/jobs', (_q, res) => {
     job.nextIndex = Math.min(job.destinatarios.length, job.nextIndex + paso);
     if (job.nextIndex >= job.destinatarios.length) job.estado = 'completado';
   }
-  j(res, { jobs: [...BROADCAST_JOBS.values()].sort((a, b) => b.createdAt - a.createdAt).map(job => ({
+  j(res, { jobs: [...BROADCAST_JOBS.values()].filter(veEnvio).sort((a, b) => b.createdAt - a.createdAt).map(job => ({
     id: job.id, templateName: job.templateName, language: job.language, createdBy: job.createdBy, createdAt: job.createdAt,
     estado: job.estado, solicitados: job.solicitados, enviados: job.enviados.length, fallidos: job.fallidos.length, etiqueta: job.etiqueta ?? '',
   })) });
 });
 app.get('/api/tools/broadcast/jobs/:id', (req, res) => {
   const job = BROADCAST_JOBS.get(req.params.id);
-  if (!job) return res.status(404).json({ error: 'not_found' });
+  if (!job || !veEnvio(job)) return res.status(404).json({ error: 'not_found' });
   job.estado = 'completado';
   job.enviados = [...job.destinatarios];
   job.nextIndex = job.destinatarios.length;

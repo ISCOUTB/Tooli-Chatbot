@@ -171,7 +171,15 @@ export function resumirBroadcast(job: BroadcastJob): ResumenBroadcast {
  * Envíos recientes, del más nuevo al más viejo. Los trabajos caducan solos a
  * los 7 días de terminar, así que recorrerlos con SCAN es una lista corta.
  */
-export async function listBroadcastJobs(limit = 30): Promise<ResumenBroadcast[]> {
+/**
+ * Un administrador ve todos los envíos; un asesor, los que creó él. El detalle
+ * de un envío trae los teléfonos de los destinatarios.
+ */
+export function puedeVerEnvio(job: Pick<BroadcastJob, 'createdBy'>, usuario: { username: string; role: string }): boolean {
+  return usuario.role === 'admin' || job.createdBy === usuario.username;
+}
+
+export async function listBroadcastJobs(limit = 30, usuario?: { username: string; role: string }): Promise<ResumenBroadcast[]> {
   const resumenes: ResumenBroadcast[] = [];
   let cursor = '0';
   do {
@@ -181,7 +189,10 @@ export async function listBroadcastJobs(limit = 30): Promise<ResumenBroadcast[]>
     const raws = await redis.mget(keys);
     for (const raw of raws) {
       if (!raw) continue;
-      try { resumenes.push(resumirBroadcast(parseJob(raw))); } catch { /* Un trabajo corrupto no tumba la lista. */ }
+      try {
+        const job = parseJob(raw);
+        if (!usuario || puedeVerEnvio(job, usuario)) resumenes.push(resumirBroadcast(job));
+      } catch { /* Un trabajo corrupto no tumba la lista. */ }
     }
   } while (cursor !== '0');
   return resumenes.sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.max(1, Math.min(limit, 100)));

@@ -75,12 +75,11 @@ async function renderPlantillas(main) {
         </section>
       </div>
     </div>
-    ${esAdmin ? `
     <section class="card plt-historial" aria-labelledby="pltHistorialTitulo">
-      <h2 id="pltHistorialTitulo">Envíos recientes</h2>
-      <p class="desc">Los últimos siete días. Toca un envío para ver a quién no le llegó.</p>
+      <h2 id="pltHistorialTitulo">${esAdmin ? 'Envíos recientes' : 'Tus envíos recientes'}</h2>
+      <p class="desc">Los últimos siete días${esAdmin ? ', de todo el equipo' : ''}. Toca un envío para ver a quién no le llegó.</p>
       <div id="pltHistorial"><div class="skeleton skeleton-line" style="height:14px;margin:10px 0;width:70%;"></div></div>
-    </section>` : ''}`;
+    </section>`;
 
   let plantillas = [];
   let elegida = null;
@@ -225,10 +224,6 @@ async function renderPlantillas(main) {
   }
 
   function pintarEnvio() {
-    if (!esAdmin) {
-      envioEl.innerHTML = `<div class="alert alert-info" role="status">Solo un administrador puede enviar plantillas. Aquí puedes revisar cuáles hay y cómo se ven.</div>`;
-      return;
-    }
     const motivo = elegida ? motivoNoEnviable(elegida) : '';
     envioEl.innerHTML = `
       ${elegida ? `<p class="plt-elegida">Plantilla: <strong>${escapeHtml(elegida.name)}</strong> (${escapeHtml(elegida.language)})</p>` : '<p class="plt-elegida">Elige primero una plantilla de la lista.</p>'}
@@ -336,7 +331,7 @@ async function renderPlantillas(main) {
   function pintarHistorial(jobs) {
     if (!historialEl) return;
     if (!jobs.length) {
-      historialEl.innerHTML = '<div class="widget-empty">Todavía no se ha enviado ninguna plantilla esta semana.</div>';
+      historialEl.innerHTML = `<div class="widget-empty">${esAdmin ? 'Todavía no se ha enviado ninguna plantilla esta semana.' : 'Todavía no has enviado ninguna plantilla esta semana.'}</div>`;
       return;
     }
     historialEl.innerHTML = `
@@ -365,7 +360,7 @@ async function renderPlantillas(main) {
   }
 
   async function cargarHistorial() {
-    if (!esAdmin || !historialEl) return;
+    if (!historialEl) return;
     try {
       const r = await api('/api/tools/broadcast/jobs');
       if (!historialEl.isConnected || !r) return;

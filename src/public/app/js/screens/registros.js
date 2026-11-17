@@ -152,14 +152,13 @@ async function renderRegistros(main) {
   crmSinAsignar = params.get('sinAsignar') === '1';
   let selectMode = false;
   let selected = new Set();
-  const canBroadcast = sesion.user?.role === 'admin';
 
   main.innerHTML = `
     <div class="page-header">
       <div><h1>${icon('users', 26)} CRM</h1><div class="subtitle">Pregrado y posgrado — quienes completaron el registro de interés vía WhatsApp</div></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        ${canBroadcast ? `<button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>` : ''}
-        ${canBroadcast ? `<button class="btn btn-secondary" id="openCampana">${icon('send', 14)} <span>Campaña<span class="hide-sm"> por pregrado</span></span></button>` : ''}
+        <button class="btn btn-secondary" id="toggleSelectMode">${icon('check', 14)} Seleccionar varios</button>
+        <button class="btn btn-secondary" id="openCampana">${icon('send', 14)} <span>Campaña<span class="hide-sm"> por pregrado</span></span></button>
         <button class="btn btn-secondary" id="exportCsv">${icon('external', 14)} <span>Exportar<span class="hide-sm"> CSV</span></span></button>
         <button class="btn btn-secondary" id="refreshReg"><span class="refresh-icon">${icon('refresh', 16)}</span> Actualizar</button>
       </div>
@@ -571,7 +570,7 @@ async function renderRegistros(main) {
         if (!overlay.isConnected) return;
         if (!res.ok) {
           const msg = body.message || body.error || `HTTP ${res.status}`;
-          alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}${res.status === 403 ? ' — Solo administradores pueden enviar broadcasts.' : ''}</div>`;
+          alertEl.innerHTML = `<div class="alert alert-error" style="margin:0;">${escapeHtml(msg)}</div>`;
           resultEl.innerHTML = '';
           confirmBtn.disabled = false; confirmBtn.innerHTML = `${icon('send', 16)} Enviar "${escapeHtml(chosen.name)}" a ${total}`;
           haptic([20,30,20]);
