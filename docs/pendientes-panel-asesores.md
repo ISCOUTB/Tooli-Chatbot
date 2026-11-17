@@ -250,13 +250,18 @@ Reglas que conviene conocer:
   y los datos son iguales, la pantalla lo avisa y muestra el envío original.
   Con otro dato (otro número de orden, por ejemplo) sí sale.
 - **Crear plantillas desde el panel** (*Nueva plantilla*): cualquier asesor la
-  propone con texto fijo, título o imagen, pie y hasta tres respuestas rápidas
-  y un enlace, con vista previa en vivo. El servidor sube la imagen de muestra
+  propone con título o imagen, pie, hasta tres respuestas rápidas y un enlace,
+  con vista previa en vivo. Los datos que cambian por persona se agregan con
+  botones («Primer nombre», «Programa», «Fecha», «Lugar»…) en lugar de escribir
+  `{{1}}`: el panel numera las variables, mantiene la numeración si se borra
+  una y sugiere el ejemplo que Meta exige para cada una. También admite un
+  dato en el título y uno al final del enlace. Se guarda qué dato es cada
+  variable (`significadosPlantillas.ts`), así que al enviarla a los asistentes
+  de un evento el nombre y el programa se llenan solos. El servidor sube la imagen de muestra
   a Meta (API de subidas reanudables de la app) y la crea; Meta la revisa. La
   lista muestra también las plantillas en revisión, rechazadas (con el
   motivo) o pausadas, que no se pueden enviar. Tope de 10 creaciones por
-  asesor por hora. Todavía no se crean plantillas con variables ni se
-  eliminan desde el panel.
+  asesor por hora. Todavía no se eliminan plantillas desde el panel.
 - **Cualquier asesor puede enviar plantillas**, desde esta pantalla y desde el
   CRM; antes era solo para administradores. Cada envío queda a nombre de quien
   lo creó: un asesor ve en el historial los suyos y un administrador ve los de

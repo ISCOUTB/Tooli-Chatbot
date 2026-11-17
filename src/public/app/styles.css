@@ -2747,6 +2747,25 @@ button.plt-item.no-aprobada { background: #f8fafc; }
 .np-boton-tipo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: rgba(0, 48, 135, 0.08); color: var(--utb-blue); }
 button.np-quitar { padding: 6px; min-width: 32px; min-height: 32px; justify-content: center; }
 .np-botones-acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Datos de cada persona: chips para insertarlos y un renglón por dato con su ejemplo. */
+.np-datos-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.np-datos-titulo { display: inline-flex; align-items: center; gap: 4px; margin-right: 2px; color: var(--text-muted); font-size: 12.5px; font-weight: 600; }
+button.np-chip {
+  padding: 5px 11px; border: 1px solid var(--border); border-radius: 99px; background: #fff;
+  color: var(--utb-blue); font-size: 12.5px; font-weight: 600;
+}
+button.np-chip:hover { border-color: var(--utb-blue); background: rgba(0, 48, 135, 0.06); }
+.np-datos { display: grid; gap: 8px; margin-top: 12px; padding: 12px; border-radius: var(--radius-sm); background: #f6f8fc; }
+.np-datos-cabeza { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.np-datos-cabeza span { display: block; font-weight: 500; color: var(--text-muted); }
+.np-dato { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.np-dato-num { flex: none; padding: 3px 7px; border-radius: 6px; background: #fef3c7; color: #92400e; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.np-dato select { flex: 0 1 170px; min-width: 0; padding: 8px 10px; font-size: 13.5px; }
+.np-dato input { flex: 1 1 160px; min-width: 0; padding: 8px 10px; font-size: 13.5px; }
+.np-dato-titulo { margin-top: 8px; }
+.np-dinamico { flex-basis: 100%; margin: 2px 0 0 38px; font-size: 12.5px; }
+.np-dato-enlace { flex-basis: 100%; margin-left: 38px; }
+.np-enlace-base { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12.5px; }
 @media (max-width: 760px) {
   .np { grid-template-columns: minmax(0, 1fr); }
   .np-previa { position: static; order: 2; }

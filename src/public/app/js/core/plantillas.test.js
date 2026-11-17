@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  armarDestinatarios, claveDePlantilla, estadoEnvio, estadoPlantilla, llenarTexto, motivoNoEnviable, nombreTecnico,
-  partesPlantilla, plantillaDesdeFormulario, ranurasDePlantilla, variablesDePlantilla,
+  armarDestinatarios, claveDePlantilla, errorDeVariables, estadoEnvio, estadoPlantilla, insertarVariable, llenarTexto,
+  motivoNoEnviable, nombreTecnico, normalizarVariables, partesPlantilla, plantillaDesdeFormulario, ranurasDePlantilla,
+  significadosDeFormulario, valoresDeEjemplo, variablesDePlantilla,
 } from './plantillas.js';
 
 const SIMPLE = { name: 'aviso', language: 'es_CO', components: [{ type: 'BODY', text: 'Aviso de prueba' }] };
@@ -154,5 +155,61 @@ test('el formulario de nueva plantilla se ve como la plantilla que creará', () 
     botones: [{ texto: 'Quiero info', tipo: 'QUICK_REPLY' }, { texto: 'Ver', tipo: 'URL' }],
   });
   assert.equal(partesPlantilla(plantillaDesdeFormulario({ encabezado: 'imagen', imagen: 'data:image/jpeg;base64,AAAA', cuerpo: 'x' })).encabezadoEjemplo, 'data:image/jpeg;base64,AAAA');
+});
+
+test('insertar un dato pone {{n}} donde está el cursor y renumbera en orden', () => {
+  let r = insertarVariable('Hola, te esperamos en ', 6, [], 'primer_nombre');
+  assert.equal(r.texto, 'Hola, {{1}} te esperamos en ');
+  assert.equal(r.cursor, 12);
+  assert.deepEqual(r.variables, [{ tipo: 'primer_nombre', ejemplo: 'Ana' }]);
+  r = insertarVariable(r.texto, r.texto.length, r.variables, 'lugar');
+  assert.equal(r.texto, 'Hola, {{1}} te esperamos en {{2}}');
+  assert.equal(insertarVariable('Hola,', 4, [], 'otro').texto, 'Hola {{1}},', 'antes de una coma no agrega espacio');
+  // Un dato puesto antes de los demás pasa a ser {{1}} y los otros se corren.
+  r = insertarVariable('Hola {{1}}, nos vemos en {{2}}.', 0, [{ tipo: 'primer_nombre', ejemplo: 'Ana' }, { tipo: 'lugar', ejemplo: 'Campus' }], 'fecha');
+  assert.equal(r.texto, '{{1}} Hola {{2}}, nos vemos en {{3}}.');
+  assert.deepEqual(r.variables.map(v => v.tipo), ['fecha', 'primer_nombre', 'lugar']);
+  assert.equal(r.cursor, 6);
+});
+
+test('borrar un dato deja la numeración seguida y conserva los ejemplos', () => {
+  const vars = [{ tipo: 'primer_nombre', ejemplo: 'Ana' }, { tipo: 'fecha', ejemplo: 'viernes' }, { tipo: 'lugar', ejemplo: 'Campus' }];
+  assert.deepEqual(normalizarVariables('Hola {{1}}, en {{3}}.', vars), {
+    texto: 'Hola {{1}}, en {{2}}.', variables: [vars[0], vars[2]],
+  });
+  assert.deepEqual(normalizarVariables('Hola {{2}} y {{2}} otra vez', vars), {
+    texto: 'Hola {{1}} y {{1}} otra vez', variables: [vars[1]],
+  });
+  assert.deepEqual(normalizarVariables('Sin datos', vars), { texto: 'Sin datos', variables: [] });
+});
+
+test('avisa antes de enviar a Meta lo que rechazaría por las variables', () => {
+  const base = { cuerpo: 'Hola {{1}}, te esperamos.', variables: [{ tipo: 'primer_nombre', ejemplo: 'Ana' }], botones: [] };
+  assert.equal(errorDeVariables(base), '');
+  assert.match(errorDeVariables({ ...base, cuerpo: '{{1}}, te esperamos.' }), /empezar ni terminar/);
+  assert.match(errorDeVariables({ ...base, variables: [{ tipo: 'otro', ejemplo: ' ' }] }), /ejemplo para \{\{1\}\}/);
+  assert.match(errorDeVariables({ ...base, encabezado: 'texto', titulo: 'Hola {{1}}' }), /dato del título/);
+  assert.match(errorDeVariables({ ...base, botones: [{ tipo: 'enlace', dinamico: true, ejemplo: 'a b' }] }), /espacios/);
+});
+
+test('la vista previa usa los ejemplos y el servidor recibe qué dato es cada variable', () => {
+  const f = {
+    nombre: 'Recordatorio', categoria: 'UTILITY', encabezado: 'texto', titulo: 'Hola {{1}}', tituloVariable: { tipo: 'primer_nombre', ejemplo: 'Ana' },
+    cuerpo: 'Te esperamos el {{1}} en {{2}}.', variables: [{ tipo: 'fecha', ejemplo: 'viernes' }, { tipo: 'lugar', ejemplo: 'Campus' }],
+    botones: [{ tipo: 'enlace', texto: 'Ver evento', url: 'https://utb.edu.co/e/', dinamico: true, ejemplo: 'feria' }],
+  };
+  const p = plantillaDesdeFormulario(f);
+  assert.deepEqual(valoresDeEjemplo(f), { 'cuerpo:1': 'viernes', 'cuerpo:2': 'Campus', 'encabezado:1': 'Ana' });
+  assert.equal(llenarTexto(partesPlantilla(p).cuerpo, valoresDeEjemplo(f), 'cuerpo'), 'Te esperamos el viernes en Campus.');
+  assert.deepEqual(significadosDeFormulario(f), { 'cuerpo:1': 'fecha', 'cuerpo:2': 'lugar', 'encabezado:1': 'primer_nombre' });
+  assert.equal(ranurasDePlantilla(p).at(-1).clave, 'boton:0', 'el enlace dinámico se ve como una variable del envío');
+});
+
+test('el programa de cada asistente también se llena solo', () => {
+  const ranuras = ranurasDePlantilla({ components: [{ type: 'BODY', text: 'Hola, te contamos de {{1}}.' }] });
+  assert.deepEqual(
+    armarDestinatarios({ ranuras, origenes: { 'cuerpo:1': { origen: 'programa' } }, fuente: 'evento', asistentes: [{ whatsapp: '573001234567', programa: 'Maestría en Ingeniería' }] }).listos,
+    [{ telefono: '573001234567', parametros: ['Maestría en Ingeniería'] }],
+  );
 });
 

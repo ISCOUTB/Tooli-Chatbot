@@ -5,8 +5,9 @@ import { escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible, formatTelefono, formatWhatsApp, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import {
-  CATEGORIAS, armarDestinatarios, claveDePlantilla, estadoEnvio, estadoPlantilla, llenarTexto, motivoNoEnviable,
-  nombreTecnico, partesPlantilla, plantillaDesdeFormulario, ranurasDePlantilla, variablesDePlantilla,
+  CATEGORIAS, TIPOS_DATO, armarDestinatarios, claveDePlantilla, errorDeVariables, estadoEnvio, estadoPlantilla,
+  insertarVariable, llenarTexto, motivoNoEnviable, nombreTecnico, normalizarVariables, partesPlantilla,
+  plantillaDesdeFormulario, ranurasDePlantilla, significadosDeFormulario, valoresDeEjemplo, variablesDePlantilla,
 } from '../core/plantillas.js';
 import { parametrosRuta } from '../core/router.js';
 import { screenInterval, setPullToRefresh } from '../core/screen.js';
@@ -142,9 +143,7 @@ async function renderPlantillas(main) {
       ${aprobadas.length ? aprobadas.map(item).join('') : '<div class="widget-empty">Todavía no hay plantillas aprobadas.</div>'}
       ${otras.length ? `<div class="plt-lista-grupo">En revisión o sin aprobar</div>${otras.map(item).join('')}` : ''}`;
     listaEl.querySelectorAll('.plt-item').forEach(boton => boton.addEventListener('click', () => {
-      const nueva = plantillas[Number(boton.dataset.idx)];
-      if (!elegida || claveDePlantilla(elegida) !== claveDePlantilla(nueva)) { origenes = {}; porPersona = false; }
-      elegida = nueva;
+      elegir(plantillas[Number(boton.dataset.idx)]);
       haptic(10);
       pintarLista();
       pintarPrevia();
@@ -177,9 +176,10 @@ async function renderPlantillas(main) {
       if (!listaEl.isConnected) return;
       plantillas = Array.isArray(data.templates) ? data.templates : [];
       if (elegida) elegida = plantillas.find(t => claveDePlantilla(t) === claveDePlantilla(elegida)) ?? null;
-      if (!elegida && plantillas.length === 1) elegida = plantillas[0];
+      if (!elegida && plantillas.length === 1) elegir(plantillas[0]);
       if (pendienteDeElegir) {
-        elegida = plantillas.find(t => claveDePlantilla(t) === pendienteDeElegir) ?? elegida;
+        const creada = plantillas.find(t => claveDePlantilla(t) === pendienteDeElegir);
+        if (creada) elegir(creada);
         pendienteDeElegir = '';
       }
       pintarLista();
@@ -194,6 +194,31 @@ async function renderPlantillas(main) {
   }
 
   /* ── Destinatarios ── */
+
+  /** Cambia de plantilla; los datos escritos para otra no sirven y se sugieren los de esta. */
+  function elegir(plantilla) {
+    if (!elegida || claveDePlantilla(elegida) !== claveDePlantilla(plantilla)) {
+      origenes = origenesSugeridos(plantilla);
+      porPersona = false;
+    }
+    elegida = plantilla;
+  }
+
+  /* Si la plantilla se creó en el panel se sabe qué dato es cada variable:
+     el nombre o el programa salen de cada asistente sin que nadie lo elija. */
+  function origenesSugeridos(plantilla) {
+    const desde = { primer_nombre: 'primer_nombre', nombre_completo: 'nombre', programa: 'programa' };
+    const out = {};
+    for (const [clave, tipo] of Object.entries(plantilla?.significados ?? {})) {
+      if (desde[tipo]) out[clave] = { origen: desde[tipo], texto: '' };
+    }
+    return out;
+  }
+
+  function etiquetaRanura(r) {
+    const tipo = elegida?.significados?.[r.clave];
+    return tipo && TIPOS_DATO[tipo] ? `${TIPOS_DATO[tipo].etiqueta} · ${r.etiqueta}` : r.etiqueta;
+  }
 
   function ranurasElegida() {
     if (!elegida) return [];
@@ -263,7 +288,7 @@ async function renderPlantillas(main) {
         texto = aptos
           ? `<strong>${total}</strong> de ${contactables.total} asistente${contactables.total === 1 ? '' : 's'} recibirá${total === 1 ? '' : 'n'} la plantilla. ${aptos < contactables.total ? 'Los demás no tienen WhatsApp registrado o no autorizaron el contacto.' : ''}`
           : `Ninguno de los ${contactables.total} asistentes tiene WhatsApp y autorización de contacto.`;
-        if (incompletos) texto += ` <span class="plt-resumen-falta">${incompletos} quedan por fuera porque les falta un dato del mensaje (por ejemplo, el nombre).</span>`;
+        if (incompletos) texto += ` <span class="plt-resumen-falta">${incompletos === 1 ? '1 queda por fuera porque le falta' : `${incompletos} quedan por fuera porque les falta`} un dato del mensaje (por ejemplo, el nombre o el programa).</span>`;
       }
     } else {
       const { listos, invalidos, repetidos, incompletos } = calcular();
@@ -319,7 +344,7 @@ async function renderPlantillas(main) {
         <div class="field"><label for="pltNumeros">${porPersona && ranuras.length ? 'Una persona por línea' : 'Números de WhatsApp'}</label>
           <textarea id="pltNumeros" rows="4" placeholder="${porPersona && ranuras.length ? escapeHtml(lineaEjemplo) : '3001234567&#10;573009876543'}">${escapeHtml(numerosTexto)}</textarea>
           <div class="field-help">${porPersona && ranuras.length
-            ? `Número y luego cada dato en orden (${ranuras.map(r => escapeHtml(r.etiqueta.split(' ')[0] === 'Final' ? 'final del enlace' : r.etiqueta.split(' ')[0])).join(', ')}), separados por punto y coma. Puedes pegar las columnas desde Excel.`
+            ? `Número y luego cada dato en orden (${ranuras.map(r => escapeHtml(elegida?.significados?.[r.clave] ? TIPOS_DATO[elegida.significados[r.clave]].etiqueta.toLowerCase() : r.etiqueta.split(' ')[0] === 'Final' ? 'final del enlace' : r.etiqueta.split(' ')[0])).join(', ')}), separados por punto y coma. Puedes pegar las columnas desde Excel.`
             : 'Uno por línea o separados por comas.'} Asegúrate de que autorizaron que la UTB los contacte.</div>
         </div>`;
       cuerpo.querySelector('#pltNumeros').addEventListener('input', (event) => { numerosTexto = event.target.value; pintarResumen(); pintarPrevia(); });
@@ -346,16 +371,17 @@ async function renderPlantillas(main) {
           const id = `pltVar_${r.clave.replace(':', '_')}`;
           return `
             <div class="plt-variable-campo">
-              <label for="${id}">${escapeHtml(r.etiqueta)}</label>
+              <label for="${id}">${escapeHtml(etiquetaRanura(r))}</label>
               <div class="plt-variable-fila">
                 ${fuente === 'evento' && r.lugar !== 'boton' ? `
                   <select data-origen="${escapeHtml(r.clave)}" aria-label="De dónde sale ${escapeHtml(r.etiqueta)}">
                     <option value="fijo"${actual.origen === 'fijo' ? ' selected' : ''}>Igual para todos</option>
                     <option value="primer_nombre"${actual.origen === 'primer_nombre' ? ' selected' : ''}>Primer nombre de cada asistente</option>
                     <option value="nombre"${actual.origen === 'nombre' ? ' selected' : ''}>Nombre completo de cada asistente</option>
+                    <option value="programa"${actual.origen === 'programa' ? ' selected' : ''}>Programa de cada asistente</option>
                   </select>` : ''}
                 <input type="text" id="${id}" data-texto="${escapeHtml(r.clave)}" maxlength="200" value="${escapeHtml(actual.texto ?? '')}"
-                  placeholder="${r.ejemplo ? `Ej.: ${escapeHtml(r.ejemplo)}` : ''}"${actual.origen !== 'fijo' ? ' hidden' : ''}>
+                  placeholder="${r.ejemplo ? `Ej.: ${escapeHtml(r.ejemplo)}` : ''}"${fuente === 'evento' && actual.origen !== 'fijo' ? ' hidden' : ''}>
               </div>
               ${r.lugar === 'boton' ? `<div class="field-help">Se agrega al final de ${escapeHtml(r.base)}</div>` : ''}
             </div>`;
@@ -631,10 +657,18 @@ async function imagenLigera(archivo) {
 }
 
 function abrirNuevaPlantilla(alCrear) {
-  const f = { nombre: '', categoria: 'MARKETING', idioma: 'es', encabezado: 'ninguno', titulo: '', imagen: '', cuerpo: '', pie: '', botones: [] };
+  const f = {
+    nombre: '', categoria: 'MARKETING', idioma: 'es', encabezado: 'ninguno', titulo: '', tituloVariable: null,
+    imagen: '', cuerpo: '', variables: [], pie: '', botones: [],
+  };
+  const chips = (destino, max) => `
+    <div class="np-datos-chips" data-destino="${destino}"${max ? ` data-max="${max}"` : ''}>
+      <span class="np-datos-titulo">${icon('plus', 13)} Dato de cada persona:</span>
+      ${Object.entries(TIPOS_DATO).map(([tipo, d]) => `<button type="button" class="np-chip" data-tipo="${tipo}">${escapeHtml(d.etiqueta)}</button>`).join('')}
+    </div>`;
   const dialogo = abrirDialogo({
     titulo: 'Nueva plantilla',
-    ayuda: 'Meta la revisa antes de que se pueda enviar; suele tardar de minutos a 24 horas. Se crea con texto fijo, sin variables.',
+    ayuda: 'Meta la revisa antes de que se pueda enviar; suele tardar de minutos a 24 horas.',
     ancho: true,
     cuerpo: `
       <form id="npForm" class="np" novalidate>
@@ -654,7 +688,9 @@ function abrirNuevaPlantilla(alCrear) {
           </div>
           <div class="field"><label for="npCuerpo">Mensaje</label>
             <textarea id="npCuerpo" rows="6" maxlength="1024" placeholder="¡Hola! 👋 Te invitamos a…" required></textarea>
-            <div class="field-help"><span id="npCuenta">0</span>/1.024 · *negrita*, _cursiva_. Sin variables {{1}}.</div>
+            ${chips('cuerpo')}
+            <div class="field-help"><span id="npCuenta">0</span>/1.024 · *negrita*, _cursiva_. Los datos aparecen como {{1}}, {{2}}… y se llenan con lo de cada persona al enviar.</div>
+            <div id="npDatos"></div>
           </div>
           <div class="field"><label for="npPie">Pie (opcional)</label>
             <input type="text" id="npPie" maxlength="60" placeholder="Posgrados UTB">
@@ -670,6 +706,7 @@ function abrirNuevaPlantilla(alCrear) {
         <div class="np-previa">
           <div class="np-etiqueta">Así le llegará</div>
           <div class="plt-chat" id="npPrevia"></div>
+          <p class="plt-previa-nota" id="npPreviaNota" hidden>Con los ejemplos; a cada persona le llegan sus datos.</p>
         </div>
         <div class="np-pie">
           <div class="password-dialog-message" id="npMensaje" role="alert" aria-live="polite"></div>
@@ -683,20 +720,114 @@ function abrirNuevaPlantilla(alCrear) {
     MARKETING: 'Invitaciones, eventos, convocatorias y novedades. Meta limita cuántas recibe cada persona.',
     UTILITY: 'Avisos sobre algo que la persona ya pidió o inició: su inscripción, una cita, un trámite. Si suena promocional, Meta la pasa a marketing.',
   };
+  const opcionesTipo = (actual) => Object.entries(TIPOS_DATO).map(([tipo, d]) => `<option value="${tipo}"${tipo === actual ? ' selected' : ''}>${escapeHtml(d.etiqueta)}</option>`).join('');
 
   function pintarPrevia() {
-    $f('#npPrevia').innerHTML = burbujaHtml(plantillaDesdeFormulario(f));
+    $f('#npPrevia').innerHTML = burbujaHtml(plantillaDesdeFormulario(f), valoresDeEjemplo(f));
+    $f('#npPreviaNota').hidden = !(f.variables.length || f.tituloVariable);
     const nombre = nombreTecnico(f.nombre);
     $f('#npNombreAyuda').textContent = nombre ? `Se guardará en Meta como «${nombre}». Quien la recibe no ve el nombre.` : 'Solo para identificarla en el panel; quien la recibe no lo ve.';
     $f('#npCategoriaAyuda').textContent = AYUDA_CATEGORIA[f.categoria];
   }
 
+  /* Un renglón por dato del mensaje: qué es y el ejemplo que verá Meta. */
+  function pintarDatos() {
+    const caja = $f('#npDatos');
+    caja.innerHTML = f.variables.length ? `
+      <div class="np-datos">
+        <div class="np-datos-cabeza">Ejemplos para Meta <span>Meta los usa para revisar; no se envían a nadie.</span></div>
+        ${f.variables.map((v, i) => `
+          <div class="np-dato">
+            <span class="np-dato-num">{{${i + 1}}}</span>
+            <select data-dato="${i}" aria-label="Qué dato es {{${i + 1}}}">${opcionesTipo(v.tipo)}</select>
+            <input type="text" data-ejemplo="${i}" maxlength="200" value="${escapeHtml(v.ejemplo)}" placeholder="Ejemplo" aria-label="Ejemplo de {{${i + 1}}}">
+          </div>`).join('')}
+      </div>` : '';
+    caja.querySelectorAll('[data-dato]').forEach(select => select.addEventListener('change', () => {
+      const v = f.variables[Number(select.dataset.dato)];
+      // Si el ejemplo era el sugerido, se cambia por el del nuevo tipo.
+      const sugerido = Object.values(TIPOS_DATO).some(d => d.ejemplo === v.ejemplo);
+      v.tipo = select.value;
+      if (!v.ejemplo || sugerido) v.ejemplo = TIPOS_DATO[v.tipo].ejemplo;
+      pintarDatos();
+      pintarPrevia();
+    }));
+    caja.querySelectorAll('[data-ejemplo]').forEach(input => input.addEventListener('input', () => {
+      f.variables[Number(input.dataset.ejemplo)].ejemplo = input.value;
+      pintarPrevia();
+    }));
+  }
+
+  function conectarChips(contenedor, alElegir) {
+    contenedor?.querySelectorAll('.np-chip').forEach(boton => {
+      // Sin esto, el clic le quita el cursor al texto antes de saber dónde insertar.
+      boton.addEventListener('mousedown', (e) => e.preventDefault());
+      boton.addEventListener('click', () => alElegir(boton.dataset.tipo));
+    });
+  }
+
+  conectarChips(el.querySelector('[data-destino="cuerpo"]'), (tipo) => {
+    const area = $f('#npCuerpo');
+    const r = insertarVariable(area.value, area.selectionStart ?? area.value.length, f.variables, tipo);
+    if (r.texto.length > 1024) { $f('#npMensaje').textContent = 'El mensaje llegó al máximo de 1.024 caracteres.'; return; }
+    area.value = r.texto;
+    f.cuerpo = r.texto;
+    f.variables = r.variables;
+    area.focus();
+    area.setSelectionRange(r.cursor, r.cursor);
+    $f('#npCuenta').textContent = r.texto.length;
+    pintarDatos();
+    pintarPrevia();
+  });
+
   function pintarEncabezado() {
     const campo = $f('#npEncCampo');
     if (f.encabezado === 'texto') {
-      campo.innerHTML = '<input type="text" id="npTitulo" maxlength="60" placeholder="Feria de Posgrados UTB" aria-label="Título del mensaje"><div class="field-help">Hasta 60 caracteres, en una línea.</div>';
-      $f('#npTitulo').value = f.titulo;
-      $f('#npTitulo').addEventListener('input', (e) => { f.titulo = e.target.value; pintarPrevia(); });
+      campo.innerHTML = `
+        <input type="text" id="npTitulo" maxlength="60" placeholder="Feria de Posgrados UTB" aria-label="Título del mensaje">
+        <div id="npTituloDato"></div>
+        <div class="field-help">Hasta 60 caracteres, en una línea. Admite un dato de cada persona.</div>`;
+      const input = $f('#npTitulo');
+      input.value = f.titulo;
+      const pintarDatoTitulo = () => {
+        const caja = $f('#npTituloDato');
+        if (f.tituloVariable) {
+          caja.innerHTML = `
+            <div class="np-dato np-dato-titulo">
+              <span class="np-dato-num">{{1}}</span>
+              <select id="npTituloTipo" aria-label="Qué dato va en el título">${opcionesTipo(f.tituloVariable.tipo)}</select>
+              <input type="text" id="npTituloEjemplo" maxlength="200" value="${escapeHtml(f.tituloVariable.ejemplo)}" placeholder="Ejemplo" aria-label="Ejemplo del dato del título">
+            </div>`;
+          $f('#npTituloTipo').addEventListener('change', (e) => {
+            const sugerido = Object.values(TIPOS_DATO).some(d => d.ejemplo === f.tituloVariable.ejemplo);
+            f.tituloVariable.tipo = e.target.value;
+            if (!f.tituloVariable.ejemplo || sugerido) f.tituloVariable.ejemplo = TIPOS_DATO[e.target.value].ejemplo;
+            pintarDatoTitulo();
+            pintarPrevia();
+          });
+          $f('#npTituloEjemplo').addEventListener('input', (e) => { f.tituloVariable.ejemplo = e.target.value; pintarPrevia(); });
+        } else {
+          caja.innerHTML = chips('titulo', 1);
+          conectarChips(caja, (tipo) => {
+            const r = insertarVariable(input.value, input.selectionStart ?? input.value.length, [], tipo);
+            if (r.texto.length > 60) { $f('#npMensaje').textContent = 'El título llegó al máximo de 60 caracteres.'; return; }
+            input.value = r.texto;
+            f.titulo = r.texto;
+            f.tituloVariable = r.variables[0];
+            input.focus();
+            input.setSelectionRange(r.cursor, r.cursor);
+            pintarDatoTitulo();
+            pintarPrevia();
+          });
+        }
+      };
+      input.addEventListener('input', () => {
+        f.titulo = input.value;
+        // Si borró el dato del título, deja de pedir su ejemplo.
+        if (f.tituloVariable && !/\{\{1\}\}/.test(f.titulo)) { f.tituloVariable = null; pintarDatoTitulo(); }
+        pintarPrevia();
+      });
+      pintarDatoTitulo();
     } else if (f.encabezado === 'imagen') {
       campo.innerHTML = '<input type="file" id="npImagen" accept="image/jpeg,image/png" aria-label="Imagen del encabezado"><div class="field-help">JPG o PNG. Se achica sola si es muy pesada.</div>';
       $f('#npImagen').addEventListener('change', async (e) => {
@@ -721,10 +852,18 @@ function abrirNuevaPlantilla(alCrear) {
         <input type="text" data-boton="${i}" data-campo="texto" maxlength="25" value="${escapeHtml(b.texto)}" placeholder="${b.tipo === 'enlace' ? 'Ver programas' : 'Quiero más información'}" aria-label="Texto del botón">
         ${b.tipo === 'enlace' ? `<input type="url" data-boton="${i}" data-campo="url" value="${escapeHtml(b.url ?? '')}" placeholder="https://www.utb.edu.co/…" aria-label="Enlace del botón">` : ''}
         <button type="button" class="btn btn-ghost np-quitar" data-quitar="${i}" aria-label="Quitar botón">${icon('x', 14)}</button>
+        ${b.tipo === 'enlace' ? `
+          <label class="asis-check np-dinamico"><input type="checkbox" data-dinamico="${i}"${b.dinamico ? ' checked' : ''}> <span>El final del enlace cambia por persona (por ejemplo, el evento al que se inscribió)</span></label>
+          ${b.dinamico ? `<div class="np-dato np-dato-enlace"><span class="np-dato-num">{{1}}</span><span class="np-enlace-base">${escapeHtml(b.url || 'https://…/')}</span><input type="text" data-boton="${i}" data-campo="ejemplo" value="${escapeHtml(b.ejemplo ?? '')}" placeholder="feria-posgrados" aria-label="Ejemplo del final del enlace"></div>` : ''}` : ''}
       </div>`).join('');
     caja.querySelectorAll('[data-boton]').forEach(input => input.addEventListener('input', () => {
       f.botones[Number(input.dataset.boton)][input.dataset.campo] = input.value;
+      if (input.dataset.campo === 'url') { const base = caja.querySelector('.np-enlace-base'); if (base) base.textContent = input.value || 'https://…/'; }
       pintarPrevia();
+    }));
+    caja.querySelectorAll('[data-dinamico]').forEach(check => check.addEventListener('change', () => {
+      f.botones[Number(check.dataset.dinamico)].dinamico = check.checked;
+      pintarBotones();
     }));
     caja.querySelectorAll('[data-quitar]').forEach(b => b.addEventListener('click', () => {
       f.botones.splice(Number(b.dataset.quitar), 1);
@@ -741,14 +880,29 @@ function abrirNuevaPlantilla(alCrear) {
   ));
   $f('#npEncabezado').appendChild(buildSegmented(
     [{ value: 'ninguno', label: 'Ninguno' }, { value: 'texto', label: 'Título' }, { value: 'imagen', label: 'Imagen' }],
-    f.encabezado, (v) => { f.encabezado = v; pintarEncabezado(); },
+    f.encabezado, (v) => { f.encabezado = v; if (v !== 'texto') { f.titulo = ''; f.tituloVariable = null; } pintarEncabezado(); },
   ));
   $f('#npNombre').addEventListener('input', (e) => { f.nombre = e.target.value; pintarPrevia(); });
   $f('#npIdioma').addEventListener('change', (e) => { f.idioma = e.target.value; });
-  $f('#npCuerpo').addEventListener('input', (e) => { f.cuerpo = e.target.value; $f('#npCuenta').textContent = e.target.value.length; pintarPrevia(); });
+  $f('#npCuerpo').addEventListener('input', (e) => {
+    const area = e.target;
+    // Mantiene {{1}}, {{2}}… seguidos aunque se borre o mueva un dato.
+    const r = normalizarVariables(area.value, f.variables);
+    if (r.texto !== area.value) {
+      const cursor = area.selectionStart;
+      area.value = r.texto;
+      area.setSelectionRange(cursor, cursor);
+    }
+    const cambiaron = r.variables.length !== f.variables.length || r.variables.some((v, i) => v !== f.variables[i]);
+    f.cuerpo = r.texto;
+    f.variables = r.variables;
+    $f('#npCuenta').textContent = r.texto.length;
+    if (cambiaron) pintarDatos();
+    pintarPrevia();
+  });
   $f('#npPie').addEventListener('input', (e) => { f.pie = e.target.value; pintarPrevia(); });
   $f('#npAddRespuesta').addEventListener('click', () => { f.botones.push({ tipo: 'respuesta', texto: '' }); pintarBotones(); });
-  $f('#npAddEnlace').addEventListener('click', () => { f.botones.push({ tipo: 'enlace', texto: '', url: '' }); pintarBotones(); });
+  $f('#npAddEnlace').addEventListener('click', () => { f.botones.push({ tipo: 'enlace', texto: '', url: '', dinamico: false, ejemplo: '' }); pintarBotones(); });
   pintarEncabezado();
   pintarBotones();
 
@@ -760,6 +914,8 @@ function abrirNuevaPlantilla(alCrear) {
     if (!f.cuerpo.trim()) { mensaje.textContent = 'Escribe el mensaje.'; $f('#npCuerpo').focus(); return; }
     if (f.encabezado === 'texto' && !f.titulo.trim()) { mensaje.textContent = 'Escribe el título o elige «Ninguno».'; $f('#npTitulo')?.focus(); return; }
     if (f.encabezado === 'imagen' && !f.imagen) { mensaje.textContent = 'Elige la imagen del encabezado.'; $f('#npImagen')?.focus(); return; }
+    const problema = errorDeVariables(f);
+    if (problema) { mensaje.textContent = problema; return; }
     const boton = $f('#npEnviar');
     boton.disabled = true;
     try {
@@ -767,7 +923,11 @@ function abrirNuevaPlantilla(alCrear) {
         method: 'POST',
         body: JSON.stringify({
           nombre: f.nombre, categoria: f.categoria, idioma: f.idioma, cuerpo: f.cuerpo, pie: f.pie,
-          encabezado: f.encabezado === 'texto' ? { tipo: 'texto', texto: f.titulo } : { tipo: f.encabezado },
+          ejemplosCuerpo: f.variables.map(v => v.ejemplo),
+          significados: significadosDeFormulario(f),
+          encabezado: f.encabezado === 'texto'
+            ? { tipo: 'texto', texto: f.titulo, ...(f.tituloVariable ? { ejemplo: f.tituloVariable.ejemplo } : {}) }
+            : { tipo: f.encabezado },
           botones: f.botones.filter(b => b.texto.trim() || b.url),
           ...(f.encabezado === 'imagen' ? { imagen: { base64: f.imagen.split(',')[1] ?? '', mime: 'image/jpeg' } } : {}),
         }),

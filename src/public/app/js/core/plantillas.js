@@ -140,6 +140,82 @@ function nombreTecnico(raw) {
   return /^[a-z]/.test(base) ? base : base ? `plantilla_${base}`.slice(0, 60) : '';
 }
 
+/* Los datos que un asesor puede poner en una plantilla nueva. El ejemplo es el
+   que se le sugiere para Meta; el servidor guarda el tipo para llenarlo al enviar. */
+const TIPOS_DATO = {
+  primer_nombre: { etiqueta: 'Primer nombre', ejemplo: 'Ana' },
+  nombre_completo: { etiqueta: 'Nombre completo', ejemplo: 'Ana María Pérez' },
+  programa: { etiqueta: 'Programa', ejemplo: 'Maestría en Ingeniería' },
+  fecha: { etiqueta: 'Fecha', ejemplo: 'viernes 20 de noviembre' },
+  lugar: { etiqueta: 'Lugar', ejemplo: 'Campus Tecnológico' },
+  otro: { etiqueta: 'Otro dato', ejemplo: '' },
+};
+
+/**
+ * Renumera las variables {{n}} en el orden en que aparecen (1, 2, 3…) y
+ * reordena sus datos igual. Así el asesor puede borrar o mover un dato sin
+ * romper la numeración que exige Meta. `variables[i]` es el dato de {{i+1}}.
+ */
+function normalizarVariables(texto, variables = []) {
+  const orden = [];
+  for (const m of String(texto ?? '').matchAll(/\{\{(\d+)\}\}/g)) {
+    const n = Number(m[1]);
+    if (!orden.includes(n)) orden.push(n);
+  }
+  const nuevoNumero = new Map(orden.map((viejo, i) => [viejo, i + 1]));
+  return {
+    texto: String(texto ?? '').replace(/\{\{(\d+)\}\}/g, (_t, n) => `{{${nuevoNumero.get(Number(n))}}}`),
+    variables: orden.map(viejo => variables[viejo - 1] ?? { tipo: 'otro', ejemplo: '' }),
+  };
+}
+
+/** Pone un dato en la posición del cursor y devuelve el texto renumerado y dónde queda el cursor. */
+function insertarVariable(texto, posicion, variables, tipo) {
+  const base = String(texto ?? '');
+  const lugar = Math.max(0, Math.min(posicion ?? base.length, base.length));
+  const temporal = variables.length + 1;
+  const antes = base.slice(0, lugar);
+  const despues = base.slice(lugar);
+  // Un espacio a cada lado si el dato quedaría pegado a una palabra.
+  const espacioAntes = antes && !/\s$/.test(antes) ? ' ' : '';
+  const espacioDespues = /^[\p{L}\p{N}]/u.test(despues) ? ' ' : '';
+  const insertado = `${antes}${espacioAntes}{{${temporal}}}${espacioDespues}${despues}`;
+  const resultado = normalizarVariables(insertado, [...variables, { tipo, ejemplo: TIPOS_DATO[tipo]?.ejemplo ?? '' }]);
+  // El número que recibe el dato nuevo: los distintos que quedan antes, más uno.
+  const numero = new Set([...antes.matchAll(/\{\{(\d+)\}\}/g)].map(m => m[1])).size + 1;
+  const cursor = antes.length + espacioAntes.length + `{{${numero}}}`.length + espacioDespues.length;
+  return { ...resultado, cursor };
+}
+
+/** Lo que Meta rechazaría por las variables, dicho al asesor; '' si está bien. */
+function errorDeVariables(f) {
+  const cuerpo = String(f.cuerpo ?? '').trim();
+  if (/^\{\{/.test(cuerpo) || /\}\}$/.test(cuerpo)) return 'El mensaje no puede empezar ni terminar con un dato: agrega texto antes o después.';
+  const sinEjemplo = (f.variables ?? []).findIndex(v => !String(v.ejemplo ?? '').trim());
+  if (sinEjemplo >= 0) return `Escribe un ejemplo para {{${sinEjemplo + 1}}}: Meta lo pide para revisar la plantilla.`;
+  if (f.encabezado === 'texto' && /\{\{1\}\}/.test(f.titulo ?? '') && !String(f.tituloVariable?.ejemplo ?? '').trim()) return 'Escribe un ejemplo para el dato del título.';
+  const enlace = (f.botones ?? []).find(b => b.tipo === 'enlace' && b.dinamico);
+  if (enlace && !String(enlace.ejemplo ?? '').trim()) return 'Escribe un ejemplo para el final del enlace.';
+  if (enlace && /\s/.test(enlace.ejemplo)) return 'El ejemplo del final del enlace no puede tener espacios.';
+  return '';
+}
+
+/** Los ejemplos del formulario con las claves de la vista previa ('cuerpo:1', 'encabezado:1'). */
+function valoresDeEjemplo(f) {
+  const valores = {};
+  (f.variables ?? []).forEach((v, i) => { if (v.ejemplo) valores[`cuerpo:${i + 1}`] = v.ejemplo; });
+  if (f.tituloVariable?.ejemplo) valores['encabezado:1'] = f.tituloVariable.ejemplo;
+  return valores;
+}
+
+/** Qué dato es cada variable, para guardarlo y llenarlo solo al enviar. */
+function significadosDeFormulario(f) {
+  const out = {};
+  (f.variables ?? []).forEach((v, i) => { if (TIPOS_DATO[v.tipo]) out[`cuerpo:${i + 1}`] = v.tipo; });
+  if (f.encabezado === 'texto' && /\{\{1\}\}/.test(f.titulo ?? '') && TIPOS_DATO[f.tituloVariable?.tipo]) out['encabezado:1'] = f.tituloVariable.tipo;
+  return out;
+}
+
 /** Lo que escribe el asesor en el formulario, con la forma de una plantilla de Meta, para la vista previa. */
 function plantillaDesdeFormulario(f) {
   const components = [];
@@ -151,7 +227,7 @@ function plantillaDesdeFormulario(f) {
   if (botones.length) {
     components.push({ type: 'BUTTONS', buttons: [
       ...botones.filter(b => b.tipo === 'respuesta').map(b => ({ type: 'QUICK_REPLY', text: b.texto })),
-      ...botones.filter(b => b.tipo === 'enlace').map(b => ({ type: 'URL', text: b.texto, url: b.url })),
+      ...botones.filter(b => b.tipo === 'enlace').map(b => ({ type: 'URL', text: b.texto, url: b.dinamico ? `${b.url ?? ''}{{1}}` : b.url })),
     ] });
   }
   return { name: nombreTecnico(f.nombre), language: f.idioma || 'es', category: f.categoria, components };
@@ -228,6 +304,7 @@ function armarDestinatarios({ ranuras, origenes = {}, fuente, asistentes = [], t
         const origen = origenes[r.clave]?.origen ?? 'fijo';
         if (origen === 'primer_nombre') return primerNombre(a.nombre);
         if (origen === 'nombre') return String(a.nombre ?? '').trim();
+        if (origen === 'programa') return String(a.programa ?? '').trim();
         return fijo(r);
       }));
     }
@@ -255,4 +332,5 @@ function armarDestinatarios({ ranuras, origenes = {}, fuente, asistentes = [], t
 export {
   CATEGORIAS, partesPlantilla, variablesDePlantilla, ranurasDePlantilla, llenarTexto, motivoNoEnviable,
   claveDePlantilla, estadoEnvio, armarDestinatarios, estadoPlantilla, nombreTecnico, plantillaDesdeFormulario,
+  TIPOS_DATO, normalizarVariables, insertarVariable, errorDeVariables, valoresDeEjemplo, significadosDeFormulario,
 };
