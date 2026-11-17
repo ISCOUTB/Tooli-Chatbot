@@ -2,11 +2,11 @@ import { api } from '../core/api.js';
 import { MAX_POR_ENVIO, SECTORES, enLotes, fechaEvento } from '../core/asistencia.js';
 import { entradaEscalonada } from '../core/animar.js';
 import { escapeHtml, haptic, toast } from '../core/dom.js';
-import { colorTextoLegible, formatTelefono, formatWhatsApp, relativeTime } from '../core/format.js';
+import { colorTextoLegible, formatTelefono, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import {
   CATEGORIAS, TIPOS_DATO, armarDestinatarios, claveDePlantilla, errorDeVariables, estadoEnvio, estadoPlantilla,
-  insertarVariable, llenarTexto, motivoNoEnviable, nombreTecnico, normalizarVariables, partesPlantilla,
+  insertarVariable, motivoNoEnviable, nombreTecnico, normalizarVariables, partesPlantilla,
   plantillaDesdeFormulario, ranurasDePlantilla, significadosDeFormulario, valoresDeEjemplo, variablesDePlantilla,
 } from '../core/plantillas.js';
 import { parametrosRuta } from '../core/router.js';
@@ -14,6 +14,7 @@ import { screenInterval, setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
 import { abrirDialogo } from '../ui/dialog.js';
+import { burbujaHtml } from '../ui/plantilla-burbuja.js';
 
 /* ============= PLANTILLAS DE WHATSAPP =============
    Fuera de las 24 h desde el último mensaje de una persona, Meta solo deja
@@ -28,27 +29,6 @@ const ADMINISTRADOR_META = 'https://business.facebook.com/wa/manage/message-temp
 
 async function leerJson(respuesta) {
   return respuesta.json().catch(() => ({}));
-}
-
-/** El cuerpo con formato de WhatsApp y las variables resaltadas. */
-function cuerpoHtml(texto) {
-  return formatWhatsApp(escapeHtml(texto)).replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, '<span class="plt-variable">{{$1}}</span>');
-}
-
-/** `valores`: { 'cuerpo:1': 'Ana', … } para mostrar el mensaje como le llega a alguien. */
-function burbujaHtml(plantilla, valores = null) {
-  const original = partesPlantilla(plantilla);
-  const p = { ...original, encabezado: llenarTexto(original.encabezado, valores, 'encabezado'), cuerpo: llenarTexto(original.cuerpo, valores, 'cuerpo') };
-  return `
-    <div class="plt-burbuja">
-      ${p.encabezadoMedia === 'IMAGE' && p.encabezadoEjemplo
-        ? `<img class="plt-media-img" src="${escapeHtml(p.encabezadoEjemplo)}" alt="Imagen que acompaña la plantilla" loading="lazy" referrerpolicy="no-referrer">`
-        : p.encabezadoMedia ? `<div class="plt-media">${icon('paperclip', 16)} ${p.encabezadoMedia === 'VIDEO' ? 'Video' : p.encabezadoMedia === 'DOCUMENT' ? 'Documento' : 'Archivo'}</div>` : ''}
-      ${p.encabezado ? `<div class="plt-encabezado">${cuerpoHtml(p.encabezado)}</div>` : ''}
-      <div class="plt-cuerpo">${p.cuerpo ? cuerpoHtml(p.cuerpo) : '<em>Sin texto</em>'}</div>
-      ${p.pie ? `<div class="plt-pie">${escapeHtml(p.pie)}</div>` : ''}
-    </div>
-    ${p.botones.length ? `<div class="plt-botones">${p.botones.map(b => `<span>${b.tipo === 'URL' ? icon('external', 13) : b.tipo === 'PHONE_NUMBER' ? icon('phone', 13) : ''} ${escapeHtml(b.texto)}</span>`).join('')}</div>` : ''}`;
 }
 
 async function renderPlantillas(main) {

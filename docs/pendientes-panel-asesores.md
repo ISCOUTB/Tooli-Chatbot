@@ -268,3 +268,31 @@ Reglas que conviene conocer:
   todo el equipo.
 - Las plantillas se crean y se aprueban en el administrador de WhatsApp de
   Meta: <https://business.facebook.com/wa/manage/message-templates/>.
+
+### 14. Atención: ficha de la persona, resumen con IA y plantilla desde el chat — ✅ implementado (pendiente probar en producción)
+
+- **Ficha** (botón en la cabecera del chat; en el celular, en *Detalles*): junta
+  lo que el panel ya sabía de la persona y estaba repartido en otras pantallas.
+  Muestra lo que dejó en el registro de posgrados, su etapa, asesor, etiquetas y
+  últimas notas del CRM, los eventos a los que asistió, las plantillas que
+  recibió con su resultado y si pidió no recibir campañas. Si una fuente no
+  responde, la ficha lo dice en vez de mostrarla vacía. En pantallas de 1360 px
+  o más es una columna junto al chat; en las más angostas se abre encima, por
+  debajo de la cabecera, y recuerda si el asesor la dejó cerrada.
+- **Resumen con IA** de lo que habló con el bot (gpt-4o-mini, máximo tres
+  viñetas). Usa el mismo historial del panel, que ya llega sin contraseñas,
+  códigos ni datos de formularios (`activityPrivacy.ts`). Se guarda siete días y
+  solo se vuelve a pedir cuando la persona escribe algo nuevo o el asesor toca
+  *Actualizar* (60 por asesor por hora). Sin clave de OpenAI, la ficha lo dice
+  y el resto sigue funcionando.
+- **Plantilla desde el chat**: cuando pasaron 24 horas desde el último mensaje,
+  encima de la caja de texto aparece un aviso con *Enviar plantilla* y la
+  persona ya puesta. Solo ofrece plantillas aprobadas (primero las de
+  utilidad), llena solos el nombre y el programa si la plantilla se creó en el
+  panel, advierte si es de marketing y la persona pidió no recibir campañas, y
+  espera a que WhatsApp confirme. Como la plantilla no pasa por Chatwoot, queda
+  una nota privada en la conversación con el texto que se envió. A quien
+  escribe sin mostrar su número no se le puede enviar.
+- Falta probarlo con conversaciones reales: que el registro del Sheet coincida
+  con el número de Chatwoot y que el resumen sea útil con historiales largos.
+

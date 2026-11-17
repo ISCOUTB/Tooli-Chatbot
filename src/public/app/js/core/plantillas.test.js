@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import {
   armarDestinatarios, claveDePlantilla, errorDeVariables, estadoEnvio, estadoPlantilla, insertarVariable, llenarTexto,
   motivoNoEnviable, nombreTecnico, normalizarVariables, partesPlantilla, plantillaDesdeFormulario, ranurasDePlantilla,
-  significadosDeFormulario, valoresDeEjemplo, variablesDePlantilla,
+  significadosDeFormulario, valoresDeEjemplo, variablesDePlantilla, nombreParaSaludo, valoresParaContacto, textoDePlantilla,
 } from './plantillas.js';
 
 const SIMPLE = { name: 'aviso', language: 'es_CO', components: [{ type: 'BODY', text: 'Aviso de prueba' }] };
@@ -213,3 +213,30 @@ test('el programa de cada asistente también se llena solo', () => {
   );
 });
 
+
+test('un nombre para saludar: sin el número ni el «Usuario de WhatsApp»', () => {
+  assert.equal(nombreParaSaludo('ANA MARÍA PÉREZ'), 'Ana María Pérez');
+  assert.equal(nombreParaSaludo('  luis  ángel '), 'Luis Ángel');
+  assert.equal(nombreParaSaludo('María de los Ángeles'), 'María de los Ángeles', 'lo que ya viene bien escrito no se toca');
+  assert.equal(nombreParaSaludo('Usuario de WhatsApp'), '');
+  assert.equal(nombreParaSaludo('+57 300 123 4567'), '');
+  assert.equal(nombreParaSaludo(undefined), '');
+});
+
+test('al enviarle a una persona, los datos conocidos ya vienen puestos', () => {
+  const plantilla = {
+    ...CON_VARIABLES,
+    components: [{ type: 'BODY', text: 'Hola {{1}}, sobre {{2}} el {{3}}' }],
+    significados: { 'cuerpo:1': 'primer_nombre', 'cuerpo:2': 'programa', 'cuerpo:3': 'fecha' },
+  };
+  assert.deepEqual(valoresParaContacto(plantilla, { nombre: 'ANA MARÍA PÉREZ', programa: 'Maestría en Ingeniería' }),
+    { 'cuerpo:1': 'Ana', 'cuerpo:2': 'Maestría en Ingeniería', 'cuerpo:3': '' });
+  assert.deepEqual(valoresParaContacto({ ...plantilla, significados: { 'cuerpo:1': 'nombre_completo' } }, { nombre: 'Usuario de WhatsApp' }),
+    { 'cuerpo:1': '', 'cuerpo:2': '', 'cuerpo:3': '' }, 'sin nombre real queda para escribirlo');
+  assert.deepEqual(valoresParaContacto(SIMPLE, { nombre: 'Ana' }), {});
+});
+
+test('el texto que salió, para dejarlo como nota', () => {
+  assert.equal(textoDePlantilla(COMPLETA, null), 'Gracias\n\nFue un gusto *verte*\n\nUTB');
+  assert.equal(textoDePlantilla(CON_VARIABLES, { 'cuerpo:1': 'Ana', 'cuerpo:2': 'Sistemas' }), 'Hola Ana, por tu pregrado en Sistemas… Ana');
+});

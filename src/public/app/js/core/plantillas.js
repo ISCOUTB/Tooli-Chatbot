@@ -279,6 +279,41 @@ function celularDe(texto) {
   return /^[1-9]\d{9,14}$/.test(digitos) ? digitos : '';
 }
 
+/** Un nombre para saludar: ni el número ni el «Usuario de WhatsApp» de quien llega sin nombre. */
+function nombreParaSaludo(nombre) {
+  const limpio = String(nombre ?? '').replace(/\s+/g, ' ').trim();
+  if (!/\p{L}/u.test(limpio) || /^usuario de whatsapp$/i.test(limpio)) return '';
+  // «ANA MARÍA PÉREZ» o «ana maría» del registro se ven mejor como «Ana María Pérez».
+  if (limpio !== limpio.toUpperCase() && limpio !== limpio.toLowerCase()) return limpio;
+  return limpio.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_t, antes, letra) => antes + letra.toUpperCase());
+}
+
+/**
+ * Los datos con que arranca el envío a una persona. Si la plantilla se creó en
+ * el panel se sabe qué es cada variable y se llena con lo que se sabe de ella;
+ * lo demás queda vacío para que el asesor lo escriba.
+ */
+function valoresParaContacto(plantilla, persona = {}) {
+  let ranuras = [];
+  try { ranuras = ranurasDePlantilla(plantilla); } catch { return {}; }
+  const nombre = nombreParaSaludo(persona.nombre);
+  const programa = String(persona.programa ?? '').trim();
+  return Object.fromEntries(ranuras.map((r) => {
+    const tipo = plantilla?.significados?.[r.clave];
+    const valor = tipo === 'primer_nombre' ? primerNombre(nombre)
+      : tipo === 'nombre_completo' ? nombre
+        : tipo === 'programa' ? programa : '';
+    return [r.clave, valor];
+  }));
+}
+
+/** El mensaje tal como sale, para dejarlo como nota en la conversación. */
+function textoDePlantilla(plantilla, valores) {
+  const p = partesPlantilla(plantilla);
+  return [llenarTexto(p.encabezado, valores, 'encabezado'), llenarTexto(p.cuerpo, valores, 'cuerpo'), p.pie]
+    .map(t => String(t ?? '').trim()).filter(Boolean).join('\n\n');
+}
+
 /**
  * Quiénes reciben la plantilla y con qué valores, en el orden de `ranuras`.
  *
@@ -333,4 +368,5 @@ export {
   CATEGORIAS, partesPlantilla, variablesDePlantilla, ranurasDePlantilla, llenarTexto, motivoNoEnviable,
   claveDePlantilla, estadoEnvio, armarDestinatarios, estadoPlantilla, nombreTecnico, plantillaDesdeFormulario,
   TIPOS_DATO, normalizarVariables, insertarVariable, errorDeVariables, valoresDeEjemplo, significadosDeFormulario,
+  nombreParaSaludo, valoresParaContacto, textoDePlantilla,
 };

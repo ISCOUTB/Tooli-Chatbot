@@ -263,6 +263,11 @@ lista de números, la creación de plantillas nuevas para que Meta las revise y 
 envíos). Cualquier asesor puede enviar plantillas; cada uno ve sus envíos y un administrador ve
 los de todo el equipo.
 
+En **Atención**, junto a cada conversación está la **ficha** de la persona: un resumen con IA de lo
+que habló con el bot, lo que dejó en el registro, su etapa y notas del CRM, los eventos a los que
+asistió y las plantillas que recibió. Cuando pasaron 24 horas desde su último mensaje, un aviso
+sobre la caja de texto permite enviarle una plantilla aprobada sin salir del chat.
+
 El panel es JavaScript sin framework ni paso de compilación: módulos ES nativos bajo
 `src/public/app/js/` (`core/` utilidades, `ui/` componentes, `screens/` una por pantalla),
 cargados desde `app.js`. Se editan y se recargan, no hay build que correr.
@@ -400,6 +405,8 @@ producción, después de pasar typecheck, build y pruebas.
 | `GET` | `/api/tools/broadcast/templates/todas` | JWT | Todas las plantillas con su estado en Meta |
 | `POST` | `/api/tools/broadcast/templates` | JWT | Crear una plantilla para que Meta la revise |
 | `GET` | `/api/tools/broadcast/jobs` | JWT | Historial de envíos (un asesor ve los suyos) |
+| `GET` | `/api/tools/atencion/conversaciones/:id/ficha` | JWT | Ficha de la persona de una conversación |
+| `POST` | `/api/tools/atencion/conversaciones/:id/resumen` | JWT | Resumen con IA de lo que habló con el bot |
 | `GET` | `/health` | — | Estado del servicio |
 | `GET` | `/metrics` | — | Métricas en formato Prometheus |
 
@@ -414,6 +421,9 @@ producción, después de pasar typecheck, build y pruebas.
   almacenan.
 - **Sesiones efímeras**: el estado conversacional vive en Redis con tiempo de vida limitado.
 - **Sin registro del contenido**: no se guardan en texto plano los mensajes de los usuarios.
+- **Resumen con IA en Atención**: cuando un asesor abre la ficha de una conversación, el historial
+  reciente con el bot (ya sin contraseñas, códigos ni datos de formularios) se envía a OpenAI para
+  resumirlo. El resumen queda siete días en Redis y solo lo ven los asesores.
 - **Acceso acotado**: los datos en Google Sheets se leen y escriben mediante una cuenta de servicio
   con permisos restringidos a las hojas del proyecto.
 

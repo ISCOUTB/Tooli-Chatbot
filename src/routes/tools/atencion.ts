@@ -435,6 +435,74 @@ atencionRouter.get('/atencion/conversaciones/:id', async (req: AuthedRequest, re
   }
 });
 
+/** El teléfono de una conversación del inbox; así nadie consulta números que no le escribieron al bot. */
+async function telefonoDeConversacion(id: number): Promise<string> {
+  const { conversacionDelInbox, mapConversacion } = await import('../../services/chatwootAtencion');
+  return mapConversacion(await conversacionDelInbox(id)).contacto.telefono;
+}
+
+/**
+ * Ficha de la persona para el chat: interés, CRM, eventos, plantillas
+ * recibidas, campañas y la ventana de 24 h de WhatsApp.
+ */
+atencionRouter.get('/atencion/conversaciones/:id/ficha', async (req: AuthedRequest, res: Response) => {
+  const id = idValido(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'validation_error', message: 'Conversación no válida.' });
+    return;
+  }
+  try {
+    const telefono = await telefonoDeConversacion(id);
+    if (!telefono) {
+      res.status(404).json({ error: 'sin_telefono', message: 'Esta conversación no tiene un número de WhatsApp asociado.' });
+      return;
+    }
+    const { cargarFicha } = await import('../../services/fichaContacto');
+    res.json({ ficha: await cargarFicha(telefono) });
+  } catch (err) {
+    responderError(res, err, 'ficha');
+  }
+});
+
+/** Resumen con IA de lo que la persona habló con el bot. `forzar` lo vuelve a pedir. */
+atencionRouter.post('/atencion/conversaciones/:id/resumen', async (req: AuthedRequest, res: Response) => {
+  const id = idValido(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'validation_error', message: 'Conversación no válida.' });
+    return;
+  }
+  try {
+    const telefono = await telefonoDeConversacion(id);
+    if (!telefono) {
+      res.status(404).json({ error: 'sin_telefono', message: 'Esta conversación no tiene un número de WhatsApp asociado.' });
+      return;
+    }
+    const { getBotUser } = await import('../../services/botUserService');
+    const { checkRateLimit } = await import('../../services/rateLimit');
+    const { ResumenLimiteError, ResumenNoDisponibleError, resumirConversacionBot } = await import('../../services/resumenBot');
+    try {
+      const { recentMessages } = await getBotUser(telefono);
+      // Solo cuenta lo que se le pide a la IA: abrir conversaciones con resumen guardado no gasta.
+      const permitir = async () => (await checkRateLimit(`resumen:${req.user!.username}`, 60, 60 * 60)).allowed;
+      const resumen = await resumirConversacionBot(telefono, recentMessages, { forzar: req.body?.forzar === true, permitir });
+      res.json({ resumen });
+    } catch (err) {
+      if (err instanceof ResumenLimiteError) {
+        res.status(429).json({ error: 'too_many_requests', message: err.message });
+        return;
+      }
+      if (err instanceof ResumenNoDisponibleError) {
+        res.status(503).json({ error: 'resumen_no_disponible', message: err.message });
+        return;
+      }
+      console.error('[atencion] resumen IA:', describeError(err));
+      res.status(502).json({ error: 'resumen_fallo', message: 'No se pudo generar el resumen. Intenta de nuevo en un momento.' });
+    }
+  } catch (err) {
+    responderError(res, err, 'resumen');
+  }
+});
+
 atencionRouter.post('/atencion/conversaciones/:id/mensajes', async (req: AuthedRequest, res: Response) => {
   const id = idValido(req.params.id);
   const texto = String(req.body?.texto ?? '').trim();

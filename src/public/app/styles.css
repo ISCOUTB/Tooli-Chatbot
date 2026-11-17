@@ -2866,3 +2866,120 @@ button.asis-evento, button.plt-item, .ini-pending-row, .ini-tarea {
 }
 button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.plt-item:active { transform: scale(0.98); }
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   Atención: ficha de la persona junto al chat y aviso de 24 horas.
+   Escritorio ancho: tercera columna. Escritorio angosto: se superpone
+   al chat por la derecha. Celular: pantalla completa sobre el hilo.
+   ═══════════════════════════════════════════════════════════════════ */
+.inbox { position: relative; }
+.atn-ficha {
+  width: 320px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+  border-radius: var(--radius-xl); overflow: hidden;
+}
+.atn-ficha[hidden] { display: none; }
+.atn-ficha.entrando { animation: atn-ficha-entra 0.32s var(--ease-spring) both; }
+@keyframes atn-ficha-entra { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.atn-ficha-cabecera {
+  display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; flex-shrink: 0;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.atn-ficha-cabecera h2 { flex: 1; margin: 0; font-size: 15px; display: flex; align-items: center; gap: 6px; color: var(--utb-blue); }
+.atn-ficha-cerrar { width: 36px; height: 36px; padding: 0; justify-content: center; }
+.atn-ficha-cuerpo { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+.atn-ficha-seccion h3 {
+  display: flex; align-items: center; gap: 6px; margin: 0 0 7px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted);
+}
+.atn-ficha-ia {
+  margin-left: auto; padding: 1px 7px; border-radius: 999px; font-size: 10px; letter-spacing: 0.3px;
+  background: rgba(0, 48, 135, 0.1); color: var(--utb-blue);
+}
+.atn-ficha-resumen {
+  padding: 11px 13px; border-radius: var(--radius-md); font-size: 13px; line-height: 1.5;
+  background: rgba(0, 48, 135, 0.05); border: 1px solid rgba(0, 48, 135, 0.12);
+}
+.atn-ficha-resumen .skeleton-line { margin: 6px 0; }
+.atn-ficha-resumen p { margin: 0 0 6px; }
+.atn-ficha-resumen ul { margin: 0; padding-left: 18px; }
+.atn-ficha-resumen li + li { margin-top: 4px; }
+.atn-ficha-resumen-error { background: rgba(197, 34, 31, 0.05); border-color: rgba(197, 34, 31, 0.2); }
+.atn-ficha-ia-pie { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--text-muted); }
+.atn-ficha-mini { min-height: 32px; padding: 5px 10px; font-size: 12.5px; gap: 5px; }
+.atn-ficha-nota { font-size: 12px; color: var(--utb-blue); font-weight: 600; }
+.atn-ficha-vacio { margin: 0; font-size: 12.5px; color: var(--text-muted); }
+.atn-ficha-ventana { margin: 0 0 8px; padding-left: 14px; position: relative; font-size: 13px; }
+.atn-ficha-ventana::before { content: ""; position: absolute; left: 0; top: 0.45em; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.atn-ficha-ventana.pronto::before { background: #d97706; }
+.atn-ficha-ventana.cerrada::before { background: var(--text-muted); }
+.atn-ficha-baja { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 8px; font-size: 12.5px; color: var(--warning); }
+.atn-ficha-datos { display: grid; gap: 6px; margin: 0; }
+.atn-ficha-datos > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; font-size: 13px; }
+.atn-ficha-datos dt { color: var(--text-muted); }
+.atn-ficha-datos dd { margin: 0; overflow-wrap: anywhere; }
+.atn-ficha-crm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.atn-ficha-sub { display: block; font-size: 11.5px; color: var(--text-muted); }
+.atn-ficha-crm .atn-ficha-sub { display: inline; }
+.atn-ficha-etiquetas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.atn-ficha-etiquetas span { padding: 2px 8px; border-radius: 999px; font-size: 11.5px; background: rgba(0, 48, 135, 0.07); color: var(--utb-blue-dark); }
+.atn-ficha-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.atn-ficha-lista li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; font-size: 13px; padding-left: 10px; border-left: 2px solid var(--border); }
+.atn-ficha-notas { margin-top: 10px; }
+.atn-ficha-plantilla { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.atn-ficha-plantilla > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atn-ficha-plantilla .badge { flex-shrink: 0; white-space: nowrap; }
+.atn-ficha-aviso { display: flex; gap: 6px; align-items: flex-start; margin: 0; font-size: 12px; color: var(--text-muted); }
+.atn-ficha-historial { align-self: flex-start; font-size: 13px; }
+.atn-accion.activa { background: rgba(0, 48, 135, 0.08); color: var(--utb-blue); }
+
+/* Aviso de 24 horas encima de la caja de texto, en azul institucional. */
+.atn-ventana {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding: 10px 16px;
+  background: rgba(0, 48, 135, 0.06); border-top: 1px solid rgba(0, 48, 135, 0.12);
+  color: var(--utb-blue-dark); font-size: 13px; line-height: 1.4;
+}
+.atn-ventana[hidden] { display: none; }
+.atn-ventana.entrando { animation: bubble-in 0.34s var(--ease-spring) both; }
+.atn-ventana-icono { display: flex; color: var(--utb-blue); flex-shrink: 0; }
+.atn-ventana-texto { flex: 1; min-width: 0; }
+.atn-ventana .btn { flex-shrink: 0; white-space: nowrap; }
+
+/* Ventana de enviar plantilla del chat: datos a la izquierda, mensaje a la derecha. */
+.ept { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ept-form { display: grid; gap: 12px; }
+.ept-form .plt-variables { margin: 0; }
+.ept-previa { padding: 14px 12px; min-height: 140px; }
+.ept-previa .plt-burbuja { animation: bubble-in 0.3s var(--ease-spring) both; }
+
+/* El nombre de la persona se recorta antes que los botones de la cabecera. */
+.atn-cabecera-sub { overflow: hidden; text-overflow: ellipsis; }
+/* Con poco ancho para el chat, Ficha, Historial y Macros quedan con su ícono
+   (su nombre sigue en aria-label y title). */
+@media (min-width: 881px) and (max-width: 1359px) {
+  .atn-acciones .atn-accion.atn-solo-escritorio > span { display: none; }
+}
+@media (min-width: 1360px) {
+  .inbox.con-ficha .inbox-list { width: 270px; }
+  .inbox.con-ficha .atn-ficha { width: 300px; }
+  .inbox.con-ficha .atn-acciones .atn-accion.atn-solo-escritorio > span { display: none; }
+}
+@media (max-width: 1359px) and (min-width: 881px) {
+  .atn-ficha {
+    position: absolute; top: var(--atn-ficha-top, 0px); right: 0; bottom: 0; z-index: 20;
+    border-top-left-radius: var(--radius-lg); border-top-right-radius: 0; box-shadow: var(--shadow-lg);
+  }
+}
+@media (max-width: 880px) {
+  .atn-ficha {
+    position: fixed; inset: 0; width: auto; z-index: 250; border-radius: 0;
+    background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  .atn-ficha-cabecera { padding-top: calc(10px + var(--safe-top)); }
+  .atn-ficha-cerrar { width: 44px; height: 44px; }
+  .atn-ficha-cuerpo { padding-bottom: calc(18px + var(--safe-bottom)); }
+  .atn-ventana { padding: 8px 10px; flex-wrap: wrap; row-gap: 6px; font-size: 12.5px; align-items: flex-start; }
+  .atn-ventana-texto { flex-basis: calc(100% - 30px); }
+  .atn-ventana .btn { margin-left: auto; min-height: 40px; }
+  .ept { grid-template-columns: minmax(0, 1fr); }
+  .ept-previa { order: -1; min-height: 0; }
+}

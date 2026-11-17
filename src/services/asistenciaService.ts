@@ -353,6 +353,30 @@ export async function getAsistentePorWhatsapp(
   return parseAsistente(await store.hget(ASISTENTES(eventoId), claveWhatsapp(whatsapp)));
 }
 
+export interface AsistenciaDeContacto {
+  eventoId: string;
+  evento: string;
+  sector: SectorEvento;
+  fecha: string;
+  origen: OrigenAsistente;
+  registradoEn: number;
+}
+
+/** Los eventos (de los más recientes) en los que aparece este WhatsApp. */
+export async function asistenciasPorWhatsapp(whatsapp: string, store: AsistenciaStore = REDIS_STORE): Promise<AsistenciaDeContacto[]> {
+  if (!whatsapp) return [];
+  const ids = await store.zrevrange(INDICE, 0, MAX_EVENTOS_LISTADOS - 1);
+  const out: AsistenciaDeContacto[] = [];
+  for (const id of ids) {
+    const asistente = parseAsistente(await store.hget(ASISTENTES(id), claveWhatsapp(whatsapp)));
+    if (!asistente) continue;
+    const evento = parseEvento(await store.get(EVENTO(id)));
+    if (!evento) continue;
+    out.push({ eventoId: id, evento: evento.nombre, sector: evento.sector, fecha: evento.fecha, origen: asistente.origen, registradoEn: asistente.registradoEn });
+  }
+  return out;
+}
+
 export async function listarAsistentes(eventoId: string, store: AsistenciaStore = REDIS_STORE): Promise<Asistente[]> {
   const todos = await store.hgetall(ASISTENTES(eventoId));
   return Object.values(todos)

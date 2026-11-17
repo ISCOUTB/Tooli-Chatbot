@@ -59,9 +59,9 @@ describe('subtítulo y detalles móviles', () => {
 
   it('arma las acciones según estado y disponibilidad del teléfono', () => {
     const conv = (estado, telefono = '573001112233') => ({ estado, contacto: { telefono } });
-    assert.deepEqual(A.accionesDetalles(conv('open')).map(a => a.label), ['Historial', 'Macros', 'Pendiente']);
-    assert.deepEqual(A.accionesDetalles(conv('pending')).map(a => a.label), ['Historial', 'Macros', 'Abrir']);
-    assert.deepEqual(A.accionesDetalles(conv('resolved')).map(a => a.label), ['Historial', 'Macros']);
+    assert.deepEqual(A.accionesDetalles(conv('open')).map(a => a.label), ['Ficha', 'Historial', 'Macros', 'Pendiente']);
+    assert.deepEqual(A.accionesDetalles(conv('pending')).map(a => a.label), ['Ficha', 'Historial', 'Macros', 'Abrir']);
+    assert.deepEqual(A.accionesDetalles(conv('resolved')).map(a => a.label), ['Ficha', 'Historial', 'Macros']);
     assert.deepEqual(A.accionesDetalles(conv('open', null)).map(a => a.label), ['Macros', 'Pendiente']);
   });
 });

@@ -7,8 +7,11 @@ import { actualizarResumenAtencion, cambiarPreferencias, estadoConexion, marcarC
 import { screenInterval, seguirTeclado, setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { nombreParaSaludo } from '../core/plantillas.js';
+import { abrirEnviarPlantilla } from '../ui/enviar-plantilla.js';
 import { abrirRespuestasRapidas } from '../ui/quick-replies.js';
 import { ActionSheet } from '../ui/sheet.js';
+import { avisoVentanaHtml, htmlFicha, ultimoEntrante } from './atencion-ficha.js';
 import { abrirConversacion } from './conversaciones.js';
 
 /* ============= ATENCIÓN =============
@@ -112,7 +115,10 @@ function subtituloMovil(c, yo) {
     oculto que sigue ahí, para que los manejadores vivan en un solo lugar. */
 function accionesDetalles(c) {
   return [
-    ...(c.contacto.telefono ? [{ label: 'Historial', icon: icon('message', 15), onClick: () => $('#atnHistorial')?.click() }] : []),
+    ...(c.contacto.telefono ? [
+      { label: 'Ficha', icon: icon('user', 15), onClick: () => $('#atnFichaBtn')?.click() },
+      { label: 'Historial', icon: icon('message', 15), onClick: () => $('#atnHistorial')?.click() },
+    ] : []),
     { label: 'Macros', icon: icon('bolt', 15), onClick: () => $('#atnMacrosHilo')?.click() },
     ...(c.estado === 'open'
       ? [{ label: 'Pendiente', icon: icon('clock', 15), onClick: () => $('.atn-acciones [data-estado="pending"]')?.click() }]
@@ -182,6 +188,12 @@ let miPresencia = null;
 let actualizandoPresencia = false;
 let refrescarEquipoAbierto = null;
 let refrescarEsperaAbierta = null;
+/* Ficha de la persona de la conversación abierta. `seq` descarta respuestas
+   que llegan cuando ya se abrió otra conversación. */
+const FICHA_VACIA = { id: null, conv: null, datos: null, pidiendo: false, error: '', cerradaPorServidor: false, ultimoIn: 0, resumen: { estado: 'nada' } };
+let ficha = { ...FICHA_VACIA };
+let fichaSeq = 0;
+let fichaAbierta = false;
 
 async function renderAtencion(main) {
   const params = parametrosRuta();
@@ -206,6 +218,7 @@ async function renderAtencion(main) {
       <div class="inbox-thread glass" id="atnHilo">
         <div class="inbox-empty"><div class="atn-vacio-icono">${icon('headset', 36)}</div>Selecciona una conversación</div>
       </div>
+      <aside class="atn-ficha glass" id="atnFicha" hidden aria-labelledby="atnFichaTitulo"></aside>
     </div>
   `;
   pintarFiltrosActivos();
@@ -551,6 +564,7 @@ function abrirHilo(id) {
   marcarConversacionVisible(id);
   $$('.atn-row').forEach(r => r.classList.toggle('activa', Number(r.dataset.id) === id));
   $('#atnInbox').classList.add('thread-open');
+  reiniciarFicha(id);
   const hilo = $('#atnHilo');
   hilo.innerHTML = `
     <div class="inbox-thread-header">
@@ -570,6 +584,9 @@ function cerrarHilo() {
   abierta = null;
   marcarConversacionVisible(null);
   hiloSeq++;
+  fichaSeq++;
+  ficha = { ...FICHA_VACIA };
+  pintarFicha();
   $('#atnInbox')?.classList.remove('thread-open');
   const hilo = $('#atnHilo');
   if (hilo) hilo.innerHTML = `<div class="inbox-empty"><div class="atn-vacio-icono">${icon('headset', 36)}</div>Selecciona una conversación</div>`;
@@ -603,6 +620,13 @@ async function cargarHilo(id, { silencioso = false } = {}) {
       msgs.innerHTML = htmlMensajes(data.mensajes, data.hayAnteriores);
       cablearAnteriores(id, data.mensajes);
       if (alFondo) msgs.scrollTop = msgs.scrollHeight;
+      // Si la persona escribió, la ventana de 24 h se reabre: la ficha se pone al día.
+      const ultimoIn = ultimoEntrante(data.mensajes);
+      if (ficha.id === id && ultimoIn > ficha.ultimoIn) {
+        ficha.ultimoIn = ultimoIn;
+        ficha.cerradaPorServidor = false;
+        void cargarFicha({ silencioso: true });
+      }
       return;
     }
     pintarHilo(data);
@@ -677,8 +701,9 @@ function pintarCabecera(c) {
       <div class="atn-cabecera-sub"><span class="atn-solo-escritorio">${c.contacto.telefono ? formatTelefono(c.contacto.telefono) : ''} </span><span class="atn-estado atn-solo-escritorio" style="color:${colorTextoLegible(est.color)};background:${est.color}1a;">${est.label}</span><span class="atn-solo-movil">${escapeHtml(subtituloMovil(c, equipo.yo))}</span></div>
     </div>
     <div class="atn-acciones">
-    ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnHistorial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
-    <button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnMacrosHilo">${icon('bolt', 14)}<span>Macros</span></button>
+    ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio${fichaVisible() ? ' activa' : ''}" id="atnFichaBtn" aria-controls="atnFicha" aria-expanded="${fichaVisible()}" aria-label="Ficha" title="Lo que se sabe de la persona">${icon('user', 14)}<span class="hide-sm">Ficha</span></button>` : ''}
+    ${c.contacto.telefono ? `<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnHistorial" aria-label="Historial" title="Todo lo que habló con el bot">${icon('message', 14)}<span class="hide-sm">Historial</span></button>` : ''}
+    <button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" id="atnMacrosHilo" aria-label="Macros" title="Macros">${icon('bolt', 14)}<span>Macros</span></button>
     ${c.estado === 'resolved'
       ? '<button type="button" class="btn btn-secondary atn-accion" data-estado="open">Reabrir</button>'
       : `${c.estado === 'open' ? '<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" data-estado="pending" title="Esperando algo de la persona o de otra área">Pendiente</button>' : '<button type="button" class="btn btn-ghost atn-accion atn-solo-escritorio" data-estado="open">Abrir</button>'}
@@ -687,6 +712,7 @@ function pintarCabecera(c) {
     </div>
   `;
   $('#atnVolver').addEventListener('click', cerrarHilo);
+  $('#atnFichaBtn')?.addEventListener('click', () => alternarFicha());
   $('#atnHistorial')?.addEventListener('click', () => abrirConversacion(c.contacto.telefono));
   $('#atnMacrosHilo')?.addEventListener('click', () => abrirMacrosHilo(c));
   $('#atnDetalles')?.addEventListener('click', abrirDetalles);
@@ -787,6 +813,7 @@ function pintarHilo(data) {
     <div class="inbox-thread-header atn-cabecera" id="atnCabecera"></div>
     <div class="atn-asignacion" id="atnAsignacion"></div>
     <div class="inbox-messages" id="atnMensajes">${htmlMensajes(data.mensajes, data.hayAnteriores)}</div>
+    <div class="atn-ventana" id="atnVentana" role="status" hidden></div>
     <div class="inbox-thread-footer">
       <div id="atnModoWrap" class="atn-modo"></div>
       <div class="atn-archivo-chip" id="atnArchivoChip" hidden></div>
@@ -801,6 +828,7 @@ function pintarHilo(data) {
       </form>
       <div class="composer-hint" id="atnPista" aria-live="polite"></div>
     </div>`;
+  prepararFicha(c, data.mensajes);
   pintarCabecera(c);
   cablearAnteriores(c.id, data.mensajes);
 
@@ -894,6 +922,11 @@ async function enviar(c) {
       // El borrador se queda: el asesor no pierde lo que escribió.
       $('#atnPista').textContent = data.message || 'No se pudo enviar.';
       btn.disabled = false;
+      if (data.error === 'fuera_de_ventana' && ficha.id === c.id) {
+        // El aviso con «Enviar plantilla» aparece aunque la ficha no lo supiera aún.
+        ficha.cerradaPorServidor = true;
+        pintarVentana();
+      }
       return;
     }
     input.value = '';
@@ -913,6 +946,179 @@ async function enviar(c) {
     $('#atnPista').textContent = 'Sin conexión: el mensaje no se envió.';
     btn.disabled = false;
   }
+}
+
+/* ── Ficha de la persona ── */
+
+const esMovil = () => !!globalThis.matchMedia?.('(max-width: 880px)')?.matches;
+
+/** En escritorio la ficha recuerda si se dejó abierta; si nunca se tocó, abre en pantallas anchas. */
+function preferenciaFicha() {
+  try {
+    const guardada = localStorage.getItem('atencion.ficha');
+    if (guardada === '1' || guardada === '0') return guardada === '1';
+  } catch { /* sin almacenamiento, el valor por defecto */ }
+  // Abre sola donde cabe como columna; en pantallas más angostas taparía el chat.
+  return !!globalThis.matchMedia?.('(min-width: 1360px)')?.matches;
+}
+
+function fichaVisible() {
+  return fichaAbierta && abierta !== null && ficha.id === abierta && !!(ficha.conv?.contacto.telefono ?? true);
+}
+
+function reiniciarFicha(id) {
+  fichaSeq++;
+  ficha = { ...FICHA_VACIA, id, resumen: { estado: 'nada' } };
+  fichaAbierta = !esMovil() && preferenciaFicha();
+  pintarFicha();
+}
+
+function prepararFicha(c, mensajes) {
+  if (ficha.id !== c.id) reiniciarFicha(c.id);
+  ficha.conv = c;
+  ficha.ultimoIn = Math.max(ficha.ultimoIn, ultimoEntrante(mensajes));
+  if (c.contacto.telefono) {
+    if (!ficha.datos && !ficha.pidiendo) void cargarFicha();
+    if (fichaAbierta && ficha.resumen.estado === 'nada') void cargarResumen();
+  }
+  pintarFicha();
+  pintarVentana();
+}
+
+async function cargarFicha({ silencioso = false } = {}) {
+  const id = ficha.id;
+  const seq = fichaSeq;
+  if (!id || !ficha.conv?.contacto.telefono) return;
+  ficha.pidiendo = true;
+  if (!silencioso) { ficha.error = ''; pintarFicha(); }
+  try {
+    const r = await api(`/api/tools/atencion/conversaciones/${id}/ficha`);
+    if (!r || seq !== fichaSeq) return;
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ficha) throw new Error(data.message || 'No se pudo cargar la ficha.');
+    ficha.datos = data.ficha;
+    ficha.error = '';
+    if (data.ficha.ventana?.abierta) ficha.cerradaPorServidor = false;
+  } catch (err) {
+    if (seq !== fichaSeq) return;
+    // Un refresco que falla deja a la vista lo que ya se sabía.
+    if (!ficha.datos) ficha.error = err?.message || 'No se pudo cargar la ficha.';
+  } finally {
+    if (seq === fichaSeq) ficha.pidiendo = false;
+  }
+  pintarFicha();
+  pintarVentana();
+}
+
+async function cargarResumen(forzar = false) {
+  const id = ficha.id;
+  const seq = fichaSeq;
+  if (!id) return;
+  const anterior = ficha.resumen.datos ?? null;
+  ficha.resumen = { estado: 'cargando', datos: anterior };
+  pintarFicha();
+  try {
+    const r = await api(`/api/tools/atencion/conversaciones/${id}/resumen`, { method: 'POST', body: JSON.stringify({ forzar }) });
+    if (!r || seq !== fichaSeq) return;
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.message || 'No se pudo hacer el resumen.');
+    ficha.resumen = { estado: 'listo', datos: data.resumen ?? null };
+  } catch (err) {
+    if (seq !== fichaSeq) return;
+    ficha.resumen = { estado: 'error', mensaje: err?.message || 'No se pudo hacer el resumen.', datos: anterior };
+  }
+  pintarFicha();
+}
+
+function alternarFicha(abrir = !fichaVisible()) {
+  if (!ficha.conv?.contacto.telefono) return;
+  fichaAbierta = abrir;
+  if (!esMovil()) {
+    try { localStorage.setItem('atencion.ficha', abrir ? '1' : '0'); } catch { /* solo no se recuerda */ }
+  }
+  const foco = $('#atnFicha')?.contains(document.activeElement);
+  pintarFicha({ entrando: abrir });
+  if (abrir) {
+    if (!ficha.datos && !ficha.pidiendo) void cargarFicha();
+    if (ficha.resumen.estado === 'nada') void cargarResumen();
+    $('#atnFicha .atn-ficha-cerrar')?.focus({ preventScroll: true });
+  } else if (foco) {
+    (esMovil() ? $('#atnDetalles') : $('#atnFichaBtn'))?.focus({ preventScroll: true });
+  }
+}
+
+function pintarFicha({ entrando = false } = {}) {
+  const aside = $('#atnFicha');
+  if (!aside) return;
+  const visible = fichaVisible();
+  aside.hidden = !visible;
+  $('#atnInbox')?.classList.toggle('con-ficha', visible);
+  $('#atnFichaBtn')?.setAttribute('aria-expanded', String(visible));
+  $('#atnFichaBtn')?.classList.toggle('activa', visible);
+  if (!visible) { aside.innerHTML = ''; return; }
+  // Superpuesta (pantallas angostas) arranca bajo la cabecera del chat: Resolver sigue a mano.
+  aside.style.setProperty('--atn-ficha-top', `${$('#atnCabecera')?.offsetHeight ?? 0}px`);
+  const cuerpoPrevio = aside.querySelector('.atn-ficha-cuerpo');
+  const scroll = cuerpoPrevio?.scrollTop ?? 0;
+  const focoId = aside.contains(document.activeElement) ? (document.activeElement.dataset.resumen || document.activeElement.dataset.ficha || '') : '';
+  aside.innerHTML = htmlFicha({ datos: ficha.datos, error: ficha.error, resumen: ficha.resumen });
+  aside.classList.toggle('entrando', entrando);
+  const cuerpo = aside.querySelector('.atn-ficha-cuerpo');
+  if (cuerpo) cuerpo.scrollTop = scroll;
+  aside.querySelector('.atn-ficha-cerrar')?.addEventListener('click', () => alternarFicha(false));
+  aside.querySelector('[data-ficha="reintentar"]')?.addEventListener('click', () => cargarFicha());
+  aside.querySelector('[data-ficha="historial"]')?.addEventListener('click', () => {
+    if (ficha.conv?.contacto.telefono) abrirConversacion(ficha.conv.contacto.telefono);
+  });
+  aside.querySelectorAll('[data-resumen]').forEach(b => b.addEventListener('click', () => cargarResumen(b.dataset.resumen === 'actualizar')));
+  aside.querySelector('.atn-enviar-plantilla')?.addEventListener('click', abrirPlantillaDesdeChat);
+  aside.onkeydown = (e) => { if (e.key === 'Escape' && esMovil()) { e.preventDefault(); alternarFicha(false); } };
+  if (focoId) aside.querySelector(`[data-resumen="${focoId}"], [data-ficha="${focoId}"]`)?.focus({ preventScroll: true });
+}
+
+function nombreDeFicha() {
+  return nombreParaSaludo(ficha.datos?.interes?.nombre) || nombreParaSaludo(ficha.conv?.contacto.nombre);
+}
+
+/** El aviso sobre la caja de texto: solo cuando pasaron las 24 horas. */
+function pintarVentana() {
+  const caja = $('#atnVentana');
+  if (!caja) return;
+  const telefono = ficha.conv?.contacto.telefono ?? '';
+  const ventana = ficha.id === abierta ? ficha.datos?.ventana : null;
+  const cerrada = ficha.id === abierta && !!telefono && (ficha.cerradaPorServidor || (ventana ? !ventana.abierta : false));
+  if (!cerrada) { caja.hidden = true; caja.innerHTML = ''; return; }
+  const puede = ficha.datos ? ficha.datos.puedeRecibirPlantilla : /^[1-9]\d{9,14}$/.test(telefono);
+  const yaVisible = !caja.hidden;
+  caja.innerHTML = avisoVentanaHtml({ nombre: nombreDeFicha(), puedeRecibirPlantilla: puede });
+  caja.hidden = false;
+  caja.classList.toggle('entrando', !yaVisible);
+  caja.querySelector('.atn-enviar-plantilla')?.addEventListener('click', abrirPlantillaDesdeChat);
+}
+
+/* La plantilla sale por la cola de envíos, que no pasa por Chatwoot: se deja
+   una nota privada con lo que se envió para que el equipo lo vea en el hilo. */
+function abrirPlantillaDesdeChat() {
+  const c = ficha.conv;
+  if (!c?.contacto.telefono) return;
+  const id = c.id;
+  const nombre = nombreDeFicha();
+  abrirEnviarPlantilla({
+    telefono: c.contacto.telefono,
+    nombre,
+    programa: ficha.datos?.interes?.programa ?? '',
+    bajaCampanas: ficha.datos?.bajaCampanas === true,
+    etiqueta: `Atención: ${nombre || formatTelefono(c.contacto.telefono)}`,
+    alEnviar: async ({ plantilla, texto, estado }) => {
+      const nota = `Plantilla «${plantilla.name}» ${estado === 'enviado' ? 'enviada' : 'en camino (falta que WhatsApp la confirme)'}:\n\n${texto}`;
+      try {
+        await api(`/api/tools/atencion/conversaciones/${id}/mensajes`, { method: 'POST', body: JSON.stringify({ texto: nota.slice(0, 4096), privado: true }) });
+      } catch { /* la plantilla ya salió; la nota es solo para el equipo */ }
+      if (abierta !== id) return;
+      void cargarHilo(id, { silencioso: true });
+      if (ficha.id === id) void cargarFicha({ silencioso: true });
+    },
+  });
 }
 
 function leerBase64(archivo) {

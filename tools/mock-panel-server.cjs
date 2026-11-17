@@ -574,14 +574,65 @@ app.get('/api/tools/atencion/conversaciones/:id', (req, res) => {
   c.noLeidos = 0;
   j(res, { conversacion: resumenAtencion(c), mensajes: c.mensajes, hayAnteriores: false });
 });
+// Ficha de la persona y resumen con IA del chat de Atención.
+const ventanaMock = (c) => {
+  const ultimo = Math.max(0, ...c.mensajes.filter(m => m.tipo === 'in').map(m => m.ts));
+  return { abierta: ultimo > 0 && Date.now() - ultimo < 864e5, ultimoEntranteTs: ultimo || null, cierraTs: ultimo ? ultimo + 864e5 : null };
+};
+const FICHAS_MOCK = {
+  101: {
+    interes: { nombre: 'MARÍA JOSÉ RESTREPO', correo: 'mjrestrepo@gmail.com', programa: 'Maestría en Ingeniería', area: 'Ingeniería', relacion: 'Egresado UTB', registradoEl: '2026-11-15 10:42' },
+    crm: { estado: 'interesado', asignadoA: 'luis', etiquetas: ['beca', 'financiación'], notas: [{ texto: 'Pregunta por crédito ICETEX y becas de egresado.', autor: 'luis', ts: hace(60 * 26) }] },
+    asistencias: [{ eventoId: 'ev1', evento: 'Feria de posgrados 2026', sector: 'posgrado', fecha: '2026-11-14', origen: 'qr', registradoEn: hace(60 * 72) }],
+    plantillas: [{ templateName: 'gracias_por_asistir', createdAt: hace(60 * 48), createdBy: 'admin', etiqueta: 'Asistentes: Feria de posgrados 2026', resultado: 'enviado' }],
+    bajaCampanas: false, sinDatos: [],
+  },
+  104: {
+    interes: { nombre: '', correo: '', programa: '', area: '', relacion: 'De otra universidad', registradoEl: '' },
+    crm: null, asistencias: [],
+    plantillas: [{ templateName: 'campana_posgrado_pregrado', createdAt: hace(60 * 70), createdBy: 'luis', etiqueta: 'Números escritos a mano', resultado: 'fallido', error: 'Meta no la entregó: la persona recibió varias de marketing hace poco' }],
+    bajaCampanas: true, sinDatos: ['CRM'],
+  },
+};
+app.get('/api/tools/atencion/conversaciones/:id/ficha', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  if (!c.contacto.telefono) return res.status(404).json({ error: 'sin_telefono', message: 'Esta conversación no tiene un número de WhatsApp asociado.' });
+  const base = FICHAS_MOCK[c.id] ?? {
+    interes: { nombre: c.contacto.nombre, correo: '', programa: '', area: '', relacion: '', registradoEl: '' },
+    crm: { estado: 'nuevo', etiquetas: [], notas: [] }, asistencias: [], plantillas: [], bajaCampanas: false, sinDatos: [],
+  };
+  const enviadas = [...BROADCAST_JOBS.values()].filter(job => job.destinatarios.includes(c.contacto.telefono) && job.createdAt > hace(5))
+    .map(job => ({ templateName: job.templateName, createdAt: job.createdAt, createdBy: job.createdBy, etiqueta: job.etiqueta, resultado: job.enviados.includes(c.contacto.telefono) ? 'enviado' : 'pendiente' }));
+  setTimeout(() => j(res, { ficha: {
+    telefono: c.contacto.telefono, puedeRecibirPlantilla: /^[1-9]\d{9,14}$/.test(c.contacto.telefono),
+    ventana: ventanaMock(c), ...base, plantillas: [...enviadas, ...base.plantillas],
+  } }), 350);
+});
+const RESUMENES_MOCK = {
+  101: '• Egresada de la UTB interesada en la Maestría en Ingeniería.\n• Preguntó por becas y formas de financiación.\n• Pidió un asesor para conocer costos y fechas de inscripción.',
+  102: '• Estudiante de pregrado que pregunta cuándo es su turno de matrícula.\n• Pidió un asesor porque el bot no encontró su turno.',
+  103: '• No puede entrar a SAVIO.\n• El bot no resolvió el problema y pidió ayuda de Soporte TI.',
+  104: '• Va a enviar un certificado para su proceso de admisión.\n• Quedó pendiente recibir el documento.',
+};
+app.post('/api/tools/atencion/conversaciones/:id/resumen', (req, res) => {
+  const c = convAtencion(req, res);
+  if (!c) return;
+  if (process.env.MOCK_SIN_IA) return res.status(503).json({ error: 'resumen_no_disponible', message: 'El resumen con IA no está configurado.' });
+  const texto = RESUMENES_MOCK[c.id];
+  const hastaTs = Math.max(0, ...c.mensajes.filter(m => m.tipo === 'in').map(m => m.ts));
+  setTimeout(() => j(res, { resumen: texto ? { texto, hastaTs: c.id === 101 ? hastaTs - 1 : hastaTs, generadoEn: req.body.forzar ? Date.now() : hace(12) } : null }), req.body.forzar ? 1200 : 700);
+});
 app.post('/api/tools/atencion/conversaciones/:id/mensajes', (req, res) => {
   const c = convAtencion(req, res);
   if (!c) return;
   const texto = String(req.body.texto || '').trim();
   if (!texto) return res.status(400).json({ error: 'validation_error', message: 'El mensaje no puede estar vacío.' });
-  // El de Andrés lleva más de 24 h sin escribir: Meta no aceptaría texto libre.
-  if (!req.body.privado && c.id === 104) {
-    return res.status(409).json({ error: 'fuera_de_ventana', message: 'Han pasado 25 horas desde su último mensaje. WhatsApp solo permite texto libre dentro de las 24 horas siguientes; para retomar el contacto hay que usar una plantilla aprobada por Meta.' });
+  // Andrés y Laura llevan más de 24 h sin escribir: Meta no aceptaría texto libre.
+  const ventana = ventanaMock(c);
+  if (!req.body.privado && !ventana.abierta) {
+    const horas = Math.floor((Date.now() - ventana.ultimoEntranteTs) / 36e5);
+    return res.status(409).json({ error: 'fuera_de_ventana', message: `Han pasado ${horas} horas desde su último mensaje. WhatsApp solo permite texto libre dentro de las 24 horas siguientes; para retomar el contacto hay que usar una plantilla aprobada por Meta.` });
   }
   const autor = AGENTES.find(a => a.id === yoAtencion()).nombre;
   c.mensajes.push({ id: Date.now(), tipo: req.body.privado ? 'nota' : 'out', texto, ts: Date.now(), autor, adjuntos: [] });
@@ -822,7 +873,7 @@ const MOCK_TEMPLATES = [
     { type: 'BODY', text: 'Hola {{1}}, mañana es tu evento.\n\n*{{2}}*\n🗓 {{3}}\n📍 {{4}}\n\nSi ya no puedes ir, retira tu inscripción.', example: { body_text: [['Manuel', 'CTW Hackathon — Cartagena Edition', 'jueves 13 de agosto, 8:00 a. m.', 'Centro de Convenciones, Cartagena']] } },
     { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Ver el evento', url: 'https://nodo-eventos.duckdns.org/eventos/{{1}}', example: ['https://nodo-eventos.duckdns.org/eventos/ctw-hackathon-cartagena'] }, { type: 'QUICK_REPLY', text: 'No podré ir' }] },
   ] },
-  { name: 'campana_posgrado_pregrado', language: 'es_CO', category: 'MARKETING', components: [
+  { name: 'campana_posgrado_pregrado', language: 'es_CO', category: 'MARKETING', significados: { 'cuerpo:1': 'primer_nombre' }, components: [
     { type: 'BODY', text: 'Hola {{1}}, por tu pregrado en {{2}} hay posgrados de la UTB pensados para ti.', example: { body_text: [['Ana', 'Ingeniería de Sistemas']] } },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver mis opciones' }, { type: 'QUICK_REPLY', text: 'No me interesa' }] },
   ] },
@@ -834,7 +885,7 @@ const MOCK_SIN_APROBAR = [
   { id: 't-rech', name: 'descuento_matricula', language: 'es', category: 'UTILITY', status: 'REJECTED', rejectedReason: 'PROMOTIONAL', components: [{ type: 'BODY', text: '¡20 % de descuento si te inscribes esta semana!' }] },
 ];
 app.get('/api/tools/broadcast/templates/todas', (_q, res) => j(res, {
-  templates: process.env.MOCK_NO_TEMPLATES ? [] : [...MOCK_TEMPLATES.map(t => ({ ...t, id: t.name, status: 'APPROVED', rejectedReason: '', significados: {} })), ...MOCK_SIN_APROBAR.map(t => ({ significados: {}, ...t }))],
+  templates: process.env.MOCK_NO_TEMPLATES ? [] : [...MOCK_TEMPLATES.map(t => ({ significados: {}, ...t, id: t.name, status: 'APPROVED', rejectedReason: '' })), ...MOCK_SIN_APROBAR.map(t => ({ significados: {}, ...t }))],
 }));
 app.post('/api/tools/broadcast/templates', (req, res) => {
   const nombre = String(req.body.nombre ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);

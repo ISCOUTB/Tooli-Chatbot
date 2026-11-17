@@ -215,6 +215,45 @@ export async function listBroadcastJobs(limit = 30, usuario?: { username: string
   return resumenes.sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.max(1, Math.min(limit, 100)));
 }
 
+export interface EnvioAContacto {
+  templateName: string;
+  createdAt: number;
+  createdBy: string;
+  etiqueta: string;
+  /** 'enviado' si Meta lo confirmó, 'fallido' con su motivo, o 'pendiente'. */
+  resultado: 'enviado' | 'fallido' | 'pendiente';
+  error?: string;
+}
+
+/** Qué pasó con este teléfono en un envío, o null si no iba en él. */
+export function envioParaContacto(job: BroadcastJob, telefono: string): EnvioAContacto | null {
+  const fallo = job.fallidos.find(f => f.numero === telefono);
+  if (!job.destinatarios.includes(telefono) && !fallo) return null;
+  const base = { templateName: job.templateName, createdAt: job.createdAt, createdBy: job.createdBy, etiqueta: job.etiqueta ?? '' };
+  if (job.enviados.includes(telefono)) return { ...base, resultado: 'enviado' };
+  if (fallo) return { ...base, resultado: 'fallido', error: fallo.error };
+  return { ...base, resultado: 'pendiente' };
+}
+
+/** Plantillas enviadas a este teléfono que siguen guardadas (los envíos caducan a los 7 días). */
+export async function enviosAContacto(telefono: string, limite = 10): Promise<EnvioAContacto[]> {
+  const out: EnvioAContacto[] = [];
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', 'broadcast:job:*', 'COUNT', 100);
+    cursor = next;
+    if (!keys.length) continue;
+    for (const raw of await redis.mget(keys)) {
+      if (!raw) continue;
+      try {
+        const envio = envioParaContacto(parseJob(raw), telefono);
+        if (envio) out.push(envio);
+      } catch { /* Un trabajo dañado no tumba la ficha. */ }
+    }
+  } while (cursor !== '0');
+  return out.sort((a, b) => b.createdAt - a.createdAt).slice(0, limite);
+}
+
 export async function getBroadcastJob(id: string, store: BroadcastStore = redis): Promise<BroadcastJob | null> {
   if (!/^[a-f0-9-]{36}$/i.test(id)) return null;
   const raw = await store.get(JOB_KEY(id));
