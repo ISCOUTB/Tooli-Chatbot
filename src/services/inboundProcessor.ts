@@ -10,6 +10,7 @@ import { maskPhone } from './logSafe';
 import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
 import { iniciarRecomendacion } from '../flows/recomendacion';
+import { atenderAsistencia } from '../flows/asistencia';
 
 export type InboundSource = 'meta' | 'evolution' | 'chatwoot';
 
@@ -78,6 +79,10 @@ export async function processInboundMessage(
     if (!session) await iniciarRecomendacion(from);
     return 'handled';
   }
+
+  // El QR de un evento escribe "Registrar mi asistencia: CÓDIGO". Va antes de
+  // los flujos porque no depende del paso en que esté la conversación.
+  if (await atenderAsistencia(from, inbound.text, inbound.profileName ?? '')) return 'handled';
 
   if (config.posgradosEvento.activo) {
     await handlePosgradoMessage(from, inbound.text, inbound);

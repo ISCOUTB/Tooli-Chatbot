@@ -85,7 +85,9 @@ export type MetricEvent =
   | 'reco_consentimiento_no'
   | 'reco_lead_completado'
   | 'reco_campana_ver'
-  | 'reco_campana_baja';
+  | 'reco_campana_baja'
+  | 'asistencia_registrada'
+  | 'asistencia_consentimiento_no';
 
 export interface MetricProps {
   area?: 'ti' | 'admisiones' | 'posgrados';

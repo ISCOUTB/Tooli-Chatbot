@@ -27,6 +27,7 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'reco_salida_pregrado', 'reco_salida_otras_gestiones', 'reco_ficha', 'reco_ia',
   'reco_asesor', 'reco_consentimiento_no', 'reco_lead_completado',
   'reco_campana_ver', 'reco_campana_baja',
+  'asistencia_registrada', 'asistencia_consentimiento_no',
 ]);
 
 export function isMetricEvent(value: unknown): value is MetricEvent {
