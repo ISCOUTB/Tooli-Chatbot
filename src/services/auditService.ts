@@ -45,7 +45,8 @@ export type AuditAction =
   | 'asistencia_evento_eliminado'
   | 'asistencia_importada'
   | 'asistencia_persona_agregada'
-  | 'asistencia_persona_eliminada';
+  | 'asistencia_persona_eliminada'
+  | 'plantilla_creada';
 
 export interface AuditEntry {
   ts: number;
