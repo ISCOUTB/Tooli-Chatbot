@@ -799,7 +799,19 @@ app.delete('/api/tools/recordatorios/:id', (req, res) => {
 
 const BROADCAST_JOBS = new Map();
 const BROADCAST_DEDUPE = new Map();
-const MOCK_TEMPLATES = [{ name: 'aviso_academico_demo', language: 'es_CO', category: 'UTILITY', components: [{ type: 'BODY', text: 'Aviso académico de prueba' }] }];
+const MOCK_TEMPLATES = [
+  { name: 'aviso_academico_demo', language: 'es_CO', category: 'UTILITY', components: [{ type: 'BODY', text: 'Aviso académico de prueba' }] },
+  { name: 'gracias_por_asistir', language: 'es_CO', category: 'MARKETING', components: [
+    { type: 'HEADER', format: 'TEXT', text: 'Gracias por acompañarnos' },
+    { type: 'BODY', text: 'Fue un gusto tenerte en nuestro evento de *Posgrados UTB* 🎓\n\nSi quieres conocer costos, becas y fechas de inscripción, un asesor puede contarte todo por aquí.' },
+    { type: 'FOOTER', text: 'Universidad Tecnológica de Bolívar' },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Quiero más información' }, { type: 'URL', text: 'Ver programas', url: 'https://www.utb.edu.co/posgrados/' }] },
+  ] },
+  { name: 'campana_posgrado_pregrado', language: 'es_CO', category: 'MARKETING', components: [
+    { type: 'BODY', text: 'Hola {{1}}, por tu pregrado en {{2}} hay posgrados de la UTB pensados para ti.', example: { body_text: [['Ana', 'Ingeniería de Sistemas']] } },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver mis opciones' }, { type: 'QUICK_REPLY', text: 'No me interesa' }] },
+  ] },
+];
 app.get('/api/tools/broadcast/templates', (_q, res) => j(res, { templates: process.env.MOCK_NO_TEMPLATES ? [] : MOCK_TEMPLATES }));
 const REVIEWS = [{
   id: '00000000-0000-4000-8000-000000000001', source: 'meta', from: '573001234567',
@@ -821,10 +833,35 @@ app.post('/api/tools/broadcast/send', (req, res) => {
   const key = JSON.stringify({ templateName, language, numeros });
   const previous = BROADCAST_DEDUPE.get(key);
   if (previous) return res.status(202).json({ ok: true, job: BROADCAST_JOBS.get(previous) });
-  const job = { id: 'bc' + Date.now(), templateName, language, createdBy: 'admin', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0 };
+  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  if (JSON.stringify(MOCK_TEMPLATES.find(t => t.name === templateName).components).replace(/"example":\{.*?\}\}/, '').includes('{{')) return res.status(400).json({ error: 'validation_error', message: 'Ese template usa variables {{1}}; envíalo como campaña, con los datos de cada destinatario' });
+  const job = { id: require('node:crypto').randomUUID(), templateName, language, createdBy: 'admin', createdAt: Date.now(), estado: 'pendiente', destinatarios: numeros, solicitados: telefonos.length, duplicadosOmitidos: telefonos.length - numeros.length, enviados: [], fallidos: [], nextIndex: 0, etiqueta: String(req.body.etiqueta ?? '').slice(0, 80) };
   BROADCAST_JOBS.set(job.id, job);
   BROADCAST_DEDUPE.set(key, job.id);
   res.status(202).json({ ok: true, job });
+});
+// Un envío de hace dos días, para que el historial no arranque vacío.
+BROADCAST_JOBS.set('11111111-1111-4111-8111-111111111111', {
+  id: '11111111-1111-4111-8111-111111111111', templateName: 'gracias_por_asistir', language: 'es_CO', createdBy: 'admin',
+  createdAt: hoy - 2 * 864e5, estado: 'completado', destinatarios: ['573001234567', '573009876543', '573015550101'], solicitados: 3,
+  duplicadosOmitidos: 0, enviados: ['573001234567', '573009876543'], fallidos: [{ numero: '573015550101', error: 'Meta rechazó el envío (HTTP 400, código 131026)' }],
+  nextIndex: 3, etiqueta: 'Asistentes: Feria de posgrados 2026',
+});
+app.get('/api/tools/broadcast/jobs', (_q, res) => {
+  if (ROL !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  // Cada consulta avanza un poco los envíos pendientes, como haría la cola real.
+  for (const job of BROADCAST_JOBS.values()) {
+    if (job.estado === 'completado') continue;
+    job.estado = 'procesando';
+    const paso = Math.max(1, Math.ceil(job.destinatarios.length / 3));
+    job.enviados.push(...job.destinatarios.slice(job.nextIndex, job.nextIndex + paso));
+    job.nextIndex = Math.min(job.destinatarios.length, job.nextIndex + paso);
+    if (job.nextIndex >= job.destinatarios.length) job.estado = 'completado';
+  }
+  j(res, { jobs: [...BROADCAST_JOBS.values()].sort((a, b) => b.createdAt - a.createdAt).map(job => ({
+    id: job.id, templateName: job.templateName, language: job.language, createdBy: job.createdBy, createdAt: job.createdAt,
+    estado: job.estado, solicitados: job.solicitados, enviados: job.enviados.length, fallidos: job.fallidos.length, etiqueta: job.etiqueta ?? '',
+  })) });
 });
 app.get('/api/tools/broadcast/jobs/:id', (req, res) => {
   const job = BROADCAST_JOBS.get(req.params.id);
@@ -844,7 +881,127 @@ app.post('/api/tools/recibo', (req, res) => {
 app.get('/api/auth/chatwoot-sso', (_q, res) => j(res, { url: 'https://chat.example.com/sso' }));
 app.get('/health/deep', (_q, res) => j(res, SALUD_MOCK));
 
+/* ── Asistencia a eventos ──────────────────────────────────────────────────
+   El lector de Excel/CSV es el real (src/services/asistenciaImport.ts, vía
+   tsx): lo que se ve al importar aquí es lo que hará el servidor. */
+let lectorAsistencia = null;
+try { require('tsx/cjs'); lectorAsistencia = require('../src/services/asistenciaImport.ts'); } catch { /* sin tsx: importación simulada */ }
+const ASIS_EVENTOS = [
+  { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', nombre: 'Feria de posgrados 2026', sector: 'posgrado', fecha: '2026-11-20', lugar: 'Campus Tecnológico', codigo: 'K7M2QX', estado: 'abierto', creadoPor: 'admin', creadoEn: hoy - 3 * 36e5 },
+  { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', nombre: 'Open house Ingenierías', sector: 'pregrado', fecha: '2026-10-30', lugar: 'Auditorio Jorge Taua', codigo: 'P4RT9B', estado: 'cerrado', creadoPor: 'luis', creadoEn: hoy - 18 * 864e5 },
+];
+const asis = (clave, nombre, whatsapp, correo, programa, origen, consentimiento, min, documento = '') => ({ clave, nombre, whatsapp, correo, documento, programa, origen, consentimiento, registradoEn: hace(min) });
+const ASIS_PERSONAS = {
+  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1': [
+    asis('w:573001234567', 'María José Restrepo', '573001234567', 'mjrestrepo@gmail.com', 'Maestría en Ingeniería', 'qr', true, 6),
+    asis('w:573009876543', 'Carlos Pérez', '573009876543', '', '', 'qr', true, 14),
+    asis('w:573015550101', 'Valentina Ortiz', '573015550101', 'vortiz@utb.edu.co', 'Especialización en Finanzas', 'qr', true, 31, '1047123456'),
+    asis('c:alugo@gmail.com', 'Andrés Lugo', '', 'alugo@gmail.com', 'Doctorado en Ingeniería', 'importado', false, 95),
+    asis('w:573022220011', 'Laura Ríos', '573022220011', 'lrios@gmail.com', '', 'importado', false, 95),
+    asis('n:1a2b3c4d5e6f7a8b', 'Jorge Castillo', '', '', '', 'manual', false, 120),
+  ],
+  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2': [
+    asis('w:573033330022', 'Sofía Gómez', '573033330022', 'sofia@gmail.com', 'Ingeniería de Sistemas', 'qr', true, 18 * 1440),
+    asis('w:573044440033', 'Daniel Mora', '573044440033', '', 'Ingeniería Civil', 'qr', true, 18 * 1440 + 5),
+  ],
+};
+const asisEvento = (req, res) => {
+  const evento = ASIS_EVENTOS.find(e => e.id === req.params.id);
+  if (!evento) res.status(404).json({ error: 'not_found', message: 'El evento no existe' });
+  return evento;
+};
+const asisClave = (p) => p.whatsapp ? `w:${p.whatsapp}` : p.correo ? `c:${p.correo}` : p.documento ? `d:${p.documento}` : `n:${Buffer.from(p.nombre).toString('hex').slice(0, 16)}`;
+function asisRegistrar(eventoId, datos, origen, consentimiento) {
+  const lista = ASIS_PERSONAS[eventoId] ?? (ASIS_PERSONAS[eventoId] = []);
+  const clave = asisClave(datos);
+  const previo = lista.find(a => a.clave === clave);
+  if (previo) { Object.entries(datos).forEach(([k, v]) => { if (v) previo[k] = v; }); previo.consentimiento = previo.consentimiento || consentimiento; return false; }
+  lista.unshift({ clave, nombre: '', whatsapp: '', correo: '', documento: '', programa: '', ...datos, origen, consentimiento, registradoEn: Date.now() });
+  return true;
+}
+app.get('/api/tools/asistencia/eventos', (_q, res) => j(res, {
+  eventos: [...ASIS_EVENTOS].sort((a, b) => b.creadoEn - a.creadoEn).map(e => ({ ...e, asistentes: (ASIS_PERSONAS[e.id] ?? []).length })),
+}));
+app.post('/api/tools/asistencia/eventos', (req, res) => {
+  const nombre = String(req.body.nombre ?? '').trim();
+  if (nombre.length < 3) return res.status(400).json({ error: 'invalid_data', message: 'El nombre del evento necesita al menos 3 caracteres' });
+  const evento = { id: require('node:crypto').randomUUID(), nombre, sector: req.body.sector ?? 'otro', fecha: req.body.fecha ?? '', lugar: req.body.lugar ?? '', codigo: 'D3M0' + String(Math.floor(Math.random() * 90) + 10), estado: 'abierto', creadoPor: ROL === 'admin' ? 'admin' : 'luis', creadoEn: Date.now() };
+  ASIS_EVENTOS.push(evento);
+  res.status(201).json({ ok: true, evento });
+});
+app.get('/api/tools/asistencia/eventos/:id', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  // Con MOCK_ASIS_VIVO llega una persona nueva en cada consulta, como en un evento real.
+  if (process.env.MOCK_ASIS_VIVO && evento.estado === 'abierto') {
+    const n = (ASIS_PERSONAS[evento.id] ?? []).length + 1;
+    asisRegistrar(evento.id, { nombre: `Asistente ${n}`, whatsapp: `5730077${String(10000 + n)}` }, 'qr', true);
+  }
+  j(res, { evento, asistentes: [...(ASIS_PERSONAS[evento.id] ?? [])].sort((a, b) => b.registradoEn - a.registradoEn) });
+});
+app.get('/api/tools/asistencia/eventos/:id/qr', async (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  const texto = `Registrar mi asistencia: ${evento.codigo}`;
+  if (process.env.MOCK_SIN_NUMERO) return j(res, { texto, enlace: null, imagen: null });
+  const enlace = `https://wa.me/573000000000?text=${encodeURIComponent(texto)}`;
+  const imagen = await require('qrcode').toDataURL(enlace, { errorCorrectionLevel: 'M', margin: 2, width: 720 });
+  j(res, { texto, enlace, imagen, numero: '573000000000' });
+});
+app.patch('/api/tools/asistencia/eventos/:id', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  for (const campo of ['nombre', 'sector', 'fecha', 'lugar', 'estado']) if (req.body[campo] !== undefined) evento[campo] = req.body[campo];
+  j(res, { ok: true, evento });
+});
+app.delete('/api/tools/asistencia/eventos/:id', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  if (ROL !== 'admin' && evento.creadoPor !== 'luis') return res.status(403).json({ error: 'forbidden', message: 'Solo quien creó el evento o un administrador puede eliminarlo' });
+  ASIS_EVENTOS.splice(ASIS_EVENTOS.indexOf(evento), 1);
+  delete ASIS_PERSONAS[evento.id];
+  j(res, { ok: true });
+});
+app.post('/api/tools/asistencia/eventos/:id/asistentes', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  const texto = String(req.body.whatsapp ?? '').trim();
+  let whatsapp = texto.replace(/\D/g, '');
+  if (whatsapp.length === 10 && whatsapp[0] === '3') whatsapp = `57${whatsapp}`;
+  if (texto && !/^[1-9]\d{9,14}$/.test(whatsapp)) return res.status(400).json({ error: 'invalid_data', message: 'El celular no es válido: usa 10 dígitos o incluye el indicativo' });
+  const nuevo = asisRegistrar(evento.id, { nombre: String(req.body.nombre ?? '').trim(), whatsapp, correo: String(req.body.correo ?? '').trim().toLowerCase(), documento: String(req.body.documento ?? '').trim(), programa: String(req.body.programa ?? '').trim() }, 'manual', req.body.consentimiento === true);
+  res.status(nuevo ? 201 : 200).json({ ok: true, nuevo });
+});
+app.delete('/api/tools/asistencia/eventos/:id/asistentes', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  const lista = ASIS_PERSONAS[evento.id] ?? [];
+  const i = lista.findIndex(a => a.clave === req.body.clave);
+  if (i < 0) return res.status(404).json({ error: 'not_found', message: 'Esa persona ya no está en la lista' });
+  lista.splice(i, 1);
+  j(res, { ok: true });
+});
+app.post('/api/tools/asistencia/eventos/:id/importar', (req, res) => {
+  const evento = asisEvento(req, res);
+  if (!evento) return;
+  if (!lectorAsistencia) return res.status(503).json({ error: 'mock_sin_tsx', message: 'El mock necesita tsx para leer archivos' });
+  try {
+    const tabla = lectorAsistencia.leerTablaArchivo(Buffer.from(String(req.body.archivo ?? ''), 'base64'), String(req.body.nombreArchivo ?? ''));
+    const preparada = lectorAsistencia.prepararImportacion(tabla, lectorAsistencia.validarMapeo(req.body.mapeo, tabla.columnas.length));
+    const resumen = { columnas: preparada.columnas, mapeo: preparada.mapeo, totalFilas: preparada.totalFilas, validas: preparada.asistentes.length, omitidas: preparada.omitidas, sinWhatsapp: preparada.sinWhatsapp, celularesInvalidos: preparada.celularesInvalidos };
+    if (req.body.confirmar !== true) return j(res, { ok: true, previa: true, ...resumen, muestra: preparada.asistentes.slice(0, 5) });
+    let nuevos = 0;
+    let actualizados = 0;
+    for (const persona of preparada.asistentes) { if (asisRegistrar(evento.id, persona, 'importado', req.body.consentimiento === true)) nuevos++; else actualizados++; }
+    j(res, { ok: true, previa: false, ...resumen, nuevos, actualizados, sinCupo: 0 });
+  } catch (err) {
+    res.status(400).json({ error: 'archivo_invalido', message: err.message });
+  }
+});
+
 app.use('/app', express.static(path.join(__dirname, '..', 'src', 'public', 'app')));
 app.get('/favicon.ico', (_q, res) => res.sendFile(path.join(__dirname, '..', 'src', 'public', 'app', 'favicon.ico')));
 app.get('/', (_q, res) => res.redirect('/app/index.html'));
-app.listen(4599, () => console.log('mock panel en http://localhost:4599/app/index.html'));
+// PORT permite abrir un segundo mock sin tumbar uno que ya esté corriendo.
+const PUERTO = Number(process.env.PORT) || 4599;
+app.listen(PUERTO, () => console.log(`mock panel en http://localhost:${PUERTO}/app/index.html`));

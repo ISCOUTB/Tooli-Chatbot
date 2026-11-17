@@ -5,8 +5,10 @@ const { chromium } = require('playwright');
 const ROUTES = [
   'home', 'atencion', 'recibo', 'metricas', 'conversaciones', 'posgrados',
   'registros', 'evento-posgrado', 'recordatorios', 'health', 'usuarios', 'actividad',
-  'informes',
+  'informes', 'asistencia', 'plantillas',
 ];
+// QA_BASE_URL permite revisar un mock que corre en otro puerto (PORT=4601).
+const BASE = process.env.QA_BASE_URL || 'http://localhost:4599';
 
 (async () => {
   const failures = [];
@@ -22,7 +24,7 @@ const ROUTES = [
         const onError = error => errors.push(error.stack ?? error.message);
         page.on('pageerror', onError);
         try {
-          await page.goto(`http://localhost:4599/app/index.html?qa=${route}-${width}#${route}`);
+          await page.goto(`${BASE}/app/index.html?qa=${route}-${width}#${route}`);
           await page.locator('#main h1').waitFor();
           await page.waitForTimeout(600);
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
