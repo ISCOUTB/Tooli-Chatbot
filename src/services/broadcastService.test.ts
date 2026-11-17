@@ -2,7 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
-import { clearTemplateCache, extractError, listApprovedTemplates } from './broadcastService';
+import {
+  BroadcastValidationError, clearEncabezadoCache, clearTemplateCache, extractError, listApprovedTemplates,
+  prepararEncabezado, sendTemplateToRecipient,
+} from './broadcastService';
 
 describe('listApprovedTemplates', () => {
   it('recorre todas las páginas antes de guardar la lista en caché', async () => {
@@ -80,7 +83,6 @@ describe('extractError', () => {
 
 describe('sendTemplateToRecipient', () => {
   it('llena las variables del cuerpo en orden y no manda componentes si no hay', async () => {
-    const { sendTemplateToRecipient } = await import('./broadcastService');
     const originalPost = axios.post;
     const originalMeta = { ...config.metaCloud };
     const bodies: unknown[] = [];
@@ -111,7 +113,6 @@ describe('plantillas con archivo en el encabezado', () => {
   ];
 
   it('sube a Meta la imagen aprobada una sola vez y la adjunta al enviar', async () => {
-    const { clearEncabezadoCache, prepararEncabezado, sendTemplateToRecipient } = await import('./broadcastService');
     const originalGet = axios.get;
     const originalPost = axios.post;
     const originalMeta = { ...config.metaCloud };
@@ -164,7 +165,6 @@ describe('plantillas con archivo en el encabezado', () => {
   });
 
   it('si el archivo no se puede preparar, el envío no se crea y el asesor lo sabe', async () => {
-    const { BroadcastValidationError, clearEncabezadoCache, prepararEncabezado } = await import('./broadcastService');
     const originalGet = axios.get;
     const originalPost = axios.post;
     const originalMeta = { ...config.metaCloud };

@@ -5,6 +5,7 @@ import {
   validarTemplateName, validarLanguage,
   normalizarTelefonoBroadcast, clasificarDestinatarios,
   clasificarDestinatariosConDatos, contarVariablesCuerpo, limpiarVariable, MAX_LARGO_VARIABLE,
+  encabezadoMediaDe, urlDeMetaSegura,
 } from './broadcastValidation';
 
 /**
@@ -156,8 +157,7 @@ describe('clasificarDestinatariosConDatos', () => {
 describe('encabezado con archivo', () => {
   const EJEMPLO = 'https://scontent.whatsapp.net/v/t61.29466-34/123_456_n.png?ccb=1-7&oh=abc&oe=6F000000';
 
-  it('toma el archivo con el que Meta aprobó la plantilla', async () => {
-    const { encabezadoMediaDe } = await import('./broadcastValidation');
+  it('toma el archivo con el que Meta aprobó la plantilla', () => {
     assert.deepEqual(
       encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [EJEMPLO] } }, { type: 'BODY', text: 'Hola' }]),
       { tipo: 'image', ejemplo: EJEMPLO },
@@ -165,23 +165,20 @@ describe('encabezado con archivo', () => {
     assert.equal(encabezadoMediaDe([{ type: 'header', format: 'document', example: { header_handle: [EJEMPLO] } }])?.tipo, 'document');
   });
 
-  it('un encabezado de texto o ausente no lleva archivo', async () => {
-    const { encabezadoMediaDe } = await import('./broadcastValidation');
+  it('un encabezado de texto o ausente no lleva archivo', () => {
     assert.equal(encabezadoMediaDe([{ type: 'HEADER', format: 'TEXT', text: 'Hola' }]), null);
     assert.equal(encabezadoMediaDe([{ type: 'HEADER', text: 'Sin formato declarado' }]), null);
     assert.equal(encabezadoMediaDe([{ type: 'BODY', text: 'Solo cuerpo' }]), null);
     assert.equal(encabezadoMediaDe([]), null);
   });
 
-  it('sin archivo de ejemplo o con un tipo no admitido no se puede enviar', async () => {
-    const { encabezadoMediaDe } = await import('./broadcastValidation');
+  it('sin archivo de ejemplo o con un tipo no admitido no se puede enviar', () => {
     assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE' }]), /no entregó el archivo/);
     assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [] } }]), BroadcastValidationError);
     assert.throws(() => encabezadoMediaDe([{ type: 'HEADER', format: 'LOCATION' }]), /no envía/);
   });
 
-  it('el archivo solo se descarga de Meta y por HTTPS', async () => {
-    const { urlDeMetaSegura } = await import('./broadcastValidation');
+  it('el archivo solo se descarga de Meta y por HTTPS', () => {
     assert.equal(urlDeMetaSegura(EJEMPLO), EJEMPLO);
     for (const mala of [
       'http://scontent.whatsapp.net/a.png',            // sin cifrar
