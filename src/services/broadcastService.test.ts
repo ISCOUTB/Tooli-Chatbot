@@ -203,3 +203,94 @@ describe('plantillas con archivo en el encabezado', () => {
     }
   });
 });
+
+describe('archivos más pesados que el tope de WhatsApp', () => {
+  const EJEMPLO = 'https://scontent.whatsapp.net/v/t61/afiche.png?oh=firma&oe=6F000000';
+  const PLANTILLAS = [
+    { name: 'afiche', language: 'es', category: 'MARKETING', components: [{ type: 'HEADER', format: 'IMAGE', example: { header_handle: [EJEMPLO] } }, { type: 'BODY', text: 'Mira' }] },
+  ];
+  const SEIS_MB = Buffer.alloc(6 * 1024 * 1024 + 300_000, 1);
+
+  it('una imagen de 6 MB se reduce antes de subirla a Meta', async () => {
+    const originalGet = axios.get;
+    const originalPost = axios.post;
+    const originalMeta = { ...config.metaCloud };
+    const subidas: Array<{ tipo: unknown; bytes: number }> = [];
+    const reducidas: Array<[number, string]> = [];
+    Object.assign(config.metaCloud, { token: 'test-token', phoneNumberId: '123', wabaId: '456' });
+    clearTemplateCache();
+    clearEncabezadoCache();
+    axios.get = (async (url: string) => url.includes('/message_templates')
+      ? { data: { data: PLANTILLAS } }
+      : { data: SEIS_MB, headers: { 'content-type': 'image/png' } }) as typeof axios.get;
+    axios.post = (async (_url: string, body: FormData) => {
+      subidas.push({ tipo: body.get('type'), bytes: (body.get('file') as File).size });
+      return { data: { id: '123456789' } };
+    }) as typeof axios.post;
+    const reducir = async (buffer: Buffer, mime: string) => {
+      reducidas.push([buffer.length, mime]);
+      return { buffer: Buffer.alloc(800_000, 2), mime: 'image/jpeg' as const };
+    };
+    try {
+      assert.deepEqual(await prepararEncabezado('afiche', 'es', reducir), { tipo: 'image', mediaId: '123456789' });
+      assert.deepEqual(reducidas, [[SEIS_MB.length, 'image/png']]);
+      assert.deepEqual(subidas, [{ tipo: 'image/jpeg', bytes: 800_000 }]);
+    } finally {
+      axios.get = originalGet;
+      axios.post = originalPost;
+      Object.assign(config.metaCloud, originalMeta);
+      clearTemplateCache();
+      clearEncabezadoCache();
+    }
+  });
+
+  it('una imagen liviana se sube tal cual y un video pesado se rechaza con su tamaño', async () => {
+    const { ajustarAlTope } = await import('./broadcastService');
+    const liviana = Buffer.alloc(1000, 1);
+    const sinReducir = async () => { throw new Error('no debía reducirse'); };
+    assert.deepEqual(await ajustarAlTope('image', liviana, 'image/png', sinReducir), { buffer: liviana, mime: 'image/png', reducida: false });
+    await assert.rejects(
+      ajustarAlTope('video', Buffer.alloc(17 * 1024 * 1024), 'video/mp4', sinReducir),
+      (err: unknown) => err instanceof BroadcastValidationError && /video pesa 17,0 MB.*hasta 16,0 MB/.test(err.message),
+    );
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      // Si no se logra reducir, el asesor sabe qué hacer.
+      await assert.rejects(ajustarAlTope('image', SEIS_MB, 'image/png', sinReducir), /no se pudo reducir. Usa una imagen más liviana/);
+    } finally {
+      console.error = originalError;
+    }
+  });
+});
+
+describe('componentesDelEnvio', () => {
+  it('pone cada valor en su lugar: imagen, cuerpo y final del enlace', async () => {
+    const { componentesDelEnvio } = await import('./broadcastService');
+    const ranuras = [
+      { lugar: 'cuerpo', numero: 1 }, { lugar: 'cuerpo', numero: 2 }, { lugar: 'boton', indice: 0, numero: 1 },
+    ] as const;
+    assert.deepEqual(componentesDelEnvio(['Ana', 'Feria de posgrados', 'feria posgrados'], { tipo: 'image', mediaId: '987' }, [...ranuras]), [
+      { type: 'header', parameters: [{ type: 'image', image: { id: '987' } }] },
+      { type: 'body', parameters: [{ type: 'text', text: 'Ana' }, { type: 'text', text: 'Feria de posgrados' }] },
+      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: 'feria%20posgrados' }] },
+    ]);
+  });
+
+  it('un encabezado de texto con variable lleva su valor', async () => {
+    const { componentesDelEnvio } = await import('./broadcastService');
+    assert.deepEqual(componentesDelEnvio(['35.000', '42'], null, [{ lugar: 'cuerpo', numero: 1 }, { lugar: 'encabezado', numero: 1 }]), [
+      { type: 'header', parameters: [{ type: 'text', text: '42' }] },
+      { type: 'body', parameters: [{ type: 'text', text: '35.000' }] },
+    ]);
+  });
+
+  it('un trabajo viejo, sin ranuras, manda todo al cuerpo como antes', async () => {
+    const { componentesDelEnvio } = await import('./broadcastService');
+    assert.deepEqual(componentesDelEnvio(['Laura', 'Industrial'], null), [
+      { type: 'body', parameters: [{ type: 'text', text: 'Laura' }, { type: 'text', text: 'Industrial' }] },
+    ]);
+    assert.deepEqual(componentesDelEnvio([], null), []);
+  });
+});
+
