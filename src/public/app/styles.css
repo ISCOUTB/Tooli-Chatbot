@@ -2789,3 +2789,61 @@ button.np-quitar { padding: 6px; min-width: 32px; min-height: 32px; justify-cont
   .plt-fallidos li, .plt-detalle > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .plt-envio #pltEnviar { width: 100%; justify-content: center; }
 }
+
+/* ============= Animaciones =============
+   Solo movimiento: los colores son los de marca ya definidos (turquesa Tooli y
+   azul UTB). La regla global de prefers-reduced-motion las apaga todas. */
+
+/* Indicador del menú que se desliza a la sección activa (router.js). */
+.sidebar nav { position: relative; }
+.sidebar nav a { z-index: 1; }
+.nav-indicador {
+  position: absolute; top: 0; left: 10px; right: 10px; height: 0; z-index: 0;
+  border-radius: var(--radius-sm); background: var(--utb-accent);
+  box-shadow: 0 4px 14px rgba(94, 234, 212, 0.35);
+  opacity: 0; pointer-events: none;
+  transition: transform 0.42s var(--ease-spring), height 0.3s var(--ease-spring), opacity 0.2s var(--ease-out);
+}
+.nav-indicador.sin-transicion { transition: none; }
+.sidebar nav.con-indicador a.active { background: transparent; box-shadow: none; }
+
+/* Tarjetas que entran escalonadas la primera vez que carga una pantalla (animar.js). */
+.entrada-escalonada > * { animation: fade-rise-in 0.5s var(--ease-spring) backwards; }
+.entrada-escalonada > *:nth-child(2) { animation-delay: 0.06s; }
+.entrada-escalonada > *:nth-child(3) { animation-delay: 0.12s; }
+.entrada-escalonada > *:nth-child(4) { animation-delay: 0.18s; }
+.entrada-escalonada > *:nth-child(5) { animation-delay: 0.24s; }
+.entrada-escalonada > *:nth-child(6) { animation-delay: 0.3s; }
+.entrada-escalonada > *:nth-child(n+7) { animation-delay: 0.34s; }
+
+/* Algo que acaba de llegar (una persona que escaneó el QR) se ilumina un momento. */
+@keyframes recien-llegado {
+  0% { background-color: rgba(94, 234, 212, 0.5); }
+  100% { background-color: transparent; }
+}
+tr.recien-llegado > td { animation: recien-llegado 1.8s var(--ease-out); }
+
+/* Una cifra que sube da un pequeño salto. */
+@keyframes rebote { 0% { transform: scale(1); } 35% { transform: scale(1.16); } 100% { transform: scale(1); } }
+.rebote { display: inline-block; transform-origin: left center; animation: rebote 0.5s var(--ease-spring-bounce); }
+.asis-proyector-cuenta .rebote { transform-origin: center; }
+
+/* Ventanas: aparecen subiendo, como las hojas de acciones. */
+.password-dialog-backdrop.open .password-dialog { animation: sheet-rise-in 0.42s var(--ease-spring) both; }
+
+/* Plantillas: la burbuja entra al elegir otra plantilla y el envío que termina lo celebra. */
+.plt-cambio .plt-burbuja { animation: bubble-in 0.34s var(--ease-spring) both; }
+.plt-cambio .plt-botones { animation: bubble-in 0.34s var(--ease-spring) 0.05s both; }
+.plt-progreso-linea.recien-completo { animation: flash-ring 1s var(--ease-out); }
+.plt-progreso-linea.recien-completo .icon-svg { animation: icon-pop 0.4s var(--ease-spring-bounce); }
+
+/* Tarjetas que se pueden tocar se levantan un poco al pasar el mouse. */
+button.asis-evento, button.plt-item, .ini-pending-row, .ini-tarea {
+  transition: transform 0.22s var(--ease-spring), box-shadow 0.22s var(--ease-out), border-color 0.2s var(--ease-out), background 0.2s var(--ease-out);
+}
+@media (hover: hover) {
+  button.asis-evento:hover, .ini-pending-row:hover, .ini-tarea:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  button.plt-item:hover { transform: translateX(3px); }
+}
+button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.plt-item:active { transform: scale(0.98); }
+

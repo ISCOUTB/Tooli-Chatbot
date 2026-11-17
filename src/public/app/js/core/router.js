@@ -235,7 +235,8 @@ function renderSidebarNav() {
     <div class="nav-section"><div class="nav-section-title">${escapeHtml(section.title)}</div>
       ${section.routes.map(item => `<a href="#${item.route}" data-route="${item.route}">${icon(item.icon)}<span>${escapeHtml(item.label)}</span></a>`).join('')}
     </div>`).join('');
-  nav.innerHTML = `<a href="#home" data-route="home" class="nav-home">${icon('home')}<span>Inicio</span></a>${sections}`;
+  nav.innerHTML = `<span class="nav-indicador" aria-hidden="true"></span><a href="#home" data-route="home" class="nav-home">${icon('home')}<span>Inicio</span></a>${sections}`;
+  indicadorListo = false;
   $$('#nav a').forEach(anchor => anchor.addEventListener('click', event => {
     event.preventDefault(); navigate(anchor.dataset.route);
   }));
@@ -265,6 +266,8 @@ async function init() {
     avatar.style.background = avatarTone(sesion.user.username);
   }
   renderSidebarNav();
+  // Al cambiar el tamaño de la ventana el menú se reacomoda: el indicador se recoloca sin animar.
+  window.addEventListener('resize', () => { indicadorListo = false; moverIndicador(); });
   const accountBtn = $('#accountMenuBtn');
   accountBtn.innerHTML = `${icon('more', 18)}<span class="sr-only">Abrir menú de cuenta</span>`;
   accountBtn.addEventListener('click', openAccountSheet);
@@ -276,6 +279,32 @@ async function init() {
     if (hash === currentHash) return; // navigate ya renderizó este hash
     navigate(hash);
   });
+}
+
+/* La pastilla turquesa del menú se desliza hasta la sección activa en vez de
+   saltar. La primera vez se coloca sin animar. */
+let indicadorListo = false;
+function moverIndicador() {
+  const nav = $('#nav');
+  const indicador = nav?.querySelector('.nav-indicador');
+  if (!indicador) return;
+  const activo = nav.querySelector('a.active');
+  if (!activo || !activo.offsetHeight) {
+    indicador.style.opacity = '0';
+    nav.classList.remove('con-indicador');
+    return;
+  }
+  const inmediato = !indicadorListo;
+  if (inmediato) indicador.classList.add('sin-transicion');
+  indicador.style.transform = `translateY(${activo.offsetTop}px)`;
+  indicador.style.height = `${activo.offsetHeight}px`;
+  indicador.style.opacity = '1';
+  nav.classList.add('con-indicador');
+  if (inmediato) {
+    void indicador.offsetWidth;
+    indicador.classList.remove('sin-transicion');
+    indicadorListo = true;
+  }
 }
 
 let currentHash = null;
@@ -308,6 +337,7 @@ function navigate(route, params) {
     if (active) anchor.setAttribute('aria-current', 'page');
     else anchor.removeAttribute('aria-current');
   });
+  moverIndicador();
   updateTabBar(routeName);
   const main = $('#main');
   main.classList.remove('page-enter');

@@ -15,6 +15,7 @@ import { icon } from '../core/icons.js';
 import { navigate } from '../core/router.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
+import { contarCifras, entradaEscalonada } from '../core/animar.js';
 
 const ETAPAS = [
   ['nuevo', 'Nuevos'], ['contactado', 'Contactados'], ['interesado', 'Interesados'],
@@ -266,8 +267,16 @@ async function renderHome(main) {
       } : {
         atencion: () => atencionAsesor(datos.atencion), seguimiento: () => seguimientoAsesor(datos.seguimiento, datos.recordatorios), servicios: () => serviciosAsesor(datos.servicios), hoy: () => metricasHoy(datos.hoy, 'ini-card-half'),
       };
-      panel.querySelector('.ini-layout').innerHTML = bloques.map((bloque) => vistas[bloque]()).join('');
+      const layout = panel.querySelector('.ini-layout');
+      layout.innerHTML = bloques.map((bloque) => vistas[bloque]()).join('');
       panel.removeAttribute('aria-busy');
+      // Inicio se repinta solo con cada evento de Atención: la entrada y el
+      // conteo de cifras van solo la primera vez, para no distraer después.
+      if (!panel.dataset.animado) {
+        panel.dataset.animado = '1';
+        entradaEscalonada(layout);
+        contarCifras(layout, '.ini-metric-value, .ini-priority-grid strong');
+      }
       conectarAcciones(panel, cargar);
     } catch {
       if (actual !== solicitud || !panel?.isConnected) return;

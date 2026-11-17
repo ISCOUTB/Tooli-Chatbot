@@ -1,5 +1,6 @@
 import { api } from '../core/api.js';
 import { MAX_POR_ENVIO, SECTORES, enLotes, fechaEvento } from '../core/asistencia.js';
+import { entradaEscalonada } from '../core/animar.js';
 import { escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible, formatTelefono, formatWhatsApp, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
@@ -147,6 +148,8 @@ async function renderPlantillas(main) {
       haptic(10);
       pintarLista();
       pintarPrevia();
+      // Solo al cambiar de plantilla: escribir en los datos repinta sin animar.
+      previaEl.querySelector('.plt-chat')?.classList.add('plt-cambio');
       pintarEnvio();
     }));
   }
@@ -180,6 +183,7 @@ async function renderPlantillas(main) {
         pendienteDeElegir = '';
       }
       pintarLista();
+      if (!listaEl.dataset.animado) { listaEl.dataset.animado = '1'; entradaEscalonada(listaEl); }
       pintarPrevia();
       pintarEnvio();
     } catch (err) {
@@ -469,6 +473,7 @@ async function renderPlantillas(main) {
   }
 
   let avance = new Map();   // id → resumen del envío
+  const estadosVistos = new Map();   // id → estado ya mostrado, para animar al completarse
 
   function pintarProgreso() {
     const error = errorEnvio;
@@ -478,7 +483,9 @@ async function renderPlantillas(main) {
     const lineas = trabajos.map(id => avance.get(id)).filter(Boolean).map(job => {
       const estado = estadoEnvio(job);
       const revisados = job.enviados + job.fallidos;
-      return `<div class="plt-progreso-linea plt-tono-${estado.tono}">
+      const recien = estadosVistos.has(job.id) && estadosVistos.get(job.id) !== 'completado' && job.estado === 'completado';
+      estadosVistos.set(job.id, job.estado);
+      return `<div class="plt-progreso-linea plt-tono-${estado.tono}${recien ? ' recien-completo' : ''}">
         ${job.estado === 'completado' ? icon(job.fallidos && !job.enviados ? 'x' : 'check', 15) : '<span class="spinner"></span>'}
         <span><strong>${escapeHtml(job.templateName)}</strong> · ${job.estado === 'completado' ? `${job.enviados} de ${job.solicitados} enviados${job.fallidos ? `, ${job.fallidos} con fallo` : ''}` : `${revisados} de ${job.solicitados} revisados`}</span>
       </div>`;

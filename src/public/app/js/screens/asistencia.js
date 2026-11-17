@@ -2,6 +2,7 @@ import { api } from '../core/api.js';
 import {
   ORIGENES, SECTORES, fechaEvento, filtrarAsistentes, firmaLista, nombreArchivoCsv, resumenAsistentes,
 } from '../core/asistencia.js';
+import { contarHasta, rebotar, resaltar } from '../core/animar.js';
 import { copyToClipboard, escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible, descargarCsv, formatTelefono, relativeTime } from '../core/format.js';
 import { icon } from '../core/icons.js';
@@ -197,6 +198,8 @@ async function renderDetalle(main, eventoId) {
   let firma = null;
   let cargando = false;
   let proyector = null;
+  let cifrasAnteriores = null;     // para que las cifras suban desde lo que mostraban
+  let clavesVistas = null;         // para resaltar a quien acaba de llegar
 
   const puedeEliminar = () => sesion.user?.role === 'admin' || evento?.creadoPor === sesion.user?.username;
 
@@ -290,8 +293,18 @@ async function renderDetalle(main, eventoId) {
       ['Con WhatsApp', r.conWhatsapp, 'tienen un número registrado'],
       ['Se les puede escribir', r.contactables, 'autorizaron el contacto'],
     ].map(([label, valor, ayuda]) => `<div class="stat-card"><div class="label">${label}</div><div class="value">${escapeHtml(valor)}</div>${ayuda ? `<div class="asis-stat-ayuda">${ayuda}</div>` : ''}</div>`).join('');
+    const nuevas = [r.total, r.porQr, r.conWhatsapp, r.contactables];
+    caja.querySelectorAll('.value').forEach((el, i) => {
+      const antes = cifrasAnteriores ? cifrasAnteriores[i] : 0;
+      contarHasta(el, nuevas[i], antes);
+      if (cifrasAnteriores && nuevas[i] > antes) rebotar(el);
+    });
     const cuenta = proyector?.querySelector('#asisProyectorCuenta');
-    if (cuenta) cuenta.textContent = String(r.porQr);
+    if (cuenta && cuenta.textContent !== String(r.porQr)) {
+      contarHasta(cuenta, r.porQr, Number(cuenta.textContent) || 0);
+      rebotar(cuenta);
+    }
+    cifrasAnteriores = nuevas;
   }
 
   function pintarTabla() {
@@ -317,7 +330,7 @@ async function renderDetalle(main, eventoId) {
           <caption class="sr-only">Asistentes de ${escapeHtml(evento.nombre)}</caption>
           <thead><tr><th scope="col">Nombre</th><th scope="col">WhatsApp</th><th scope="col">Correo</th><th scope="col">Programa</th><th scope="col">Origen</th><th scope="col">Registro</th><th scope="col"><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>${visibles.map(a => `
-            <tr>
+            <tr data-clave="${escapeHtml(a.clave)}">
               <td><strong>${escapeHtml(a.nombre || 'Sin nombre')}</strong>${a.documento ? `<span class="asis-sub">ID ${escapeHtml(a.documento)}</span>` : ''}</td>
               <td>${a.whatsapp ? escapeHtml(formatTelefono(a.whatsapp)) : '<span class="asis-vacio">—</span>'}${a.whatsapp && !a.consentimiento ? '<span class="asis-sub">sin autorización de contacto</span>' : ''}</td>
               <td>${a.correo ? escapeHtml(a.correo) : '<span class="asis-vacio">—</span>'}</td>
@@ -331,6 +344,9 @@ async function renderDetalle(main, eventoId) {
       </div>
       <div class="asis-pie">${visibles.length === asistentes.length ? `${asistentes.length} persona${asistentes.length === 1 ? '' : 's'}` : `${visibles.length} de ${asistentes.length} personas`}</div>`;
     caja.querySelectorAll('.asis-quitar').forEach(boton => boton.addEventListener('click', () => quitarPersona(boton.dataset.clave)));
+    // Quien escaneó el QR mientras la pantalla estaba abierta se ve llegar.
+    if (clavesVistas) caja.querySelectorAll('tr[data-clave]').forEach(fila => { if (!clavesVistas.has(fila.dataset.clave)) resaltar(fila); });
+    clavesVistas = new Set(asistentes.map(x => x.clave));
   }
 
   function pintarDatos(forzar = false) {
