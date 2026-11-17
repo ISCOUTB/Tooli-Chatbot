@@ -45,6 +45,8 @@ export interface BroadcastJob {
   parametros?: string[][];
   /** Contexto para el flujo del bot, alineado con `destinatarios` (null = sin contexto). */
   contextos?: (Record<string, string> | null)[];
+  /** A quiénes iba el envío, en palabras del asesor ("Asistentes: Feria de posgrados"). */
+  etiqueta?: string;
 }
 
 function parseJob(raw: string): BroadcastJob {
@@ -62,7 +64,7 @@ const ERROR_BAJA = 'Pidió no recibir campañas (baja); no se envió';
 
 export async function enqueueBroadcast(
   templateName: unknown, language: unknown, recipients: unknown, createdBy: string,
-  store: BroadcastStore = redis,
+  store: BroadcastStore = redis, etiqueta: unknown = '',
 ): Promise<BroadcastJob> {
   const name = validarTemplateName(templateName);
   const lang = validarLanguage(language);
@@ -113,6 +115,7 @@ export async function enqueueBroadcast(
     enviados: [], fallidos, nextIndex: 0,
     ...(variables > 0 ? { parametros: datos.map(d => d.parametros.slice(0, variables)) } : {}),
     ...(datos.some(d => d.contexto) ? { contextos: datos.map(d => d.contexto) } : {}),
+    ...(limpiarEtiqueta(etiqueta) ? { etiqueta: limpiarEtiqueta(etiqueta) } : {}),
   };
   const id = await store.eval(
     `local existing = redis.call('GET', KEYS[1])
@@ -134,6 +137,54 @@ export async function enqueueBroadcast(
     return existing;
   }
   return job;
+}
+
+/** La etiqueta se muestra en el historial: texto corto, sin saltos de línea. */
+export function limpiarEtiqueta(raw: unknown): string {
+  return typeof raw === 'string' ? raw.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 80) : '';
+}
+
+export interface ResumenBroadcast {
+  id: string;
+  templateName: string;
+  language: string;
+  createdBy: string;
+  createdAt: number;
+  estado: BroadcastJob['estado'];
+  solicitados: number;
+  enviados: number;
+  fallidos: number;
+  etiqueta: string;
+}
+
+/** Sin los teléfonos: el historial solo necesita qué se envió, cuándo y cómo le fue. */
+export function resumirBroadcast(job: BroadcastJob): ResumenBroadcast {
+  return {
+    id: job.id, templateName: job.templateName, language: job.language,
+    createdBy: job.createdBy, createdAt: job.createdAt, estado: job.estado,
+    solicitados: job.solicitados, enviados: job.enviados.length, fallidos: job.fallidos.length,
+    etiqueta: job.etiqueta ?? '',
+  };
+}
+
+/**
+ * Envíos recientes, del más nuevo al más viejo. Los trabajos caducan solos a
+ * los 7 días de terminar, así que recorrerlos con SCAN es una lista corta.
+ */
+export async function listBroadcastJobs(limit = 30): Promise<ResumenBroadcast[]> {
+  const resumenes: ResumenBroadcast[] = [];
+  let cursor = '0';
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', 'broadcast:job:*', 'COUNT', 100);
+    cursor = next;
+    if (!keys.length) continue;
+    const raws = await redis.mget(keys);
+    for (const raw of raws) {
+      if (!raw) continue;
+      try { resumenes.push(resumirBroadcast(parseJob(raw))); } catch { /* Un trabajo corrupto no tumba la lista. */ }
+    }
+  } while (cursor !== '0');
+  return resumenes.sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.max(1, Math.min(limit, 100)));
 }
 
 export async function getBroadcastJob(id: string, store: BroadcastStore = redis): Promise<BroadcastJob | null> {

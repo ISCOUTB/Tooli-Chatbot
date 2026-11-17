@@ -30,7 +30,7 @@ broadcastRouter.get('/broadcast/templates', async (_req, res) => {
 broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest, res: Response) => {
   // Dos formas: `telefonos` (prospectos seleccionados, plantilla sin variables)
   // o `destinatarios` + `relacion` (campaña por pregrado: {{1}} nombre, {{2}} pregrado).
-  const { templateName, language, telefonos, destinatarios, relacion } = req.body ?? {};
+  const { templateName, language, telefonos, destinatarios, relacion, etiqueta } = req.body ?? {};
   const lista: unknown[] | null = Array.isArray(destinatarios) ? destinatarios : Array.isArray(telefonos) ? telefonos : null;
   if (!templateName || !language || !lista) {
     res.status(400).json({
@@ -56,7 +56,7 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
       ? prepararDestinatariosCampana(destinatarios, relacion)
       : lista.map(v => String(v ?? '').trim());
     const { enqueueBroadcast } = await import('../../services/broadcastJobService');
-    const job = await enqueueBroadcast(templateName, language, recipients, req.user!.username);
+    const job = await enqueueBroadcast(templateName, language, recipients, req.user!.username, undefined, etiqueta);
     res.status(job.estado === 'completado' ? 200 : 202).json({ ok: true, job });
   } catch (err: unknown) {
     const { CampanaInvalidaError } = await import('../../flows/campanaReco');
@@ -75,6 +75,17 @@ broadcastRouter.post('/broadcast/send', requireAdmin, async (req: AuthedRequest,
       return;
     }
     res.status(502).json({ error: 'send_failed', message: 'No se pudo preparar el envío' });
+  }
+});
+
+/** Historial de la pantalla Plantillas. Los teléfonos se consultan por envío, no aquí. */
+broadcastRouter.get('/broadcast/jobs', requireAdmin, async (_req: AuthedRequest, res: Response) => {
+  try {
+    const { listBroadcastJobs } = await import('../../services/broadcastJobService');
+    res.json({ jobs: await listBroadcastJobs() });
+  } catch (err) {
+    console.error('[tools/broadcast/jobs] error:', describeError(err));
+    res.status(503).json({ error: 'queue_unavailable', message: 'No se pudo consultar el historial de envíos' });
   }
 });
 
