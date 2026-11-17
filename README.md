@@ -109,6 +109,19 @@ Existe además un **flujo de captación para eventos**, que se activa por config
 consentimiento explícito conforme a la Ley 1581 antes de recoger cualquier dato, registra al
 prospecto en Google Sheets y en el CRM, y cierra con la información de financiación vigente.
 
+### 3 · Asistencia a eventos
+
+Un asesor crea el evento en el panel, elige su sector (posgrado, pregrado u otro) y obtiene un
+**QR**. Quien lo escanea abre WhatsApp con el mensaje `Registrar mi asistencia: CÓDIGO`; el bot pide
+la autorización de datos y, apenas la persona acepta, la deja en la lista del evento con su número.
+Después le pregunta el nombre y el correo. El registro lleva su propia sesión, así que no interrumpe
+lo que la persona estuviera haciendo con el bot.
+
+La lista también se puede **importar desde Excel (.xlsx) o CSV** —por ejemplo el reporte de otro
+sistema de asistencia—, anotar a mano y exportar. Quien llega por dos caminos queda en una sola
+fila. A los asistentes que autorizaron el contacto se les puede enviar una plantilla aprobada por
+Meta desde la pantalla **Plantillas**.
+
 ---
 
 ## Arquitectura
@@ -222,6 +235,7 @@ src/
 │   ├── prospecto.ts          Captura de prospecto → Chatwoot
 │   ├── aiChat.ts             Asistente de IA
 │   ├── agent*.ts             Handoff y conversación con asesor humano
+│   ├── asistencia*.ts        Registro de asistencia a eventos por QR
 │   └── posgrados-evento/     Captación para eventos (activable)
 ├── routes/                 Webhooks (WhatsApp, Chatwoot) y API REST
 │   ├── toolsRoutes.ts        Monta la API del panel; marca qué es público
@@ -242,6 +256,11 @@ Interfaz web privada en `/app`, con autenticación JWT y roles. Permite descarga
 en nombre de un estudiante, ver métricas de uso del bot, administrar las sesiones de los usuarios y
 gestionar las cuentas de los asesores. Incluye inicio de sesión unificado hacia Chatwoot.
 
+Dos pantallas cubren los eventos y el contacto posterior: **Asistencia** (eventos con QR, lista en
+vivo, importación de Excel/CSV y exportación) y **Plantillas** (las plantillas aprobadas por Meta
+con su vista previa, el envío a los asistentes de un evento o a una lista de números y el historial
+de envíos). Enviar plantillas es solo para administradores.
+
 El panel es JavaScript sin framework ni paso de compilación: módulos ES nativos bajo
 `src/public/app/js/` (`core/` utilidades, `ui/` componentes, `screens/` una por pantalla),
 cargados desde `app.js`. Se editan y se recargan, no hay build que correr.
@@ -251,13 +270,14 @@ Para trabajar en él sin levantar Redis, Meta ni Google Sheets:
 ```bash
 node tools/mock-panel-server.cjs        # http://localhost:4599/app/index.html
 MOCK_ANON=1 node tools/mock-panel-server.cjs   # para ver la pantalla de login
+PORT=4601 node tools/mock-panel-server.cjs     # otro puerto, si el 4599 está ocupado
 ```
 
 Sirve datos de ejemplo con la misma forma que la API real y aplica las mismas cabeceras de
 seguridad, para que lo que se ve en local sea lo que se ve en producción.
-Con el mock en marcha, `node tools/qa-panel-all.cjs` revisa las doce pantallas
-a 375, 800 y 1280 px (errores JavaScript, alertas y desbordes) y guarda capturas
-en `tmp/`.
+Con el mock en marcha, `node tools/qa-panel-all.cjs` revisa todas las pantallas
+a 320, 375, 800 y 1280 px (errores JavaScript, alertas y desbordes) y guarda capturas
+en `tmp/`. `QA_BASE_URL=http://localhost:4601` lo apunta a un mock en otro puerto.
 
 ---
 
@@ -308,6 +328,7 @@ WHATSAPP_TOKEN=...
 WHATSAPP_PHONE_NUMBER_ID=...
 WHATSAPP_WABA_ID=...
 WHATSAPP_VERIFY_TOKEN=...
+WHATSAPP_PUBLIC_NUMBER=...             # opcional: número del bot para los QR de asistencia
 
 # Google Sheets
 GOOGLE_SERVICE_ACCOUNT_JSON='{...}'    # JSON de la cuenta de servicio
@@ -369,6 +390,12 @@ producción, después de pasar typecheck, build y pruebas.
 | `GET` | `/api/tools/metrics/today` | JWT | Métricas del día |
 | `GET` | `/api/tools/bot-users` | JWT | Listar usuarios activos |
 | `POST` | `/api/tools/bot-users/:phone/reset-session` | JWT | Reiniciar la sesión de un usuario |
+| `GET` `POST` | `/api/tools/asistencia/eventos` | JWT | Listar y crear eventos de asistencia |
+| `GET` | `/api/tools/asistencia/eventos/:id/qr` | JWT | QR y enlace de WhatsApp del evento |
+| `POST` | `/api/tools/asistencia/eventos/:id/importar` | JWT | Importar asistentes desde .xlsx o .csv |
+| `GET` | `/api/tools/broadcast/templates` | JWT | Plantillas aprobadas por Meta |
+| `POST` | `/api/tools/broadcast/send` | JWT (admin) | Enviar una plantilla a una lista |
+| `GET` | `/api/tools/broadcast/jobs` | JWT (admin) | Historial de envíos de plantillas |
 | `GET` | `/health` | — | Estado del servicio |
 | `GET` | `/metrics` | — | Métricas en formato Prometheus |
 

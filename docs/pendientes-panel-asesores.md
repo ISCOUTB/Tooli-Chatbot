@@ -186,3 +186,56 @@ de cada uno).
 **Ojo con la honestidad aquí:** lo que un asesor escribe en una nota es una nota,
 no un dato del sistema académico. No usar estos campos para "rellenar" semestre o
 carrera del punto 1.
+
+---
+
+## Actualización — 17 de noviembre de 2026
+
+### 12. Asistencia a eventos con QR — ✅ implementado (pendiente ensayo en un evento real)
+
+Se evaluó conectar el panel con el Sistema de Asistencia de la universidad
+(`asistencia.utb.edu.co`). Ese sistema entra con cuenta Microsoft y no ofrece
+una credencial de servicio para leer las listas de un evento, así que por ahora
+Tooli lleva **su propia asistencia** (`src/services/asistenciaService.ts`,
+pantalla **Asistencia**):
+
+- Un asesor crea el evento con su sector (posgrado, pregrado u otro) y obtiene
+  un QR. El QR abre WhatsApp con `Registrar mi asistencia: CÓDIGO`.
+- El bot (`src/flows/asistenciaFlow.ts`) pide la autorización de datos (Ley
+  1581). Al aceptar, la persona queda en la lista con su WhatsApp; después se
+  le piden el nombre y el correo, que puede omitir. Quien no autoriza no queda
+  registrado.
+- La lista se puede importar desde Excel (.xlsx) o CSV, que es el camino para
+  traer el reporte del Sistema de Asistencia mientras no haya integración
+  directa. El lector (`src/services/asistenciaImport.ts`) reconoce las columnas
+  por su encabezado y deja corregir el mapeo antes de guardar.
+- Una persona es una sola fila aunque llegue por el QR y por el archivo: se
+  juntan por celular, correo o identificación.
+
+**Honestidad sobre las pruebas:** la conversación del QR, el lector de archivos
+y el servicio pasan sus pruebas con un almacén en memoria, y las pantallas se
+revisaron con el servidor mock. **Falta el ensayo real**: escanear el QR con
+varios celulares contra el número de producción y comprobar la lista en vivo.
+
+**Lo que sigue sin existir:** la lectura directa del Sistema de Asistencia.
+Cuando la universidad entregue una credencial de servicio para su API, basta
+con un conector que llame a `importarAsistentes()`; el resto no cambia.
+
+### 13. Pantalla de Plantillas — ✅ implementada
+
+El envío de plantillas vivía dentro del CRM. Ahora hay una pantalla propia
+(**Plantillas**) que muestra las plantillas aprobadas con su vista previa,
+permite enviarlas a los asistentes de un evento o a una lista de números y
+lleva el historial de envíos de los últimos siete días con el detalle de a
+quién no le llegó. Usa la misma cola durable del punto 6.
+
+Reglas que conviene conocer:
+- A los asistentes de un evento solo se les envía si **autorizaron el contacto**
+  y tienen un número. Los importados sin esa autorización quedan en la lista,
+  pero fuera de los envíos.
+- Las plantillas con variables `{{1}}` o con imagen en el encabezado se ven,
+  pero no se envían desde aquí: las de variables siguen saliendo por *CRM →
+  Campaña por pregrado*.
+- Enviar sigue siendo solo para administradores.
+- Las plantillas se crean y se aprueban en el administrador de WhatsApp de
+  Meta: <https://business.facebook.com/wa/manage/message-templates/>.
