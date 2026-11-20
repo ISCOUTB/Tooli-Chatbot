@@ -12,16 +12,22 @@ import { setSession } from '../services/session';
 import { preguntarAI, AIUnavailableError, ChatTurn } from '../services/aiAssistant';
 import { track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
+import { darDeBaja, quitarBaja } from '../services/campanaService';
+import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
+import { guardarRegistroProspecto } from '../services/registroService';
+import { describeExternalError } from '../services/logSafe';
+import { CONFIRMACION_BAJA } from './campanaReco';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado';
-import { parseRelacion, resumenRecomendacion } from './recomendacionView';
+import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
   BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, IA_NO_DISPONIBLE, NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE,
-  PREGUNTAS, Pendiente, SALUDO_CORTO, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
-  TURNOS_ANTES_DE_ASESOR, detectarPerfil, esPedidoAsesor, esSaludo, interpretarRespuestaEscrita, nivelDeBoton,
-  pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta, textoPregrado,
+  INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente, SALUDO_CORTO, SEGUIR_PREGUNTANDO, SIN_PREGRADO,
+  SUGERIR_ASESOR, TECNICO, TITULO, TURNOS_ANTES_DE_ASESOR, detectarPerfil, esBaja, esPedidoAsesor, esSaludo,
+  infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado,
+  siguientePregunta, textoPregrado,
 } from './conversacionView';
 
 // ── Envíos ──────────────────────────────────────────────────────────────────
@@ -32,6 +38,10 @@ async function preguntar(from: string, data: SessionData, pendiente: Pendiente):
   const pregunta = PREGUNTAS[pendiente];
   if (pendiente === 'pregrado') {
     await messaging.sendText({ to: from, text: textoPregrado(data.relacion) });
+    return;
+  }
+  if (!pregunta.botones) {
+    await messaging.sendText({ to: from, text: pregunta.texto });
     return;
   }
   await messaging.sendButtons({
@@ -97,9 +107,61 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
       await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
       await messaging.sendText({ to: from, text: SEGUIR_PREGUNTANDO });
       return;
+    case 'conv_info_si':
+      // El nombre ya conocido (por ejemplo, de un registro anterior) no se vuelve a pedir.
+      if (data.nombre) return registrarSuscripcion(from, { ...data, info: 'si' }, data.nombre);
+      return preguntar(from, { ...data, info: 'si' }, 'nombre_info');
+    case 'conv_info_no':
+      await track('info_rechaza');
+      try {
+        await darDeBaja(from);
+      } catch (err) {
+        console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
+      }
+      await messaging.sendText({ to: from, text: INFO_RECHAZADA });
+      return continuar(from, { ...data, info: 'no' });
     default:
       return undefined;
   }
+}
+
+// ── Autorización para recibir información ───────────────────────────────────
+
+const AUTOR_BOT = 'Tooli (bot)';
+
+/**
+ * Quien acepta recibir información entra al CRM del panel: una fila en la hoja
+ * de registros (sin correo todavía) y, en su ficha, la etiqueta y una nota con
+ * la autorización. Si después pide un asesor, esa misma fila se completa.
+ */
+async function registrarSuscripcion(from: string, data: SessionData, nombre: string): Promise<void> {
+  await track('info_acepta');
+  let filaCrm = data.filaCrm ?? '';
+  try {
+    await quitarBaja(from);
+  } catch (err) {
+    console.error('[conversacion] no se pudo quitar la baja:', describeExternalError(err));
+  }
+  if (!filaCrm) {
+    try {
+      const fila = await guardarRegistroProspecto({
+        nombre, email: '', whatsapp: from, programa: programaInteresLead(data), area: 'Posgrado',
+      });
+      filaCrm = fila ? String(fila) : '';
+    } catch (err) {
+      console.error('[conversacion] no se pudo guardar en el CRM:', describeExternalError(err));
+    }
+  }
+  try {
+    const resumen = resumenRecomendacion(data);
+    await agregarNota(from, `📬 Autorizó recibir información de posgrados por WhatsApp (Ley 1581 de 2012).${resumen ? `\n🧭 ${resumen}` : ''}`, AUTOR_BOT);
+    const ficha = await getFicha(from);
+    await setEtiquetas(from, [...new Set([...ficha.etiquetas, 'acepta-informacion', 'bot-conversacion'])], AUTOR_BOT);
+  } catch (err) {
+    console.error('[conversacion] no se pudo anotar en la ficha:', describeExternalError(err));
+  }
+  await messaging.sendText({ to: from, text: infoAceptada(nombre) });
+  return continuar(from, { ...data, info: 'si', nombre, filaCrm, pendiente: '' });
 }
 
 // ── Carrera escrita ─────────────────────────────────────────────────────────
@@ -227,6 +289,17 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const comando = parseGlobalCommand(text);
   if (comando === 'menu' || comando === 'salir') return reiniciar(from);
   if (esPedidoAsesor(text)) return pedirConsentimiento(from, { ...data, pendiente: '' });
+  if (esBaja(text)) {
+    await track('info_baja');
+    try {
+      await darDeBaja(from);
+    } catch (err) {
+      console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
+    }
+    await setSession(from, { step: 'menu', data: { ...data, info: 'no', pendiente: '' } });
+    await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
+    return;
+  }
 
   // Las salidas del menú anterior ("Busco pregrado", "Otras gestiones") siguen sirviendo.
   const salida = parseRelacion(text);
@@ -248,6 +321,15 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const escrita = interpretarRespuestaEscrita(pendiente, text);
   if (escrita && 'boton' in escrita) return atenderBoton(from, data, escrita.boton);
   if (escrita && 'nivel' in escrita) return continuar(from, { ...data, nivel: escrita.nivel, nivelListo: '1' });
+
+  if (pendiente === 'nombre_info' && !pareceUnaPregunta(text)) {
+    const nombre = limpiarNombre(text);
+    if (!nombre) {
+      await messaging.sendText({ to: from, text: PEDIR_NOMBRE_VALIDO });
+      return;
+    }
+    return registrarSuscripcion(from, data, nombre);
+  }
 
   if (pendiente === 'pregrado' && !pareceUnaPregunta(text)) {
     const n = text.trim().toLowerCase();

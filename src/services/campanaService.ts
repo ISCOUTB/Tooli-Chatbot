@@ -30,6 +30,11 @@ export async function darDeBaja(telefono: string): Promise<void> {
   await redis.multi().sadd(BAJAS, telefono).del(CONTEXTO(telefono)).exec();
 }
 
+/** Quien vuelve a aceptar recibir información sale de la lista de bajas. */
+export async function quitarBaja(telefono: string): Promise<void> {
+  await redis.srem(BAJAS, telefono);
+}
+
 export async function guardarContextoCampana(telefono: string, contexto: ContextoCampana): Promise<void> {
   await redis.setex(CONTEXTO(telefono), TTL_CONTEXTO_SEGUNDOS, JSON.stringify(contexto));
 }

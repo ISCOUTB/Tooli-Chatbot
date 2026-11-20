@@ -21,7 +21,14 @@ export interface RegistroProspecto {
  * IMPORTANTE: compartir el sheet con el service account con permisos de Editor:
  *   tooli-sheets-reader@crucial-minutia-489517-c8.iam.gserviceaccount.com
  */
-export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<void> {
+/** 'Registros!A12:F12' → 12: la fila que Sheets dice haber escrito. */
+export function filaDeRango(rango: string | null | undefined): number | null {
+  const m = /![A-Z]+(\d+)(?::|$)/.exec(rango ?? '');
+  return m ? Number(m[1]) : null;
+}
+
+/** Agrega el prospecto y devuelve la fila escrita, para completarla después sin duplicarla. */
+export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<number | null> {
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) {
     console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — prospecto no persistido', {
@@ -67,6 +74,29 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
   }
 
   console.log('[registro] prospecto guardado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email), data.area ?? 'Posgrado');
+  return filaDeRango(response.data.updates?.updatedRange);
+}
+
+/**
+ * Completa una fila que ya existe (nombre, correo y programa). La usa quien
+ * aceptó recibir información y después pidió un asesor: así queda una sola
+ * fila por persona en el CRM.
+ */
+export async function actualizarRegistroProspecto(fila: number, data: RegistroProspecto): Promise<void> {
+  const sheetId = config.google.registroPosgradoSheetId;
+  if (!sheetId || !Number.isInteger(fila) || fila < 2) throw new Error('fila de registro inválida');
+  const auth = new google.auth.GoogleAuth({
+    credentials: config.google.serviceAccount,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `Registros!B${fila}:F${fila}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[data.nombre, data.email, contactIdLabel(data.whatsapp), data.programa ?? '', data.area ?? 'Posgrado']] },
+  });
+  console.log('[registro] prospecto completado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email));
 }
 
 /**

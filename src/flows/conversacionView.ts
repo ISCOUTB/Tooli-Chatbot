@@ -13,7 +13,7 @@ export interface BotonConversacion {
 }
 
 /** Lo que el bot espera que responda la persona después de su última pregunta. */
-export type Pendiente = 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'ofrecer';
+export type Pendiente = 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer';
 
 export const SALUDO_CONVERSACION =
   '¡Hola! 👋 Soy *Tooli*, el asistente de Posgrados de la Universidad Tecnológica de Bolívar 🎓\n\n' +
@@ -72,6 +72,22 @@ export const PREGUNTAS: Record<Pendiente, Pregunta> = {
     ],
     pie: '¿No sabes aún? Escribe "no sé" y te muestro todo',
   },
+  info: {
+    pendiente: 'info',
+    texto:
+      '📬 ¿Te gustaría recibir por WhatsApp información de posgrados de la UTB, como fechas de inscripción, ' +
+      'becas y eventos?\n\nAl aceptar autorizas el tratamiento de tu nombre y número para ese fin (*Ley 1581 de 2012*). ' +
+      'Puedes darte de baja cuando quieras escribiendo *BAJA*.',
+    botones: [
+      { id: 'conv_info_si', displayText: '✅ Sí, envíenme' },
+      { id: 'conv_info_no', displayText: '❌ No, gracias' },
+    ],
+    pie: 'Tus datos se usan solo para fines de admisión',
+  },
+  nombre_info: {
+    pendiente: 'nombre_info',
+    texto: '¡Genial! 🙌 ¿Cómo te llamas? Así quedas registrado(a) 📝',
+  },
   ofrecer: {
     pendiente: 'ofrecer',
     texto: '¿Quieres que te recomiende los posgrados que mejor encajan con lo que estudiaste?',
@@ -112,6 +128,28 @@ export const TECNICO =
 
 export const SEGUIR_PREGUNTANDO = '¡Claro! Pregúntame lo que quieras 👇';
 
+export const INFO_RECHAZADA = 'Entendido, no te enviaremos información 👍';
+
+export function infoAceptada(nombre: string): string {
+  const primero = nombre.trim().split(/\s+/)[0] ?? '';
+  return `¡Listo, ${primero}! Te escribiremos cuando haya novedades de posgrados 📬\n\n_Si cambias de opinión, escribe *BAJA*._`;
+}
+
+export const PEDIR_NOMBRE_VALIDO = 'Escríbeme tu nombre, por favor (al menos 3 letras) ✍️';
+
+/** Nombre escrito a mano: espacios normalizados, sin emojis ni números sueltos. */
+export function limpiarNombre(texto: string): string | null {
+  const limpio = (texto ?? '').replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return limpio.replace(/[^\p{L}]/gu, '').length >= 3 ? limpio : null;
+}
+
+/** "BAJA", "no quiero recibir más mensajes": revoca la autorización (Ley 1581). */
+export function esBaja(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return n === 'baja' || n === 'darme de baja' || /^no (quiero|deseo) recibir (mas )?(informacion|mensajes)/.test(n)
+    || /^no me (envien|manden) mas/.test(n);
+}
+
 /**
  * "No he estudiado", "soy bachiller" → 'ninguno'; "soy tecnólogo" → 'tecnico'.
  * Sirve para no insistir con la carrera a quien todavía no tiene pregrado.
@@ -144,7 +182,8 @@ export const TURNOS_ANTES_DE_ASESOR = 12;
 
 export type BotonId =
   | 'conv_tengo' | 'conv_elegir' | 'conv_utb_si' | 'conv_utb_no' | 'conv_egresado' | 'conv_estudiante'
-  | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor' | 'conv_pregrados' | 'conv_seguir';
+  | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor' | 'conv_pregrados' | 'conv_seguir'
+  | 'conv_info_si' | 'conv_info_no';
 
 const IDS: ReadonlySet<string> = new Set([
   ...Object.values(PREGUNTAS).flatMap((p) => (p.botones ?? []).map((b) => b.id)),
@@ -208,6 +247,10 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
     case 'nivel':
       if (/no se|aun no|todavia no|cualquier|todos|todas|no estoy segur/.test(n)) return { nivel: '' };
       return null;
+    case 'info':
+      if (si) return { boton: 'conv_info_si' };
+      if (no) return { boton: 'conv_info_no' };
+      return null;
     case 'ofrecer':
       if (si || /recomiend/.test(n)) return { boton: 'conv_reco' };
       return null;
@@ -248,6 +291,9 @@ export function siguientePregunta(data: Record<string, string>): Pendiente | nul
   if (!data.relacion) return 'estudia_utb';
   if (!data.pregradoId && !data.familiaId) return 'pregrado';
   if (data.nivelListo !== '1') return 'nivel';
+  // Con el perfil completo: si quiere recibir información, y su nombre si aceptó.
+  if (!data.info) return 'info';
+  if (data.info === 'si' && !data.nombre) return 'nombre_info';
   return null;
 }
 

@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREGUNTAS, detectarPerfil, esPedidoAsesor, esSaludo, interpretarRespuestaEscrita,
-  nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta, textoPregrado,
+  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREGUNTAS, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada,
+  interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta,
+  textoPregrado,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -100,12 +101,41 @@ describe('conversación: qué preguntar', () => {
     assert.equal(siguientePregunta({}), 'estudia_utb');
     assert.equal(siguientePregunta({ relacion: 'externo' }), 'pregrado');
     assert.equal(siguientePregunta({ relacion: 'externo', familiaId: 'salud' }), 'nivel');
-    assert.equal(siguientePregunta({ relacion: 'egresado_utb', pregradoId: 'x', nivelListo: '1', nivel: '' }), null);
+    const perfil = { relacion: 'egresado_utb', pregradoId: 'x', nivelListo: '1', nivel: '' };
+    assert.equal(siguientePregunta(perfil), 'info', 'con el perfil completo pregunta si quiere recibir información');
+    assert.equal(siguientePregunta({ ...perfil, info: 'si' }), 'nombre_info');
+    assert.equal(siguientePregunta({ ...perfil, info: 'si', nombre: 'Ana' }), null);
+    assert.equal(siguientePregunta({ ...perfil, info: 'no' }), null);
   });
 
   it('la pregunta de la carrera depende de la relación con la UTB', () => {
     assert.match(textoPregrado('egresado_utb'), /estudiaste en la UTB/);
     assert.match(textoPregrado('estudiante_utb'), /estudias en la UTB/);
     assert.doesNotMatch(textoPregrado('externo'), /UTB/);
+  });
+});
+
+describe('conversación: autorización para recibir información', () => {
+  it('la pregunta explica la finalidad, la ley y cómo darse de baja', () => {
+    assert.match(PREGUNTAS.info.texto, /Ley 1581 de 2012/);
+    assert.match(PREGUNTAS.info.texto, /BAJA/);
+    assert.deepEqual(PREGUNTAS.info.botones?.map((b) => b.id), ['conv_info_si', 'conv_info_no']);
+  });
+
+  it('acepta el sí o el no escritos', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('info', 'sí'), { boton: 'conv_info_si' });
+    assert.deepEqual(interpretarRespuestaEscrita('info', 'no gracias'), { boton: 'conv_info_no' });
+  });
+
+  it('reconoce la baja escrita en cualquier momento', () => {
+    for (const t of ['BAJA', 'darme de baja', 'No quiero recibir más mensajes', 'no me envíen más']) assert.equal(esBaja(t), true, t);
+    for (const t of ['¿hay becas?', 'bajar el precio']) assert.equal(esBaja(t), false, t);
+  });
+
+  it('limpia el nombre y rechaza lo que no es un nombre', () => {
+    assert.equal(limpiarNombre('  ana   maría 😊 '), 'ana maría');
+    assert.equal(limpiarNombre('Sí'), null);
+    assert.equal(limpiarNombre('12345'), null);
+    assert.match(infoAceptada('Ana María Pérez'), /^¡Listo, Ana!/);
   });
 });

@@ -13,7 +13,7 @@ import { ContextoCampana, borrarContextoCampana, darDeBaja, leerContextoCampana 
 import { CONFIRMACION_BAJA, RELACIONES_CAMPANA, parseRespuestaCampana, perfilDeContexto, saludoCampana } from './campanaReco';
 import { MetricEvent, track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
-import { guardarRegistroProspecto } from '../services/registroService';
+import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../services/registroService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
 import { describeExternalError } from '../services/logSafe';
@@ -616,6 +616,12 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
 
   const respuesta = parseSiNo(text);
   if (respuesta === 'si') {
+    // Si ya dio su nombre al aceptar recibir información, solo falta el correo.
+    if (data.nombre) {
+      await setSession(from, { step: 'reco_correo', data: { ...data, consentimiento: 'Sí' } });
+      await messaging.sendText({ to: from, text: pedirCorreo(data.nombre) });
+      return;
+    }
     await setSession(from, { step: 'reco_nombre', data: { ...data, consentimiento: 'Sí' } });
     await messaging.sendText({ to: from, text: PEDIR_NOMBRE });
     return;
@@ -703,7 +709,11 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
 
   try {
     // Solo el programa (o el nivel buscado): el CRM clasifica la fila con este texto.
-    await guardarRegistroProspecto({ nombre, email: correo, whatsapp: from, programa: interes, area: 'Posgrado' });
+    // Quien ya estaba en el CRM por aceptar recibir información completa su misma fila.
+    const registro = { nombre, email: correo, whatsapp: from, programa: interes, area: 'Posgrado' as const };
+    const fila = Number(data.filaCrm);
+    if (fila) await actualizarRegistroProspecto(fila, registro);
+    else await guardarRegistroProspecto(registro);
   } catch (err) {
     console.error('[reco] no se pudo guardar el lead en Sheets:', describeExternalError(err));
   }

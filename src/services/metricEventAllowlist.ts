@@ -7,7 +7,7 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'recibo_login_failed', 'recibo_no_pendientes', 'recibo_error', 'ai_request',
   'ai_resolved', 'ai_failed', 'ai_escalated_to_agent', 'ai_disabled_escalation',
   'ai_used_tool', 'ai_identity_verification_started', 'agent_handoff',
-  'agent_outside_hours', 'rate_limited', 'audio_transcrito', 'audio_fallido', 'duplicate_message',
+  'agent_outside_hours', 'rate_limited', 'audio_transcrito', 'audio_fallido', 'info_acepta', 'info_rechaza', 'info_baja', 'duplicate_message',
   'prospecto_iniciado', 'prospecto_completado', 'programas_especializaciones',
   'programas_maestrias', 'programas_doctorados', 'programas_ayuda_areas',
   'programas_ayuda_area', 'registro_iniciado', 'registro_completado',

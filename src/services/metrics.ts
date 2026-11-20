@@ -25,6 +25,9 @@ export type MetricEvent =
   | 'agent_outside_hours'
   | 'rate_limited'
   | 'audio_transcrito'
+  | 'info_acepta'
+  | 'info_rechaza'
+  | 'info_baja'
   | 'audio_fallido'
   | 'duplicate_message'
   // Posgrados
