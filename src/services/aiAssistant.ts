@@ -235,6 +235,8 @@ export async function preguntarAI(
   question: string,
   history: ChatTurn[] = [],
   guidanceContext?: string,
+  /** Instrucción adicional de formato (por ejemplo, proponer preguntas de seguimiento). */
+  instruccionExtra?: string,
 ): Promise<AIResponse> {
   if (!openai) {
     throw new AIUnavailableError('not_configured');
@@ -258,6 +260,7 @@ export async function preguntarAI(
       ? [{ role: 'system' as const, content: `Contexto de navegación anterior del usuario: ${guidanceContext} Usa este contexto solo si ayuda a responder; no supongas que ya eligió un programa.` }]
       : []),
     ...trimmedHistory.map(t => ({ role: t.role, content: t.content })),
+    ...(instruccionExtra ? [{ role: 'system' as const, content: instruccionExtra }] : []),
     { role: 'user', content: question },
   ];
 

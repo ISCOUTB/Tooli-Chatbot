@@ -29,6 +29,8 @@ export type MetricEvent =
   | 'info_rechaza'
   | 'info_baja'
   | 'audio_fallido'
+  | 'conv_regreso'
+  | 'conv_sugerencia'
   | 'duplicate_message'
   // Posgrados
   | 'prospecto_iniciado'

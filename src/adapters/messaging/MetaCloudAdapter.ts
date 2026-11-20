@@ -11,6 +11,7 @@ import {
 import { config } from '../../config';
 import { recordActivity } from '../../services/botUserService';
 import { metaRecipient } from '../../services/whatsappId';
+import { GRAPH_URL_LEIDO, cuerpoLeido } from './metaLeido';
 
 const GRAPH_URL = 'https://graph.facebook.com/v20.0';
 
@@ -44,6 +45,15 @@ export class MetaCloudAdapter implements IMessagingAdapter {
    */
   async resolveSenderId(jid: string): Promise<string> {
     return jid;
+  }
+
+  /** El indicador se quita solo al responder o a los 25 segundos. */
+  async marcarLeido(messageId: string, escribiendo: boolean): Promise<void> {
+    await axios.post(
+      `${GRAPH_URL_LEIDO}/${this.phoneNumberId}/messages`,
+      cuerpoLeido(messageId, escribiendo),
+      { headers: this.headers, timeout: 5_000 },
+    );
   }
 
   async sendText(msg: OutboundMessage): Promise<void> {

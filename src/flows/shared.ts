@@ -103,10 +103,10 @@ export async function volverAlMenuDeOrigen(to: string, data: SessionData | undef
  * posgrados según el pregrado (`recomendacion.ts`). Pregunta la relación con
  * la UTB y desde ahí también saca a quien quiere un pregrado o busca otras
  * gestiones. Todo lo que vuelve "al inicio" llega aquí. */
-export async function sendMenu(to: string): Promise<void> {
+export async function sendMenu(to: string, base: SessionData = {}): Promise<void> {
   if (config.conversacion.activa) {
     // Inicio conversacional: saludo abierto y la primera pregunta con botones.
-    await setSession(to, { step: 'menu', data: { pendiente: 'tiene_programa' } });
+    await setSession(to, { step: 'menu', data: { ...base, pendiente: 'tiene_programa', saltada: '' } });
     await messaging.sendText({ to, text: SALUDO_CONVERSACION });
     await messaging.sendButtons({
       to,

@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREGUNTAS, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada,
-  interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta,
-  textoPregrado,
+  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
+  cabeConBotones, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
+  limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
+  separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -137,5 +138,89 @@ describe('conversación: autorización para recibir información', () => {
     assert.equal(limpiarNombre('Sí'), null);
     assert.equal(limpiarNombre('12345'), null);
     assert.match(infoAceptada('Ana María Pérez'), /^¡Listo, Ana!/);
+  });
+});
+
+describe('conversación: preguntas sugeridas', () => {
+  it('separa la línea de sugerencias de la respuesta', () => {
+    const r = separarSugerencias('La maestría dura 2 años.\n\nSUGERENCIAS: ¿Hay becas? | ¿Cuándo inicia?');
+    assert.equal(r.texto, 'La maestría dura 2 años.');
+    assert.deepEqual(r.sugerencias, ['¿Hay becas?', '¿Cuándo inicia?']);
+  });
+
+  it('acepta la etiqueta en negrita o minúsculas y quita comillas', () => {
+    const r = separarSugerencias('Texto\n**Sugerencias:** "¿Es virtual?" | ¿Cuánto cuesta?');
+    assert.equal(r.texto, 'Texto');
+    assert.deepEqual(r.sugerencias, ['¿Es virtual?', '¿Cuánto cuesta?']);
+  });
+
+  it('descarta las que no caben en un botón y deja a lo sumo dos', () => {
+    const r = separarSugerencias('X\nSUGERENCIAS: ¿Cuáles son los requisitos de admisión? | ¿Hay becas? | ¿Hay becas? | ¿Es presencial? | ¿Y en inglés?');
+    assert.deepEqual(r.sugerencias, ['¿Hay becas?', '¿Es presencial?']);
+  });
+
+  it('sin línea de sugerencias, la respuesta queda igual', () => {
+    const r = separarSugerencias('Solo la respuesta.');
+    assert.equal(r.texto, 'Solo la respuesta.');
+    assert.deepEqual(r.sugerencias, []);
+  });
+
+  it('los botones: dos sugerencias y una salida, todos válidos para WhatsApp', () => {
+    const botones = botonesSugeridos(['¿Hay becas?', '¿Es virtual?'], 'posgrados');
+    assert.equal(botones.length, 3);
+    assert.equal(botones[2].id, 'conv_asesor');
+    for (const b of botones) {
+      assert.ok([...b.displayText].length <= 20, b.displayText);
+      assert.ok(b.id.length <= 256);
+    }
+    assert.equal(parseSugerencia(botones[0].id), '¿Hay becas?');
+  });
+
+  it('si la IA no sugiere nada, quedan las de respaldo; sin pregrado, la salida son los pregrados', () => {
+    const botones = botonesSugeridos([], 'admisiones');
+    assert.deepEqual(botones.slice(0, 2).map((b) => b.displayText), [...SUGERENCIAS_RESPALDO.admisiones]);
+    assert.equal(botones[2].id, 'conv_pregrados');
+  });
+
+  it('no sugiere lo mismo que la persona acaba de preguntar', () => {
+    const botones = botonesSugeridos(['¿Hay becas?', '¿Es virtual?'], 'posgrados', 'hay becas');
+    assert.deepEqual(botones.map((b) => b.displayText), ['¿Es virtual?', '👤 Hablar con asesor']);
+    const respaldo = botonesSugeridos(['¿Hay becas?'], 'posgrados', '¿Hay becas?');
+    assert.deepEqual(respaldo.map((b) => b.displayText), ['¿Cuándo inician?', '👤 Hablar con asesor']);
+  });
+
+  it('un toque en una sugerencia se lee como pregunta; lo demás no', () => {
+    assert.equal(parseSugerencia(`${PREFIJO_SUGERENCIA}¿Cuándo inicia?`), '¿Cuándo inicia?');
+    assert.equal(parseSugerencia(PREFIJO_SUGERENCIA), null);
+    assert.equal(parseSugerencia('conv_asesor'), null);
+    assert.equal(parseBoton(`${PREFIJO_SUGERENCIA}¿Hay becas?`), null);
+  });
+
+  it('la respuesta va con sus botones si es corta y sin enlaces', () => {
+    assert.equal(cabeConBotones('La maestría dura 2 años.'), true);
+    assert.equal(cabeConBotones('Mira: https://www.utb.edu.co/posgrados'), false);
+    assert.equal(cabeConBotones('a'.repeat(1001)), false);
+  });
+});
+
+describe('conversación: quien vuelve', () => {
+  it('lo saluda por su primer nombre y le recuerda lo que buscaba', () => {
+    assert.equal(
+      saludoRegreso('Laura Gómez', 'Ingeniería Industrial', 'maestria'),
+      '¡Hola de nuevo, Laura! 👋 La última vez buscabas *maestrías* para *Ingeniería Industrial*. ¿Seguimos?',
+    );
+    assert.equal(
+      saludoRegreso(undefined, 'Economía'),
+      '¡Hola de nuevo! 👋 La última vez hablamos de posgrados para *Economía*. ¿Seguimos?',
+    );
+    assert.equal(saludoCortoRegreso(''), '¡Hola de nuevo! 👋');
+  });
+
+  it('«sí» retoma y «no» empieza de nuevo', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('regreso', 'sí'), { boton: 'conv_seguir_perfil' });
+    assert.deepEqual(interpretarRespuestaEscrita('regreso', 'mejor empezar de nuevo'), { boton: 'conv_reiniciar' });
+    assert.deepEqual(interpretarRespuestaEscrita('regreso', 'no'), { boton: 'conv_reiniciar' });
+    assert.equal(parseBoton('conv_seguir_perfil'), 'conv_seguir_perfil');
+    assert.equal(parseBoton('conv_reiniciar'), 'conv_reiniciar');
   });
 });

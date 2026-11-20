@@ -6,7 +6,9 @@
  * botones, como en NutrIA: si estudia o estudió en la UTB, qué carrera y qué
  * nivel le interesa. Con eso recomienda con el motor de siempre y, si la
  * persona quiere, la pasa a un asesor con su consentimiento. Si ignora una
- * pregunta, el bot no insiste en el siguiente turno.
+ * pregunta, el bot no insiste en el siguiente turno. Cada respuesta de la IA
+ * trae dos preguntas sugeridas para tocar, y quien vuelve (el perfil dura 90
+ * días) retoma donde quedó en vez de contestar todo de nuevo.
  */
 import { setSession } from '../services/session';
 import { preguntarAI, AIUnavailableError, ChatTurn } from '../services/aiAssistant';
@@ -15,26 +17,65 @@ import { getPrograma } from '../services/catalogoUtb';
 import { darDeBaja, quitarBaja } from '../services/campanaService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { guardarRegistroProspecto } from '../services/registroService';
+import { guardarPerfil, leerPerfil, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
 import { describeExternalError } from '../services/logSafe';
 import { CONFIRMACION_BAJA } from './campanaReco';
+import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado';
 import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, IA_NO_DISPONIBLE, NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE,
-  INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente, SALUDO_CORTO, SEGUIR_PREGUNTANDO, SIN_PREGRADO,
-  SUGERIR_ASESOR, TECNICO, TITULO, TURNOS_ANTES_DE_ASESOR, detectarPerfil, esBaja, esPedidoAsesor, esSaludo,
-  infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado,
-  siguientePregunta, textoPregrado,
+  BOTON_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
+  NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
+  SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
+  TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, detectarPerfil, esBaja, esPedidoAsesor, esSaludo,
+  infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
+  parseSugerencia, saludoCortoRegreso, saludoRegreso, separarSugerencias, sinPregrado, siguientePregunta,
+  textoPregrado,
 } from './conversacionView';
+
+// ── Sesión y perfil ─────────────────────────────────────────────────────────
+
+/** El perfil es una ayuda: si Redis falla al guardarlo, la conversación sigue. */
+async function recordarPerfil(from: string, data: SessionData): Promise<void> {
+  try {
+    await guardarPerfil(from, data);
+  } catch (err) {
+    console.error('[conversacion] no se pudo guardar el perfil:', describeExternalError(err));
+  }
+}
+
+async function perfilGuardado(from: string): Promise<SessionData | null> {
+  try {
+    const perfil = await leerPerfil(from);
+    return perfil && Object.keys(perfil).length ? perfil : null;
+  } catch (err) {
+    console.error('[conversacion] no se pudo leer el perfil:', describeExternalError(err));
+    return null;
+  }
+}
+
+/** Guarda la sesión del paso raíz (una hora) y el perfil que se recuerda (90 días). */
+async function guardarSesion(from: string, data: SessionData): Promise<void> {
+  await setSession(from, { step: 'menu', data });
+  await recordarPerfil(from, data);
+}
+
+/** La carrera de la última vez, para recordársela a quien vuelve. */
+function carreraDe(data: SessionData): string | null {
+  if (data.sinPregrado === '1') return null;
+  if (data.pregradoId) return getPrograma(data.pregradoId)?.nombre ?? null;
+  if (data.familiaId) return FAMILIAS_EXTERNAS.find((f) => f.id === data.familiaId)?.etiqueta ?? null;
+  return null;
+}
 
 // ── Envíos ──────────────────────────────────────────────────────────────────
 
 /** Hace la pregunta y la deja pendiente para entender la respuesta escrita. */
 async function preguntar(from: string, data: SessionData, pendiente: Pendiente): Promise<void> {
-  await setSession(from, { step: 'menu', data: { ...data, pendiente, saltada: '' } });
+  await guardarSesion(from, { ...data, pendiente, saltada: '' });
   const pregunta = PREGUNTAS[pendiente];
   if (pendiente === 'pregrado') {
     await messaging.sendText({ to: from, text: textoPregrado(data.relacion) });
@@ -60,13 +101,46 @@ async function preguntar(from: string, data: SessionData, pendiente: Pendiente):
 async function continuar(from: string, data: SessionData): Promise<void> {
   const falta = siguientePregunta(data);
   if (falta) return preguntar(from, data, falta);
-  if (data.modo === 'elegir') return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: '', vioMas: '' });
+  // Sin pregrado no hay posgrado que recomendar: sus opciones son otras.
+  if (data.sinPregrado === '1') return enviarSinPregrado(from, data, 'ninguno');
+  if (data.modo === 'elegir') {
+    await recordarPerfil(from, data);
+    return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: '', vioMas: '' });
+  }
   return preguntar(from, { ...data, ofrecido: '1' }, 'ofrecer');
 }
 
-async function reiniciar(from: string): Promise<void> {
-  await setSession(from, { step: 'menu', data: {} });
-  await sendMenu(from);
+/** Empieza de nuevo: olvida lo que buscaba, pero no el nombre ni la autorización. */
+async function reiniciar(from: string, data: SessionData): Promise<void> {
+  const base = soloConsentimiento(data);
+  await recordarPerfil(from, base);
+  await sendMenu(from, base);
+}
+
+/** Quien vuelve después de una hora y saluda: se le recuerda lo que buscaba. */
+async function ofrecerRetomar(from: string, perfil: SessionData, carrera: string): Promise<void> {
+  await track('conv_regreso');
+  await setSession(from, { step: 'menu', data: { ...perfil, pendiente: 'regreso', saltada: '' } });
+  await messaging.sendButtons({
+    to: from,
+    title: TITULO,
+    description: saludoRegreso(perfil.nombre, carrera, perfil.nivelListo === '1' ? perfil.nivel : undefined),
+    footer: PIE,
+    buttons: [...(PREGUNTAS.regreso.botones ?? [])],
+  });
+}
+
+/**
+ * La respuesta de la IA con botones para seguir, así la conversación nunca
+ * queda sin algo que tocar. Si no cabe en un mensaje con botones, van aparte.
+ */
+async function enviarConSugerencias(from: string, respuesta: string, botones: ButtonOption[]): Promise<void> {
+  if (cabeConBotones(respuesta)) {
+    await messaging.sendButtons({ to: from, title: '', description: respuesta, footer: PIE_SUGERENCIAS, buttons: botones });
+    return;
+  }
+  await messaging.sendText({ to: from, text: respuesta });
+  await messaging.sendButtons({ to: from, title: '', description: SEGUIR_CON_SUGERENCIAS, footer: PIE_SUGERENCIAS, buttons: botones });
 }
 
 // ── Botones ─────────────────────────────────────────────────────────────────
@@ -77,7 +151,7 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
 
   switch (boton) {
     case 'conv_tengo':
-      await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+      await guardarSesion(from, { ...data, pendiente: '' });
       await messaging.sendText({ to: from, text: PEDIR_PROGRAMA });
       return;
     case 'conv_elegir':
@@ -95,16 +169,20 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
       await track('reco_relacion_estudiante_utb');
       return continuar(from, { ...data, relacion: 'estudiante_utb' });
     case 'conv_reco':
-      if (siguientePregunta(data)) return continuar(from, { ...data, modo: 'elegir' });
-      return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: '', vioMas: '' });
+      return continuar(from, { ...data, modo: 'elegir' });
     case 'conv_asesor':
       return pedirConsentimiento(from, { ...data, pendiente: '' });
+    case 'conv_seguir_perfil':
+      // Con todo lo de la última vez recomienda de una; si falta algo, lo pregunta.
+      return continuar(from, { ...data, modo: 'elegir', pendiente: '' });
+    case 'conv_reiniciar':
+      return reiniciar(from, data);
     case 'conv_pregrados':
       await setSession(from, { step: 'menu_pregrado', data: {} });
       await sendMenuPregrado(from);
       return;
     case 'conv_seguir':
-      await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+      await guardarSesion(from, { ...data, pendiente: '' });
       await messaging.sendText({ to: from, text: SEGUIR_PREGUNTANDO });
       return;
     case 'conv_info_si':
@@ -166,19 +244,21 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
 
 // ── Carrera escrita ─────────────────────────────────────────────────────────
 
+/** Sin pregrado todavía: pregrados de la UTB o seguir preguntando (a la IA de admisiones). */
+async function enviarSinPregrado(from: string, data: SessionData, tipo: 'ninguno' | 'tecnico'): Promise<void> {
+  await guardarSesion(from, { ...data, pendiente: '', modo: '', sinPregrado: '1' });
+  await messaging.sendButtons({
+    to: from,
+    title: TITULO,
+    description: tipo === 'tecnico' ? TECNICO : SIN_PREGRADO,
+    footer: PIE,
+    buttons: [...(tipo === 'tecnico' ? BOTONES_TECNICO : BOTONES_SIN_PREGRADO)],
+  });
+}
+
 async function atenderPregrado(from: string, data: SessionData, texto: string): Promise<void> {
   const sinTitulo = sinPregrado(texto);
-  if (sinTitulo) {
-    await setSession(from, { step: 'menu', data: { ...data, pendiente: '', sinPregrado: '1' } });
-    await messaging.sendButtons({
-      to: from,
-      title: TITULO,
-      description: sinTitulo === 'tecnico' ? TECNICO : SIN_PREGRADO,
-      footer: PIE,
-      buttons: [...(sinTitulo === 'tecnico' ? BOTONES_TECNICO : BOTONES_SIN_PREGRADO)],
-    });
-    return;
-  }
+  if (sinTitulo) return enviarSinPregrado(from, data, sinTitulo);
   const pregradoTexto = texto.trim().slice(0, 100);
   const interpretado = interpretarPregrado(pregradoTexto);
   if (!interpretado) {
@@ -221,7 +301,7 @@ function historial(data: SessionData): ChatTurn[] {
  * pregunta quedó sin respuesta, esta vez solo responde, pero la pregunta sigue
  * viva: un "no" escrito después todavía la contesta. Al turno siguiente se repite.
  */
-async function responderConIa(from: string, data: SessionData, texto: string, primerMensaje: boolean): Promise<void> {
+async function responderConIa(from: string, data: SessionData, texto: string, saludo?: string): Promise<void> {
   const perfil = detectarPerfil(texto);
   const conPerfil: SessionData = {
     ...data,
@@ -229,31 +309,34 @@ async function responderConIa(from: string, data: SessionData, texto: string, pr
     ...(perfil.nivel && data.nivelListo !== '1' ? { nivel: perfil.nivel, nivelListo: '1' } : {}),
   };
 
-  if (primerMensaje) await messaging.sendText({ to: from, text: SALUDO_CORTO });
+  if (saludo) await messaging.sendText({ to: from, text: saludo });
   // Quien todavía no tiene pregrado pregunta por carreras: la IA de admisiones sabe de eso.
   const area = conPerfil.sinPregrado === '1' ? 'admisiones' : 'posgrados';
   await track('ai_request', { area });
 
   const anterior = historial(conPerfil);
   let respuesta: string;
+  let sugerencias: string[];
   try {
     const contexto = area === 'posgrados' ? resumenRecomendacion(conPerfil) ?? undefined : undefined;
-    const ai = await preguntarAI(area, texto.trim(), anterior, contexto);
-    respuesta = ai.answer;
+    const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS);
+    const separada = separarSugerencias(ai.answer);
+    respuesta = separada.texto || ai.answer;
+    sugerencias = separada.sugerencias;
     if (ai.usedTool) await track('ai_used_tool', { area });
     await track('ai_resolved', { area });
   } catch (err) {
     console.error('[conversacion] IA:', err instanceof AIUnavailableError ? err.reason : 'error');
     await track('ai_failed', { area, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
-    await setSession(from, { step: 'menu', data: { ...conPerfil, pendiente: 'ofrecer' } });
+    await guardarSesion(from, { ...conPerfil, pendiente: 'ofrecer' });
     await messaging.sendButtons({
       to: from, title: TITULO, description: IA_NO_DISPONIBLE, footer: PIE,
-      buttons: [{ id: 'conv_asesor', displayText: '👤 Hablar con asesor' }],
+      buttons: [BOTON_ASESOR],
     });
     return;
   }
 
-  await messaging.sendText({ to: from, text: respuesta });
+  const botones = botonesSugeridos(sugerencias, area, texto);
   const turnos = (Number.parseInt(conPerfil.aiTurnCount ?? '0', 10) || 0) + 1;
   const nuevo: SessionData = {
     ...conPerfil,
@@ -262,32 +345,41 @@ async function responderConIa(from: string, data: SessionData, texto: string, pr
   };
 
   if (turnos === TURNOS_ANTES_DE_ASESOR) {
-    await setSession(from, { step: 'menu', data: { ...nuevo, pendiente: 'ofrecer' } });
+    await messaging.sendText({ to: from, text: respuesta });
+    await guardarSesion(from, { ...nuevo, pendiente: 'ofrecer' });
     await messaging.sendButtons({
-      to: from, title: TITULO, description: SUGERIR_ASESOR, footer: PIE,
-      buttons: [{ id: 'conv_asesor', displayText: '👤 Hablar con asesor' }],
+      to: from, title: TITULO, description: SUGERIR_ASESOR, footer: PIE, buttons: [BOTON_ASESOR],
     });
     return;
   }
-  // Pregunta ignorada una vez: solo se responde y se conserva la pregunta pendiente.
+  // Pregunta ignorada una vez: solo se responde (con sugerencias) y la pregunta sigue pendiente.
   if (conPerfil.pendiente && conPerfil.saltada !== '1') {
-    await setSession(from, { step: 'menu', data: { ...nuevo, saltada: '1' } });
+    await guardarSesion(from, { ...nuevo, saltada: '1' });
+    await enviarConSugerencias(from, respuesta, botones);
     return;
   }
+  // Si falta algo, después de la respuesta va la pregunta: esa es la interacción de este turno.
   const falta = siguientePregunta(nuevo);
-  if (falta) return preguntar(from, nuevo, falta);
-  if (nuevo.ofrecido !== '1' && nuevo.sinPregrado !== '1') return preguntar(from, { ...nuevo, ofrecido: '1' }, 'ofrecer');
-  await setSession(from, { step: 'menu', data: { ...nuevo, pendiente: '', saltada: '' } });
+  const ofrecer = !falta && nuevo.ofrecido !== '1' && nuevo.sinPregrado !== '1';
+  if (falta || ofrecer) {
+    await messaging.sendText({ to: from, text: respuesta });
+    return falta ? preguntar(from, nuevo, falta) : preguntar(from, { ...nuevo, ofrecido: '1' }, 'ofrecer');
+  }
+  await guardarSesion(from, { ...nuevo, pendiente: '', saltada: '' });
+  await enviarConSugerencias(from, respuesta, botones);
 }
 
 // ── Entrada ─────────────────────────────────────────────────────────────────
 
 export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
-  const data: SessionData = { ...(session?.data ?? {}) };
+  // Sin sesión (pasó más de una hora) se parte de lo que se recuerda de la última vez.
+  const perfil = session ? null : await perfilGuardado(from);
+  const data: SessionData = { ...(session?.data ?? perfil ?? {}) };
+  const saludo = session ? undefined : perfil ? saludoCortoRegreso(perfil.nombre) : SALUDO_CORTO;
 
   const comando = parseGlobalCommand(text);
-  if (comando === 'menu' || comando === 'salir') return reiniciar(from);
+  if (comando === 'menu' || comando === 'salir') return reiniciar(from, data);
   if (esPedidoAsesor(text)) return pedirConsentimiento(from, { ...data, pendiente: '' });
   if (esBaja(text)) {
     await track('info_baja');
@@ -296,7 +388,7 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     } catch (err) {
       console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
     }
-    await setSession(from, { step: 'menu', data: { ...data, info: 'no', pendiente: '' } });
+    await guardarSesion(from, { ...data, info: 'no', pendiente: '' });
     await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
     return;
   }
@@ -312,6 +404,13 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
       await sendMenuClasico(from);
     }
     return;
+  }
+
+  // Una pregunta sugerida tocada es una pregunta escrita: va directo a la IA.
+  const sugerencia = parseSugerencia(text);
+  if (sugerencia) {
+    await track('conv_sugerencia');
+    return responderConIa(from, data, sugerencia, saludo);
   }
 
   const boton = parseBoton(text);
@@ -341,12 +440,21 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     return atenderPregrado(from, data, text);
   }
 
-  // Un saludo suelto al empezar: presentación y primera pregunta.
-  if (esSaludo(text) && (!session || (!data.aiHistory && !data.relacion))) return reiniciar(from);
+  // Un saludo suelto al empezar: presentación y primera pregunta. Quien vuelve retoma.
+  if (esSaludo(text)) {
+    const carrera = perfil ? carreraDe(perfil) : null;
+    if (perfil && carrera) return ofrecerRetomar(from, perfil, carrera);
+    if (!session || (!data.aiHistory && !data.relacion)) {
+      // Empieza con lo que ya se sabe; si no tenía pregrado, se le vuelve a preguntar.
+      const conocido = perfilDeDatos(data);
+      delete conocido.sinPregrado;
+      return sendMenu(from, conocido);
+    }
+  }
   if (text === '__image__') {
     await messaging.sendText({ to: from, text: 'Por ahora no puedo ver imágenes 🙏 Escríbeme o mándame un audio 🎤' });
     return;
   }
 
-  return responderConIa(from, data, text, !session);
+  return responderConIa(from, data, text, saludo);
 }

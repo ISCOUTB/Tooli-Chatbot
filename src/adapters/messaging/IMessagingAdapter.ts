@@ -92,4 +92,6 @@ export interface IMessagingAdapter {
   sendMediaFromUrl(msg: OutboundMediaUrl): Promise<void>;
   /** Resuelve un identificador de remitente (puede ser @lid) al número E.164 real. */
   resolveSenderId(jid: string): Promise<string>;
+  /** Marca el mensaje como leído y, si se pide, muestra "escribiendo…" (solo Cloud API). */
+  marcarLeido?(messageId: string, escribiendo: boolean): Promise<void>;
 }

@@ -6,7 +6,7 @@ import { messaging } from '../flows/shared';
 import { checkUserRateLimit } from './rateLimit';
 import { isBanned, recordActivity } from './botUserService';
 import { track } from './metrics';
-import { maskPhone } from './logSafe';
+import { describeExternalError, maskPhone } from './logSafe';
 import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
 import { iniciarRecomendacion } from '../flows/recomendacion';
@@ -23,6 +23,22 @@ function describeUnsupportedMedia(mediaType?: string): string {
     : mediaType === 'location' ? 'una ubicación'
     : mediaType === 'contacts' ? 'un contacto'
     : 'un mensaje que WhatsApp no deja leer';
+}
+
+let avisoLeidoFallido = false;
+
+/**
+ * Marca el mensaje como leído (los dos chulitos azules) y, si el bot va a
+ * responder, muestra "escribiendo…" mientras la IA piensa. No se espera: si
+ * WhatsApp no lo acepta, la respuesta sale igual (y el error se anota una vez).
+ */
+function marcarLeido(inbound: InboundMessage, escribiendo: boolean): void {
+  if (!messaging.marcarLeido || !inbound.messageId) return;
+  messaging.marcarLeido(inbound.messageId, escribiendo).catch((err: unknown) => {
+    if (avisoLeidoFallido) return;
+    avisoLeidoFallido = true;
+    console.warn('[inbound] no se pudo marcar como leído:', describeExternalError(err));
+  });
 }
 
 /**
@@ -103,6 +119,12 @@ export async function processInboundMessage(
       });
     }
     return 'ignored';
+  }
+
+  // Con un asesor el bot no marca nada: los chulitos azules los pone quien lee en Chatwoot.
+  if (source === 'meta') {
+    const actual = await getSession(from);
+    if (actual?.step !== 'with_agent') marcarLeido(inbound, inbound.text !== '__unsupported__');
   }
 
   if (inbound.text === '__unsupported__') {

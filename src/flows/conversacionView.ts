@@ -13,7 +13,7 @@ export interface BotonConversacion {
 }
 
 /** Lo que el bot espera que responda la persona después de su última pregunta. */
-export type Pendiente = 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer';
+export type Pendiente = 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer' | 'regreso';
 
 export const SALUDO_CONVERSACION =
   '¡Hola! 👋 Soy *Tooli*, el asistente de Posgrados de la Universidad Tecnológica de Bolívar 🎓\n\n' +
@@ -88,6 +88,14 @@ export const PREGUNTAS: Record<Pendiente, Pregunta> = {
     pendiente: 'nombre_info',
     texto: '¡Genial! 🙌 ¿Cómo te llamas? Así quedas registrado(a) 📝',
   },
+  regreso: {
+    pendiente: 'regreso',
+    texto: '¡Hola de nuevo! 👋 ¿Seguimos donde quedamos?',
+    botones: [
+      { id: 'conv_seguir_perfil', displayText: '✅ Sí, sigamos' },
+      { id: 'conv_reiniciar', displayText: '🔄 Empezar de nuevo' },
+    ],
+  },
   ofrecer: {
     pendiente: 'ofrecer',
     texto: '¿Quieres que te recomiende los posgrados que mejor encajan con lo que estudiaste?',
@@ -129,6 +137,106 @@ export const TECNICO =
 export const SEGUIR_PREGUNTANDO = '¡Claro! Pregúntame lo que quieras 👇';
 
 export const INFO_RECHAZADA = 'Entendido, no te enviaremos información 👍';
+
+// ── Preguntas sugeridas ─────────────────────────────────────────────────────
+
+/** Va como instrucción de sistema: la IA propone dos preguntas de seguimiento en la misma llamada. */
+export const INSTRUCCION_SUGERENCIAS =
+  'Al final de tu respuesta, en una línea aparte, escribe exactamente "SUGERENCIAS: " seguido de dos preguntas ' +
+  'muy cortas (máximo 20 caracteres cada una) que la persona podría hacerte a continuación sobre este tema, ' +
+  'separadas por " | ". Sin emojis ni comillas. Ejemplo: SUGERENCIAS: ¿Hay becas? | ¿Cuándo empieza?';
+
+export const PREFIJO_SUGERENCIA = 'conv_sug:';
+export const BOTON_ASESOR: BotonConversacion = { id: 'conv_asesor', displayText: '👤 Hablar con asesor' };
+export const BOTON_PREGRADOS: BotonConversacion = { id: 'conv_pregrados', displayText: '🏫 Ver pregrados UTB' };
+export const PIE_SUGERENCIAS = 'O escríbeme lo que quieras';
+export const SEGUIR_CON_SUGERENCIAS = '¿Quieres saber algo más? 👇';
+
+/** Si la IA no propone nada, siempre queda algo que tocar. */
+export const SUGERENCIAS_RESPALDO: Record<'posgrados' | 'admisiones', readonly string[]> = {
+  posgrados: ['¿Hay becas?', '¿Cuándo inician?'],
+  admisiones: ['¿Cómo me inscribo?', '¿Hay becas?'],
+};
+
+function limpiarSugerencia(s: string): string {
+  return s.replace(/["'“”*_]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Separa la línea "SUGERENCIAS: a | b" de la respuesta; solo quedan las que caben en un botón. */
+export function separarSugerencias(respuesta: string): { texto: string; sugerencias: string[] } {
+  const resto: string[] = [];
+  let sugerencias: string[] = [];
+  for (const linea of (respuesta ?? '').split('\n')) {
+    const m = /^\s*[*_]*\s*sugerencias\s*[*_]*\s*:\s*(.*)$/i.exec(linea);
+    if (m) {
+      sugerencias = m[1].split('|').map(limpiarSugerencia).filter(Boolean);
+      continue;
+    }
+    resto.push(linea);
+  }
+  const validas = [...new Set(sugerencias)].filter((s) => [...s].length <= 20).slice(0, 2);
+  return { texto: resto.join('\n').trim(), sugerencias: validas };
+}
+
+const clavePregunta = (s: string) => normalize(s).replace(/[^\p{L}\p{N}]/gu, '');
+
+/**
+ * Botones de la respuesta: las preguntas sugeridas y una salida a una persona.
+ * Nunca se sugiere lo mismo que la persona acaba de preguntar.
+ */
+export function botonesSugeridos(
+  sugerencias: readonly string[], area: 'posgrados' | 'admisiones', preguntaActual = '',
+): BotonConversacion[] {
+  const actual = clavePregunta(preguntaActual);
+  const distinta = (s: string) => clavePregunta(s) !== actual;
+  const propias = sugerencias.filter(distinta);
+  const usar = propias.length ? propias : SUGERENCIAS_RESPALDO[area].filter(distinta);
+  return [
+    ...usar.slice(0, 2).map((s) => ({ id: `${PREFIJO_SUGERENCIA}${s}`, displayText: s })),
+    area === 'admisiones' ? BOTON_PREGRADOS : BOTON_ASESOR,
+  ];
+}
+
+/**
+ * La respuesta va con sus botones en un solo mensaje si cabe. Con enlaces va
+ * como texto normal (WhatsApp les muestra la vista previa) y los botones aparte.
+ */
+export function cabeConBotones(texto: string): boolean {
+  return [...texto].length <= 1000 && !/https?:\/\/|www\./i.test(texto);
+}
+
+/** Un toque en una pregunta sugerida es esa pregunta, escrita. */
+export function parseSugerencia(texto: string): string | null {
+  const t = (texto ?? '').trim();
+  if (!t.startsWith(PREFIJO_SUGERENCIA)) return null;
+  const pregunta = t.slice(PREFIJO_SUGERENCIA.length).trim().slice(0, 60);
+  return pregunta || null;
+}
+
+// ── Quien vuelve ────────────────────────────────────────────────────────────
+
+const PLURAL_NIVEL: Record<string, string> = {
+  especializacion: 'especializaciones', maestria: 'maestrías', doctorado: 'doctorados',
+};
+
+function primerNombre(nombre: string | undefined): string {
+  return (nombre ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
+/** "¡Hola de nuevo, Laura! 👋" — sin nombre, solo "¡Hola de nuevo! 👋". */
+export function saludoCortoRegreso(nombre?: string): string {
+  const primero = primerNombre(nombre);
+  return primero ? `¡Hola de nuevo, ${primero}! 👋` : '¡Hola de nuevo! 👋';
+}
+
+/** Recuerda lo que buscaba la última vez y ofrece seguir. */
+export function saludoRegreso(nombre?: string, carrera?: string | null, nivel?: string): string {
+  const plural = nivel ? PLURAL_NIVEL[nivel] : undefined;
+  const busqueda = carrera
+    ? (plural ? `La última vez buscabas *${plural}* para *${carrera}*.` : `La última vez hablamos de posgrados para *${carrera}*.`)
+    : 'La última vez hablamos de posgrados.';
+  return `${saludoCortoRegreso(nombre)} ${busqueda} ¿Seguimos?`;
+}
 
 export function infoAceptada(nombre: string): string {
   const primero = nombre.trim().split(/\s+/)[0] ?? '';
@@ -183,7 +291,7 @@ export const TURNOS_ANTES_DE_ASESOR = 12;
 export type BotonId =
   | 'conv_tengo' | 'conv_elegir' | 'conv_utb_si' | 'conv_utb_no' | 'conv_egresado' | 'conv_estudiante'
   | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor' | 'conv_pregrados' | 'conv_seguir'
-  | 'conv_info_si' | 'conv_info_no';
+  | 'conv_info_si' | 'conv_info_no' | 'conv_seguir_perfil' | 'conv_reiniciar';
 
 const IDS: ReadonlySet<string> = new Set([
   ...Object.values(PREGUNTAS).flatMap((p) => (p.botones ?? []).map((b) => b.id)),
@@ -250,6 +358,10 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
     case 'info':
       if (si) return { boton: 'conv_info_si' };
       if (no) return { boton: 'conv_info_no' };
+      return null;
+    case 'regreso':
+      if (si || /sigamos|seguir|continu/.test(n)) return { boton: 'conv_seguir_perfil' };
+      if (no || /de nuevo|empezar|otra vez|reinici/.test(n)) return { boton: 'conv_reiniciar' };
       return null;
     case 'ofrecer':
       if (si || /recomiend/.test(n)) return { boton: 'conv_reco' };
