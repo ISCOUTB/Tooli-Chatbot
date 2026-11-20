@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PREGUNTAS, detectarPerfil, esPedidoAsesor, esSaludo, interpretarRespuestaEscrita, nivelDeBoton, pareceUnaPregunta,
-  parseBoton, siguientePregunta, textoPregrado,
+  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREGUNTAS, detectarPerfil, esPedidoAsesor, esSaludo, interpretarRespuestaEscrita,
+  nivelDeBoton, pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -71,6 +71,27 @@ describe('conversación: lo que escribe la persona', () => {
     assert.deepEqual(detectarPerfil('estudio en otra universidad'), { relacion: 'externo' });
     assert.deepEqual(detectarPerfil('¿La especialización en gerencia es virtual?'), { nivel: 'especializacion' });
     assert.deepEqual(detectarPerfil('Soy egresado'), {}, 'sin decir de dónde no se asume la UTB');
+  });
+});
+
+describe('conversación: quien todavía no tiene pregrado', () => {
+  it('reconoce que no ha estudiado una carrera o que es técnico', () => {
+    for (const t of ['Ninguna no he estudiado', 'ninguna', 'No tengo carrera', 'soy bachiller', 'aún no he estudiado', 'apenas salí del colegio']) {
+      assert.equal(sinPregrado(t), 'ninguno', t);
+    }
+    for (const t of ['Soy tecnólogo', 'técnico en sistemas']) assert.equal(sinPregrado(t), 'tecnico', t);
+    for (const t of ['Ingeniería Industrial', 'Contaduría Pública', 'Administración de empresas']) assert.equal(sinPregrado(t), null, t);
+  });
+
+  it('no le sigue preguntando ni le ofrece recomendaciones', () => {
+    assert.equal(siguientePregunta({ sinPregrado: '1' }), null);
+  });
+
+  it('sus botones también caben en WhatsApp y se reconocen', () => {
+    for (const b of [...BOTONES_SIN_PREGRADO, ...BOTONES_TECNICO]) {
+      assert.ok([...b.displayText].length <= 20, b.displayText);
+      assert.equal(parseBoton(b.id), b.id);
+    }
   });
 });
 

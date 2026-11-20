@@ -16,11 +16,12 @@ import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } f
 import { SessionData, parseGlobalCommand } from './commands';
 import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado';
 import { parseRelacion, resumenRecomendacion } from './recomendacionView';
-import { enviarGrupos, mostrarResultados, pedirConsentimiento } from './recomendacion';
+import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BotonId, IA_NO_DISPONIBLE, NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PREGUNTAS, Pendiente, SALUDO_CORTO,
-  SUGERIR_ASESOR, TITULO, TURNOS_ANTES_DE_ASESOR, detectarPerfil, esPedidoAsesor, esSaludo,
-  interpretarRespuestaEscrita, nivelDeBoton, pareceUnaPregunta, parseBoton, siguientePregunta, textoPregrado,
+  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, IA_NO_DISPONIBLE, NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE,
+  PREGUNTAS, Pendiente, SALUDO_CORTO, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
+  TURNOS_ANTES_DE_ASESOR, detectarPerfil, esPedidoAsesor, esSaludo, interpretarRespuestaEscrita, nivelDeBoton,
+  pareceUnaPregunta, parseBoton, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
 
 // ── Envíos ──────────────────────────────────────────────────────────────────
@@ -88,6 +89,14 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
       return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: '', vioMas: '' });
     case 'conv_asesor':
       return pedirConsentimiento(from, { ...data, pendiente: '' });
+    case 'conv_pregrados':
+      await setSession(from, { step: 'menu_pregrado', data: {} });
+      await sendMenuPregrado(from);
+      return;
+    case 'conv_seguir':
+      await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+      await messaging.sendText({ to: from, text: SEGUIR_PREGUNTANDO });
+      return;
     default:
       return undefined;
   }
@@ -96,9 +105,25 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
 // ── Carrera escrita ─────────────────────────────────────────────────────────
 
 async function atenderPregrado(from: string, data: SessionData, texto: string): Promise<void> {
-  const interpretado = interpretarPregrado(texto.trim().slice(0, 100));
+  const sinTitulo = sinPregrado(texto);
+  if (sinTitulo) {
+    await setSession(from, { step: 'menu', data: { ...data, pendiente: '', sinPregrado: '1' } });
+    await messaging.sendButtons({
+      to: from,
+      title: TITULO,
+      description: sinTitulo === 'tecnico' ? TECNICO : SIN_PREGRADO,
+      footer: PIE,
+      buttons: [...(sinTitulo === 'tecnico' ? BOTONES_TECNICO : BOTONES_SIN_PREGRADO)],
+    });
+    return;
+  }
+  const pregradoTexto = texto.trim().slice(0, 100);
+  const interpretado = interpretarPregrado(pregradoTexto);
   if (!interpretado) {
-    await messaging.sendText({ to: from, text: NO_RECONOCI_PREGRADO });
+    // Las mismas salidas del flujo de recomendación: la lista, un área o escribirla de nuevo.
+    await track('reco_externo_sin_coincidencia');
+    await setSession(from, { step: 'reco_sin_coincidencia', data: { relacion: data.relacion || 'externo', pregradoTexto } });
+    await enviarSinCoincidencia(from, NO_RECONOCI_PREGRADO);
     return;
   }
   if (interpretado.tipo === 'utb') {
@@ -143,18 +168,21 @@ async function responderConIa(from: string, data: SessionData, texto: string, pr
   };
 
   if (primerMensaje) await messaging.sendText({ to: from, text: SALUDO_CORTO });
-  await track('ai_request', { area: 'posgrados' });
+  // Quien todavía no tiene pregrado pregunta por carreras: la IA de admisiones sabe de eso.
+  const area = conPerfil.sinPregrado === '1' ? 'admisiones' : 'posgrados';
+  await track('ai_request', { area });
 
   const anterior = historial(conPerfil);
   let respuesta: string;
   try {
-    const ai = await preguntarAI('posgrados', texto.trim(), anterior, resumenRecomendacion(conPerfil) ?? undefined);
+    const contexto = area === 'posgrados' ? resumenRecomendacion(conPerfil) ?? undefined : undefined;
+    const ai = await preguntarAI(area, texto.trim(), anterior, contexto);
     respuesta = ai.answer;
-    if (ai.usedTool) await track('ai_used_tool', { area: 'posgrados' });
-    await track('ai_resolved', { area: 'posgrados' });
+    if (ai.usedTool) await track('ai_used_tool', { area });
+    await track('ai_resolved', { area });
   } catch (err) {
     console.error('[conversacion] IA:', err instanceof AIUnavailableError ? err.reason : 'error');
-    await track('ai_failed', { area: 'posgrados', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
+    await track('ai_failed', { area, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
     await setSession(from, { step: 'menu', data: { ...conPerfil, pendiente: 'ofrecer' } });
     await messaging.sendButtons({
       to: from, title: TITULO, description: IA_NO_DISPONIBLE, footer: PIE,
@@ -186,7 +214,7 @@ async function responderConIa(from: string, data: SessionData, texto: string, pr
   }
   const falta = siguientePregunta(nuevo);
   if (falta) return preguntar(from, nuevo, falta);
-  if (nuevo.ofrecido !== '1') return preguntar(from, { ...nuevo, ofrecido: '1' }, 'ofrecer');
+  if (nuevo.ofrecido !== '1' && nuevo.sinPregrado !== '1') return preguntar(from, { ...nuevo, ofrecido: '1' }, 'ofrecer');
   await setSession(from, { step: 'menu', data: { ...nuevo, pendiente: '', saltada: '' } });
 }
 

@@ -91,8 +91,47 @@ export function textoPregrado(relacion: string | undefined): string {
 
 export const PEDIR_PROGRAMA = '¡Genial! 🙌 ¿Cuál es? Escríbeme su nombre o lo que quieras saber de él 👇';
 
+/** Salidas para quien todavía no tiene un título universitario. */
+export const BOTONES_SIN_PREGRADO: readonly BotonConversacion[] = [
+  { id: 'conv_pregrados', displayText: '🏫 Ver pregrados UTB' },
+  { id: 'conv_seguir', displayText: '💬 Otra pregunta' },
+];
+
+export const BOTONES_TECNICO: readonly BotonConversacion[] = [
+  { id: 'conv_asesor', displayText: '👤 Hablar con asesor' },
+  { id: 'conv_pregrados', displayText: '🏫 Ver pregrados UTB' },
+];
+
+export const SIN_PREGRADO =
+  '¡Gracias por contarme! 🙌 Los posgrados son para quienes ya tienen un *título profesional universitario*. ' +
+  'Si estás pensando en tu primera carrera, la UTB tiene pregrados que te pueden gustar.';
+
+export const TECNICO =
+  'Los posgrados de la UTB piden un *título profesional universitario*. Si tu título es técnico o tecnólogo, ' +
+  'un asesor te confirma qué opciones tienes.';
+
+export const SEGUIR_PREGUNTANDO = '¡Claro! Pregúntame lo que quieras 👇';
+
+/**
+ * "No he estudiado", "soy bachiller" → 'ninguno'; "soy tecnólogo" → 'tecnico'.
+ * Sirve para no insistir con la carrera a quien todavía no tiene pregrado.
+ */
+export function sinPregrado(texto: string): 'ninguno' | 'tecnico' | null {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!n) return null;
+  if (/^(ninguna|ninguno|nada)\b/.test(n)
+    || /\bno (he|e) (estudiado|empezado|hecho)\b/.test(n)
+    || /\b(todavia|aun) no (he )?(estudiado|empezado)\b/.test(n)
+    || /\bno (tengo|tiene) (carrera|pregrado|titulo|estudios)\b/.test(n)
+    || /\bbachiller(ato)?\b/.test(n)
+    || /\b(sali|salgo|termine) (del|el) colegio\b/.test(n)) return 'ninguno';
+  if (/\b(tecnico|tecnica|tecnologo|tecnologa)\b/.test(n)) return 'tecnico';
+  return null;
+}
+
 export const NO_RECONOCI_PREGRADO =
-  'No reconocí esa carrera 🤔 Escríbela como aparece en tu diploma, por ejemplo *Contaduría Pública*.';
+  'No reconocí esa carrera 🤔\n\nPuedes elegir de la lista una que se parezca, elegir el área en la que te mueves ' +
+  'o escribirla de otra forma.';
 
 export const IA_NO_DISPONIBLE =
   'Ahora mismo no puedo responder esa pregunta 🙏 Si quieres, te conecto con un asesor de Posgrados.';
@@ -105,9 +144,12 @@ export const TURNOS_ANTES_DE_ASESOR = 12;
 
 export type BotonId =
   | 'conv_tengo' | 'conv_elegir' | 'conv_utb_si' | 'conv_utb_no' | 'conv_egresado' | 'conv_estudiante'
-  | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor';
+  | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor' | 'conv_pregrados' | 'conv_seguir';
 
-const IDS: ReadonlySet<string> = new Set(Object.values(PREGUNTAS).flatMap((p) => (p.botones ?? []).map((b) => b.id)));
+const IDS: ReadonlySet<string> = new Set([
+  ...Object.values(PREGUNTAS).flatMap((p) => (p.botones ?? []).map((b) => b.id)),
+  'conv_pregrados', 'conv_seguir',
+]);
 
 /** Los botones de este flujo llevan ids únicos, así que valen aunque se toquen tarde. */
 export function parseBoton(texto: string): BotonId | null {
@@ -201,6 +243,8 @@ export function detectarPerfil(texto: string): PerfilDetectado {
  * nivel. Con todo eso ya se puede recomendar.
  */
 export function siguientePregunta(data: Record<string, string>): Pendiente | null {
+  // Sin título universitario no hay posgrado que recomendar: no se pregunta más.
+  if (data.sinPregrado === '1') return null;
   if (!data.relacion) return 'estudia_utb';
   if (!data.pregradoId && !data.familiaId) return 'pregrado';
   if (data.nivelListo !== '1') return 'nivel';

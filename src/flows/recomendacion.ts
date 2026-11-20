@@ -111,7 +111,7 @@ async function enviarConfirmacion(to: string, pregunta: string): Promise<void> {
   });
 }
 
-async function enviarSinCoincidencia(to: string, texto: string = SIN_COINCIDENCIA): Promise<void> {
+export async function enviarSinCoincidencia(to: string, texto: string = SIN_COINCIDENCIA): Promise<void> {
   await messaging.sendButtons({
     to,
     title: '🎓 Tu pregrado',
