@@ -88,7 +88,7 @@ async function enviarLista(to: string, title: string, description: string, secci
   });
 }
 
-const enviarGrupos = (to: string) =>
+export const enviarGrupos = (to: string) =>
   enviarLista(to, '🎓 Tu pregrado', '¿En qué escuela está tu pregrado? También puedes escribir su nombre.', 'Escuelas UTB', FILAS_GRUPOS);
 
 const enviarPregrados = (to: string, grupo: GrupoPregrado) =>
@@ -470,7 +470,7 @@ async function enviarAcciones(from: string, data: SessionData): Promise<void> {
   await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', filasAcciones(resultado, ctx, data.vioMas === '1'));
 }
 
-async function mostrarResultados(from: string, data: SessionData, mas = false): Promise<void> {
+export async function mostrarResultados(from: string, data: SessionData, mas = false): Promise<void> {
   const { resultado, ctx } = calcular(data);
   if (!ctx || !resultado.recomendaciones.length) {
     // Sesión incompleta o vencida a mitad de camino: se empieza de nuevo en vez de inventar.
@@ -591,7 +591,7 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
 
 // ── 7. Asesor: consentimiento, nombre, correo y lead ────────────────────────
 
-async function pedirConsentimiento(from: string, data: SessionData): Promise<void> {
+export async function pedirConsentimiento(from: string, data: SessionData): Promise<void> {
   await track('reco_asesor', { area: 'posgrados' });
   await setSession(from, { step: 'reco_consentimiento', data });
   await messaging.sendButtons({
@@ -622,6 +622,12 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
   }
   if (respuesta === 'no') {
     await track('reco_consentimiento_no', { area: 'posgrados' });
+    // Desde la conversación libre no hay recomendaciones a las cuales volver.
+    if (!data.recomendados) {
+      await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+      await messaging.sendText({ to: from, text: 'Entendido, no guardaré tus datos 👍\n\nPuedes seguir preguntándome lo que quieras.' });
+      return;
+    }
     await setSession(from, { step: 'reco_resultados', data });
     await messaging.sendText({ to: from, text: CONSENTIMIENTO_NEGADO });
     await enviarAcciones(from, data);

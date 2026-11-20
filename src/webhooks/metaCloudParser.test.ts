@@ -50,9 +50,16 @@ describe('parseMetaCloudWebhooks', () => {
     assert.deepEqual(result.descartados, []);
   });
 
-  it('emite audio y sticker como mensajes no soportados', () => {
-    for (const type of ['audio', 'sticker']) {
-      const [message] = parseMetaCloudWebhooks(webhook({ type, [type]: { id: 'media' } }));
+  it('emite el audio con su id para transcribirlo', () => {
+    const [message] = parseMetaCloudWebhooks(webhook({ type: 'audio', audio: { id: 'media-1', mime_type: 'audio/ogg; codecs=opus', voice: true } }));
+    assert.equal(message.text, '__audio__');
+    assert.equal(message.mediaId, 'media-1');
+    assert.equal(message.mediaType, 'audio');
+  });
+
+  it('un audio sin id y un sticker siguen como no soportados', () => {
+    for (const [type, contenido] of [['audio', {}], ['sticker', { id: 'media' }]] as const) {
+      const [message] = parseMetaCloudWebhooks(webhook({ type, [type]: contenido }));
       assert.equal(message.text, '__unsupported__');
       assert.equal(message.mediaType, type);
     }

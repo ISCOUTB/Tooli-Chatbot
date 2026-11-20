@@ -11,6 +11,7 @@ const MetaMessageSchema = z.object({
   interactive: z.any().optional(),
   button: z.object({ payload: z.string().optional(), text: z.string() }).optional(),
   image: z.object({ id: z.string(), mime_type: z.string().optional() }).optional(),
+  audio: z.object({ id: z.string().optional(), mime_type: z.string().optional(), voice: z.boolean().optional() }).optional(),
 }).passthrough();
 
 const MetaContactSchema = z.object({
@@ -96,6 +97,9 @@ export function parseMetaCloudWebhookResult(body: unknown): MetaCloudParseResult
         }
         else if (msg.type === 'image') {
           text = '__image__'; mediaId = msg.image?.id; mediaType = 'image';
+        // Notas de voz y audios: el inbox los descarga y transcribe después del ACK.
+        } else if (msg.type === 'audio' && msg.audio?.id) {
+          text = '__audio__'; mediaId = msg.audio.id; mediaType = 'audio';
         } else if (UNSUPPORTED.has(msg.type)) {
           text = '__unsupported__'; mediaType = msg.type;
         }

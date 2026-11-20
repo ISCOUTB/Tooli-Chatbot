@@ -16,6 +16,7 @@ export const messaging: IMessagingAdapter =
 export { CODIGO_REGEX, CEDULA_REGEX, EMAIL_REGEX, normalize, isMenuCommand } from './validation';
 import { normalize } from './validation';
 import { FILAS_RELACION, SALUDO_RELACION } from './recomendacionView';
+import { PIE as PIE_CONVERSACION, PREGUNTAS, SALUDO_CONVERSACION, TITULO as TITULO_CONVERSACION } from './conversacionView';
 
 export const PLATAFORMAS_TI: Record<string, string> = {
   '1': 'Banner / Autoservicio',
@@ -103,6 +104,19 @@ export async function volverAlMenuDeOrigen(to: string, data: SessionData | undef
  * la UTB y desde ahí también saca a quien quiere un pregrado o busca otras
  * gestiones. Todo lo que vuelve "al inicio" llega aquí. */
 export async function sendMenu(to: string): Promise<void> {
+  if (config.conversacion.activa) {
+    // Inicio conversacional: saludo abierto y la primera pregunta con botones.
+    await setSession(to, { step: 'menu', data: { pendiente: 'tiene_programa' } });
+    await messaging.sendText({ to, text: SALUDO_CONVERSACION });
+    await messaging.sendButtons({
+      to,
+      title: TITULO_CONVERSACION,
+      description: PREGUNTAS.tiene_programa.texto,
+      footer: PIE_CONVERSACION,
+      buttons: [...(PREGUNTAS.tiene_programa.botones ?? [])],
+    });
+    return;
+  }
   await messaging.sendList({
     to,
     title: '🎓 Tooli UTB',

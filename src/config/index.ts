@@ -13,6 +13,11 @@ const schema = z.object({
   SESSION_TTL_SECONDS: z.string().default('3600'),
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string(),
   OPENAI_API_KEY: z.string().optional(),
+  // Notas de voz: se transcriben y siguen la conversación como texto. 'false' las rechaza como antes.
+  TRANSCRIBIR_AUDIOS: z.string().optional().default('true'),
+  // Inicio conversacional de posgrados: la IA responde y el bot pregunta con botones. 'true' lo activa.
+  FLUJO_CONVERSACIONAL: z.string().optional().default('false'),
+  OPENAI_TRANSCRIBE_MODEL: z.string().optional().default('gpt-4o-mini-transcribe'),
   // ── Meta WhatsApp Cloud API ──────────────────────────────────────────────────
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
@@ -120,6 +125,13 @@ export const config = {
   },
   openai: {
     apiKey: env.OPENAI_API_KEY,
+    transcribeModel: env.OPENAI_TRANSCRIBE_MODEL ?? 'gpt-4o-mini-transcribe',
+  },
+  audios: {
+    transcribir: env.TRANSCRIBIR_AUDIOS !== 'false',
+  },
+  conversacion: {
+    activa: env.FLUJO_CONVERSACIONAL === 'true',
   },
   chatwoot: {
     url: env.CHATWOOT_URL ?? '',

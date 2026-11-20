@@ -24,6 +24,8 @@ export type MetricEvent =
   | 'agent_handoff'
   | 'agent_outside_hours'
   | 'rate_limited'
+  | 'audio_transcrito'
+  | 'audio_fallido'
   | 'duplicate_message'
   // Posgrados
   | 'prospecto_iniciado'

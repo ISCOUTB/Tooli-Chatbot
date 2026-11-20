@@ -18,6 +18,8 @@ import {
   atenderRespuestaCampana,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
+import { handleConversacion } from './conversacion';
+import { config } from '../config';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
 import { handleEsperandoCodigo } from './turno';
@@ -111,7 +113,8 @@ export async function handleMessage(from: string, text: string): Promise<void> {
   if (await atenderRespuestaCampana(from, text, session)) return;
   const step = session?.step ?? 'menu';
 
-  const handler = HANDLERS[step];
+  // Con el inicio conversacional, el paso raíz lo atiende la IA con preguntas de botones.
+  const handler = step === 'menu' && config.conversacion.activa ? handleConversacion : HANDLERS[step];
   if (!handler) {
     console.warn(`[flows] step desconocido "${step}", recuperando al menú`);
     await setSession(from, { step: 'menu', data: {} });

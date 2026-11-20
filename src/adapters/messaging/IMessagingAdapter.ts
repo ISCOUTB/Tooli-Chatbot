@@ -78,7 +78,7 @@ export interface InboundMessage {
   text: string;  // para botones/lista: llega el id de la opción seleccionada
   timestamp: number;
   phoneNumberId: string; // ID del número que recibió el mensaje (routing multi-bot)
-  mediaId?: string;      // presente cuando el mensaje es imagen/video/documento
+  mediaId?: string;      // presente cuando el mensaje es imagen o audio
   mediaType?: string;    // 'image' | 'video' | 'document' | 'audio'
 }
 

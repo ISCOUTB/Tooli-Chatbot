@@ -11,6 +11,7 @@ import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
 import { iniciarRecomendacion } from '../flows/recomendacion';
 import { atenderAsistencia } from '../flows/asistencia';
+import { AudioError, mensajeAudioFallido, mensajeEntendido, transcribirAudioDeMeta } from './transcripcionAudio';
 
 export type InboundSource = 'meta' | 'evolution' | 'chatwoot';
 
@@ -22,6 +23,43 @@ function describeUnsupportedMedia(mediaType?: string): string {
     : mediaType === 'location' ? 'una ubicación'
     : mediaType === 'contacts' ? 'un contacto'
     : 'un mensaje que WhatsApp no deja leer';
+}
+
+/**
+ * Convierte una nota de voz en el texto con el que sigue la conversación.
+ * Devuelve null cuando ya se le respondió a la persona y no hay nada más que hacer.
+ */
+async function atenderAudio(from: string, inbound: InboundMessage): Promise<string | null> {
+  const session = await getSession(from);
+  const conAsesor = session?.step === 'with_agent';
+  if (!config.audios.transcribir || !inbound.mediaId) {
+    await recordActivity(from, 'in', '📎 Envió un audio');
+    await messaging.sendText({ to: from, text: 'Por ahora solo puedo leer mensajes de texto 🙏 Escríbeme lo que necesitas.' });
+    if (!session) await iniciarRecomendacion(from);
+    return null;
+  }
+  try {
+    const texto = await transcribirAudioDeMeta(inbound.mediaId);
+    await track('audio_transcrito');
+    await recordActivity(from, 'in', `🎤 ${texto}`);
+    // El asesor recibe la transcripción en Chatwoot; a la persona no hace falta repetírsela.
+    if (conAsesor) return `🎤 Audio: ${texto}`;
+    await messaging.sendText({ to: from, text: mensajeEntendido(texto) });
+    return texto;
+  } catch (err) {
+    const motivo = err instanceof AudioError ? err.motivo : 'transcripcion';
+    await track('audio_fallido');
+    console.warn('[inbound] audio sin transcribir:', motivo, maskPhone(from));
+    await recordActivity(from, 'in', '🎤 Envió un audio (no se pudo transcribir)');
+    if (conAsesor) {
+      await handleMessage(from, '🎤 Envió un audio que el bot no pudo transcribir');
+      await messaging.sendText({ to: from, text: 'No pude pasarle tu audio al asesor 🙏 ¿Se lo escribes?' });
+      return null;
+    }
+    await messaging.sendText({ to: from, text: mensajeAudioFallido(motivo) });
+    if (!session) await iniciarRecomendacion(from);
+    return null;
+  }
 }
 
 /** Ejecutado por el inbox, nunca por el webhook HTTP después del ACK. */
@@ -42,15 +80,21 @@ export async function processInboundMessage(
   }
   if (await isBanned(from)) return 'ignored';
 
-  await recordActivity(
-    from,
-    'in',
-    inbound.text === '__unsupported__'
-      ? `📎 Envió ${describeUnsupportedMedia(inbound.mediaType)}`
-      : inbound.text,
-  );
+  // El audio se registra después de transcribirlo, con lo que dijo la persona.
+  const esAudio = inbound.text === '__audio__';
+  if (!esAudio) {
+    await recordActivity(
+      from,
+      'in',
+      inbound.text === '__unsupported__'
+        ? `📎 Envió ${describeUnsupportedMedia(inbound.mediaType)}`
+        : inbound.text,
+    );
+  }
+  // El límite va antes de transcribir: un audio repetido no debe gastar en la IA.
   const limit = await checkUserRateLimit(from);
   if (!limit.allowed) {
+    if (esAudio) await recordActivity(from, 'in', '🎤 Envió un audio');
     await track('rate_limited');
     if (limit.firstBlock) {
       await messaging.sendText({
@@ -80,14 +124,21 @@ export async function processInboundMessage(
     return 'handled';
   }
 
+  let texto = inbound.text;
+  if (esAudio) {
+    const transcrito = await atenderAudio(from, inbound);
+    if (transcrito === null) return 'handled';
+    texto = transcrito;
+  }
+
   // El QR de un evento escribe "Registrar mi asistencia: CÓDIGO". Va antes de
   // los flujos porque no depende del paso en que esté la conversación.
-  if (await atenderAsistencia(from, inbound.text, inbound.profileName ?? '')) return 'handled';
+  if (await atenderAsistencia(from, texto, inbound.profileName ?? '')) return 'handled';
 
   if (config.posgradosEvento.activo) {
-    await handlePosgradoMessage(from, inbound.text, inbound);
+    await handlePosgradoMessage(from, texto, { ...inbound, text: texto });
   } else {
-    await handleMessage(from, inbound.text);
+    await handleMessage(from, texto);
   }
   return 'handled';
 }
