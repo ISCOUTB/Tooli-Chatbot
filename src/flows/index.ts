@@ -17,10 +17,13 @@ import {
   handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
   atenderRespuestaCampana,
   atenderUtil,
+  pedirConsentimiento,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
-import { handleConversacion } from './conversacion';
+import { agradecer, atenderBaja, handleConversacion, responderPreguntaSuelta } from './conversacion';
+import { esAgradecimiento, esBaja, esPedidoAsesor, pareceUnaPregunta, parseBoton, parseSugerencia } from './conversacionView';
 import { parseUtil } from './recomendacionView';
+import type { Session } from '../services/session';
 import { config } from '../config';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
@@ -109,13 +112,61 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   ti_collect_cedula: handleTiCollectCedula,
 };
 
+/** Pasos del flujo de recomendación que esperan una opción (lista o botones). */
+const PASOS_DE_OPCION: ReadonlySet<string> = new Set([
+  'reco_relacion', 'reco_nivel', 'reco_confirmar', 'reco_pregrado_grupo', 'reco_pregrado', 'reco_sin_coincidencia',
+  'reco_resultados', 'reco_ficha', 'reco_ficha_elegir', 'reco_consentimiento',
+]);
+/** Pasos del flujo de recomendación que esperan un texto (carrera, nombre, correo). */
+const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo']);
+/** En recomendaciones y ficha, el texto libre ya lo responde la IA en la conversación. */
+const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_ficha']);
+
+/**
+ * Lo que vale en cualquier paso del flujo de recomendación (con el inicio
+ * conversacional): BAJA, los botones de la conversación, pedir un asesor, un
+ * "gracias" y una pregunta escrita. Así ningún paso responde "No reconocí" a eso.
+ */
+async function atajos(from: string, text: string, session: Session | null): Promise<boolean> {
+  if (!config.conversacion.activa || !session) return false;
+  const { step } = session;
+  const data = session.data ?? {};
+  if (step === 'menu' || step === 'with_agent') return false;
+  if (esBaja(text)) {
+    await atenderBaja(from, data);
+    return true;
+  }
+  if (!PASOS_DE_OPCION.has(step) && !PASOS_DE_TEXTO.has(step)) return false;
+  // Botones de la conversación (ofrecer asesor, sugerencias) tocados desde un paso del flujo de recomendación.
+  if (parseBoton(text) || parseSugerencia(text)) {
+    await handleConversacion({ from, text, session: { step: 'menu', data: { ...data, pendiente: '' } } });
+    return true;
+  }
+  if (!PASOS_DE_OPCION.has(step)) return false;
+  if (esPedidoAsesor(text) && step !== 'reco_consentimiento') {
+    await pedirConsentimiento(from, data);
+    return true;
+  }
+  if (esAgradecimiento(text)) {
+    if (/me sirvi/i.test(text) && data.utilPreguntada === '1') await atenderUtil(from, 'si', data, step);
+    else await agradecer(from);
+    return true;
+  }
+  if (pareceUnaPregunta(text) && !/^\d+$/.test(text.trim()) && !PASOS_CON_IA.has(step)) {
+    await responderPreguntaSuelta(from, data, text);
+    return true;
+  }
+  return false;
+}
+
 export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
   // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
   if (await atenderRespuestaCampana(from, text, session)) return;
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.
   const util = parseUtil(text);
-  if (util) return atenderUtil(from, util, session?.data ?? {});
+  if (util) return atenderUtil(from, util, session?.data ?? {}, session?.step);
+  if (await atajos(from, text, session)) return;
   const step = session?.step ?? 'menu';
 
   // Con el inicio conversacional, el paso raíz lo atiende la IA con preguntas de botones.

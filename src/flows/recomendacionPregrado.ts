@@ -260,7 +260,35 @@ export type PregradoInterpretado =
  * el flujo pasa entonces a la orientación por áreas en vez de adivinar.
  * El flujo siempre confirma la asociación antes de recomendar.
  */
-export function interpretarPregrado(texto: string): PregradoInterpretado | null {
+/**
+ * Como la gente escribe su carrera: abreviada ("ing. industrial", "adm de
+ * empresas", "lic. en matemáticas") o con el oficio en vez de la carrera
+ * ("ingeniero químico", "contadora", "economista"). Se lleva al nombre formal.
+ */
+export function expandirCarrera(texto: string): string {
+  let t = ` ${(texto ?? '').toLowerCase()} `;
+  const cambios: readonly (readonly [RegExp, string])[] = [
+    [/\bing\.?\s+/g, 'ingeniería '],
+    [/\bingenier[oa]s?\b/g, 'ingeniería'],
+    [/\b(adm|admon|admin|administrador|administradora)\.?\s+/g, 'administración '],
+    [/\blic\.?\s+/g, 'licenciatura '],
+    [/\blicenciad[oa]\b/g, 'licenciatura'],
+    [/\bcontador(a)?(\s+p[uú]blic[oa])?\b/g, 'contaduría pública'],
+    [/\beconomista\b/g, 'economía'],
+    [/\bpsic[oó]log[oa]\b/g, 'psicología'],
+    [/\babogad[oa]\b/g, 'derecho'],
+    [/\bcomunicador(a)?(\s+social)?\b/g, 'comunicación social'],
+    [/\barquitect[oa]\b/g, 'arquitectura'],
+  ];
+  for (const [patron, reemplazo] of cambios) t = t.replace(patron, reemplazo);
+  // "ingeniería químico" → "ingeniería química" (el oficio en masculino).
+  t = t.replace(/\bingenier[ií]a\s+(\p{L}+?)ico\b/gu, 'ingeniería $1ica').replace(/\bingenier[ií]a\s+(\p{L}+?)o\b/gu, (m, raiz) =>
+    /^(civil|industrial)$/.test(`${raiz}o`) ? m : `ingeniería ${raiz}a`);
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+export function interpretarPregrado(textoOriginal: string): PregradoInterpretado | null {
+  const texto = expandirCarrera(textoOriginal);
   const n = normalizar(texto);
   if (!n) return null;
 

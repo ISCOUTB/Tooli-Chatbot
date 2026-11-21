@@ -49,10 +49,11 @@ export const PREGUNTAS: Record<Pendiente, Pregunta> = {
   },
   estudia_utb: {
     pendiente: 'estudia_utb',
-    texto: 'Para orientarte mejor: ¿estudias o estudiaste en la UTB?',
+    texto: 'Para orientarte mejor: ¿cuál es tu relación con la UTB?',
     botones: [
-      { id: 'conv_utb_si', displayText: '✅ Sí' },
-      { id: 'conv_utb_no', displayText: '❌ No' },
+      { id: 'conv_egresado', displayText: '🎓 Egresado UTB' },
+      { id: 'conv_estudiante', displayText: '📚 Estudio en la UTB' },
+      { id: 'conv_utb_no', displayText: '🏫 Otra universidad' },
     ],
   },
   egresado: {
@@ -325,7 +326,7 @@ export function sinPregrado(texto: string): 'ninguno' | 'tecnico' | null {
     || /\bno (tengo|tiene) (carrera|pregrado|titulo|estudios)\b/.test(n)
     || /\bbachiller(ato)?\b/.test(n)
     || /\b(sali|salgo|termine) (del|el) colegio\b/.test(n)) return 'ninguno';
-  if (/\b(tecnico|tecnica|tecnologo|tecnologa)\b/.test(n)) return 'tecnico';
+  if (/\b(tecnico|tecnica|tecnologo|tecnologa)\b/.test(n) || /^(soy |tengo (una )?|estudie (una )?)?tecnologia en\b/.test(n)) return 'tecnico';
   return null;
 }
 
@@ -365,10 +366,31 @@ const SALUDOS: ReadonlySet<string> = new Set([
 ]);
 
 /** Un saludo suelto (sin pregunta): el bot se presenta y pregunta. */
+const PALABRAS_DE_SALUDO = new Set([
+  'hola', 'holi', 'hello', 'hi', 'hey', 'buenas', 'buenos', 'buen', 'dias', 'dia', 'tardes', 'noches', 'saludos',
+  'que', 'tal', 'como', 'estas', 'esta', 'tooli', 'info', 'informacion', 'por', 'favor', 'porfa', 'porfavor', 'gracias',
+]);
+
+/** Un saludo suelto (también "Hola Tooli" o "Hola, info por favor"): el bot se presenta y pregunta. */
 export function esSaludo(texto: string): boolean {
   const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-  return n === '' || SALUDOS.has(n);
+  if (n === '' || SALUDOS.has(n)) return true;
+  const palabras = n.split(' ');
+  return palabras.length <= 6 && /^(hola|holi|hello|hi|hey|buenas|buenos|buen|saludos)$/.test(palabras[0])
+    && palabras.every((p) => PALABRAS_DE_SALUDO.has(p));
 }
+
+/** "Gracias", "ok", "👍", "me sirvió": no es una opción ni una pregunta. */
+export function esAgradecimiento(texto: string): boolean {
+  const t = (texto ?? '').trim();
+  if (/^[\s👍👌🙏🙌✅😊🙂😀😁❤️]+$/u.test(t) && t.length) return true;
+  const n = normalize(t).replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^(muchas |mil )?gracias( (tooli|por todo|por la info(rmacion)?))?$|^(ok|okay|oki|vale|listo|perfecto|genial|excelente|super|chevere|bueno|entendido|de acuerdo|dale)( gracias)?$|^(si )?me sirvio( mucho)?$/.test(n);
+}
+
+/** Una pregunta suelta en un paso de lista se responde y se sigue con la lista de arriba. */
+export const SIGUE_ARRIBA = '👆 Cuando quieras, sigue con la opción de arriba.';
+export const CON_GUSTO = '¡Con gusto! 🙌 Elige otra opción de arriba o escríbeme tu pregunta.';
 
 const PERSONA = String.raw`(asesor|asesora|asesores|humano|persona|alguien|agente|ejecutivo|ejecutiva)`;
 const ARTICULO = String.raw`( (con|a))?( (un|una|el|la|algun|alguna))?`;
@@ -393,7 +415,9 @@ export function esPedidoAsesor(texto: string): boolean {
 /** Una pregunta va a la IA aunque el bot esté esperando la carrera. */
 export function pareceUnaPregunta(texto: string): boolean {
   const n = normalize(texto ?? '');
-  return n.includes('?') || /^(que|cual|cuales|cuanto|cuanta|cuantos|como|cuando|donde|hay|tienen|tiene|me puedes|puedo|quiero saber|necesito saber|informacion)\b/.test(n);
+  return n.includes('?') || /^(que|cual|cuales|cuanto|cuanta|cuantos|como|cuando|donde|hay|tienen|tiene|me puedes|puedo|quiero saber|necesito saber|informacion)\b/.test(n)
+    // Pedidos ("quiero el plan de estudios", "me interesa saber…") también van a la IA.
+    || /^(quiero|necesito|me interesa|me gustaria|quisiera|podrias|puedes|dime|cuentame|explicame|muestrame)\b/.test(n) && n.split(' ').length >= 4;
 }
 
 export type RespuestaEscrita = { boton: BotonId } | { nivel: NivelElegido };
@@ -402,6 +426,8 @@ export type RespuestaEscrita = { boton: BotonId } | { nivel: NivelElegido };
 export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefined, texto: string): RespuestaEscrita | null {
   const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (!n) return null;
+  // Una pregunta ("¿Hay descuento por ser egresado?") no es la respuesta a la pregunta pendiente.
+  if ((texto ?? '').includes('?') && n.split(' ').length > 3) return null;
   // Un "sí"/"no" corto equivale al botón; una frase larga es una pregunta para la IA.
   const corto = n.split(' ').length <= 4;
   const si = corto && /^(si|sip|claro|correcto|asi es|exacto|obvio|por supuesto)( .*)?$/.test(n);
@@ -416,9 +442,10 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
       if (no || /ayuda|elegir|no se|recomiend/.test(n)) return { boton: 'conv_elegir' };
       return null;
     case 'estudia_utb':
-      if (/egresad|me gradue|ya me gradue/.test(n)) return { boton: 'conv_egresado' };
+      if (/egresad|me gradue|ya me gradue|graduad/.test(n)) return { boton: 'conv_egresado' };
+      if (no || /otra universidad|otra u\b|de otra/.test(n)) return { boton: 'conv_utb_no' };
+      if (/\b(estudio|estudiante|estoy estudiando|curso|semestre)\b/.test(n) && !/\botra\b/.test(n)) return { boton: 'conv_estudiante' };
       if (si) return { boton: 'conv_utb_si' };
-      if (no || /otra universidad/.test(n)) return { boton: 'conv_utb_no' };
       return null;
     case 'egresado':
       if (/egresad|gradu|termine|ya sali|ya me/.test(n)) return { boton: 'conv_egresado' };

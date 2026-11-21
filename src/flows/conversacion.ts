@@ -21,7 +21,7 @@ import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaServic
 import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { guardarRegistroProspecto } from '../services/registroService';
-import { guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
+import { conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
 import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
 import { CONFIRMACION_BAJA } from './campanaReco';
@@ -34,7 +34,7 @@ import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado'
 import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, OFRECER_ASESOR, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
+  BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, CON_GUSTO, OFRECER_ASESOR, SIGUE_ARRIBA, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
@@ -483,6 +483,77 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   await enviarConSugerencias(from, respuesta, botones);
 }
 
+// ── Desde cualquier paso ────────────────────────────────────────────────────
+
+/**
+ * BAJA revoca la autorización en cualquier paso, como promete el mensaje de
+ * autorización: queda la constancia en "no", sale de las campañas y se confirma.
+ */
+export async function atenderBaja(from: string, data: SessionData): Promise<void> {
+  await track('info_baja');
+  try {
+    await darDeBaja(from);
+  } catch (err) {
+    console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
+  }
+  await registrarDecision(from, 'no');
+  await guardarSesion(from, { ...soloConsentimiento(data), ...lugar(data), datos: 'no', info: 'no', pendiente: '' });
+  await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
+}
+
+/** Lo que se sabe de la persona (sin la autorización), para seguir donde iba. */
+function lugar(data: SessionData): SessionData {
+  const { relacion, pregradoId, familiaId, nivel, nivelListo, sinPregrado: sin } = data;
+  return Object.fromEntries(Object.entries({ relacion, pregradoId, familiaId, nivel, nivelListo, sinPregrado: sin })
+    .filter(([, v]) => v)) as SessionData;
+}
+
+/**
+ * Una pregunta escrita en un paso de lista (nivel, confirmar carrera…): la IA la
+ * responde con el contexto que haya y la persona sigue con la lista de arriba.
+ * Si hace falta una persona, se ofrece el asesor.
+ */
+export async function responderPreguntaSuelta(from: string, data: SessionData, texto: string): Promise<void> {
+  await track('ai_request', { area: 'posgrados' });
+  try {
+    const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS);
+    const separada = separarSugerencias(ai.answer);
+    await track('ai_resolved', { area: 'posgrados' });
+    await messaging.sendText({ to: from, text: `${separada.texto || ai.answer}\n\n${SIGUE_ARRIBA}` });
+    if (separada.asesor) {
+      await track('conv_asesor_sugerido');
+      await messaging.sendButtons({ to: from, title: TITULO, description: OFRECER_ASESOR, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
+    }
+  } catch (err) {
+    await track('ai_failed', { area: 'posgrados', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
+    await messaging.sendText({ to: from, text: `${IA_NO_DISPONIBLE}\n\n${SIGUE_ARRIBA}` });
+  }
+}
+
+/** Un "gracias" o "👍" en un paso de lista: se agradece sin tomarlo como opción inválida. */
+export async function agradecer(from: string): Promise<void> {
+  await messaging.sendText({ to: from, text: CON_GUSTO });
+}
+
+/**
+ * Una pregunta desde las recomendaciones o la ficha sigue en la conversación:
+ * la responde la misma IA, con sugerencias, flyer del programa y asesor si hace falta.
+ */
+export async function responderEnConversacion(from: string, data: SessionData, texto: string): Promise<void> {
+  const enConversacion: SessionData = { ...data, pendiente: '', saltada: '', ofrecido: '1', modo: '' };
+  await guardarSesion(from, enConversacion);
+  return responderConIa(from, enConversacion, texto);
+}
+
+/** "🤖 Preguntar a la IA" desde las recomendaciones: sigue en la conversación. */
+export async function abrirPreguntasEnConversacion(from: string, data: SessionData): Promise<void> {
+  await guardarSesion(from, { ...data, pendiente: '', saltada: '', ofrecido: '1', modo: '' });
+  await messaging.sendText({
+    to: from,
+    text: '🤖 Pregúntame lo que quieras sobre estos programas: requisitos, plan de estudios, diferencias, horarios o financiación 👇',
+  });
+}
+
 // ── Entrada ─────────────────────────────────────────────────────────────────
 
 export async function handleConversacion(ctx: FlowContext): Promise<void> {
@@ -498,6 +569,9 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     if (!pendienteVigente(data) || esSaludo(text)) data.pendiente = '';
     delete data.pendienteEn;
   }
+  // Una sesión reiniciada por otro paso (el asesor, el menú anterior) no trae la
+  // decisión sobre los datos: se recupera para no volver a pedir autorización ni nombre.
+  if (session && !data.datos) Object.assign(data, await conLoRecordado(from, data).catch(() => data));
   // Quien ya respondió lo de recibir información decidió también sobre sus datos.
   if (!data.datos && data.info) data.datos = data.info;
 
@@ -507,18 +581,7 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const comando = parseGlobalCommand(text);
   if (comando === 'menu' || comando === 'salir') return reiniciar(from, data);
   if (esPedidoAsesor(text)) return pedirConsentimiento(from, { ...data, pendiente: '' });
-  if (esBaja(text)) {
-    await track('info_baja');
-    try {
-      await darDeBaja(from);
-    } catch (err) {
-      console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
-    }
-    await registrarDecision(from, 'no');
-    await guardarSesion(from, { ...data, datos: 'no', info: 'no', pendiente: '' });
-    await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
-    return;
-  }
+  if (esBaja(text)) return atenderBaja(from, data);
 
   // Las salidas del menú anterior ("Busco pregrado", "Otras gestiones") siguen sirviendo.
   const salida = parseRelacion(text);
@@ -547,6 +610,11 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const escrita = interpretarRespuestaEscrita(pendiente, text);
   if (escrita && 'boton' in escrita) return atenderBoton(from, data, escrita.boton);
   if (escrita && 'nivel' in escrita) return continuar(from, { ...data, nivel: escrita.nivel, nivelListo: '1' });
+
+  // Un saludo con una pregunta pendiente la repite: no es el nombre ni la carrera.
+  if (pendiente && session && esSaludo(text) && pendiente !== 'datos') {
+    return preguntar(from, data, pendiente, saludoCortoRegreso(data.nombre));
+  }
 
   if (pendiente === 'nombre_info' && !pareceUnaPregunta(text)) {
     const nombre = limpiarNombre(text);

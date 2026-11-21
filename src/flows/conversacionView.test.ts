@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
-  cabeConBotones, datosAceptados, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
+  cabeConBotones, datosAceptados, detectarPerfil, esAgradecimiento, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
@@ -289,5 +289,38 @@ describe('conversación: cuándo entra el asesor', () => {
       assert.ok([...b.displayText].length <= 20, b.displayText);
       assert.equal(parseBoton(b.id), b.id);
     }
+  });
+});
+
+describe('conversación: lo que encontraron las 100 simulaciones', () => {
+  it('un saludo con relleno sigue siendo saludo, pero una pregunta no', () => {
+    for (const t of ['Hola Tooli', 'Hola, info por favor', 'buenas tardes, cómo estás?', 'Hola!!']) assert.equal(esSaludo(t), true, t);
+    for (const t of ['hola quiero info de la maestría', 'Hola, ¿cuánto cuesta el MBA?']) assert.equal(esSaludo(t), false, t);
+  });
+
+  it('reconoce agradecimientos sin confundirlos con preguntas', () => {
+    for (const t of ['gracias', 'Muchas gracias', '👍', 'me sirvió', 'ok', 'listo gracias']) assert.equal(esAgradecimiento(t), true, t);
+    for (const t of ['¿gracias a qué?', 'ok pero ¿cuánto cuesta?', 'Ingeniería Industrial']) assert.equal(esAgradecimiento(t), false, t);
+  });
+
+  it('«tecnología en…» es un título técnico', () => {
+    assert.equal(sinPregrado('tecnología en gestión logística'), 'tecnico');
+    assert.equal(sinPregrado('tecnologia de la informacion es lo que me interesa'), null);
+  });
+
+  it('la relación con la UTB se pregunta una sola vez, con tres botones', () => {
+    assert.deepEqual(PREGUNTAS.estudia_utb.botones?.map((b) => b.id), ['conv_egresado', 'conv_estudiante', 'conv_utb_no']);
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'soy egresado'), { boton: 'conv_egresado' });
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'estudio en la UTB'), { boton: 'conv_estudiante' });
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'estudié en otra universidad'), { boton: 'conv_utb_no' });
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'sí'), { boton: 'conv_utb_si' });
+    // Una pregunta que menciona "egresado" no es la respuesta.
+    assert.equal(interpretarRespuestaEscrita('estudia_utb', '¿Hay descuento por ser egresado?'), null);
+  });
+
+  it('un pedido largo también es una pregunta para la IA', () => {
+    assert.equal(pareceUnaPregunta('quiero el plan de estudios completo de la maestría'), true);
+    assert.equal(pareceUnaPregunta('Ingeniería Industrial'), false);
+    assert.equal(pareceUnaPregunta('quiero asesor'), false);
   });
 });

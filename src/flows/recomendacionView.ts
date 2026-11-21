@@ -342,8 +342,8 @@ export function pieFlyer(p: ProgramaUtb): string {
 export function encabezadoConFotos(resultado: ResultadoRecomendacion, ctx: ContextoResultados, opciones: { mas?: boolean } = {}): string {
   const partes = [
     opciones.mas
-      ? '➕ *Más opciones para ti* 👇'
-      : `🎯 *Posgrados para ti*\nSegún tu pregrado (${ctx.etiquetaPregrado}), estas opciones de la UTB pueden encajarte 👇`,
+      ? '➕ *Más opciones para ti* 👆'
+      : `🎯 *Posgrados para ti*\nSegún tu pregrado (${ctx.etiquetaPregrado}), estas opciones de la UTB pueden encajarte 👆`,
   ];
   const nota = opciones.mas ? null : notaRelajado(resultado, ctx);
   if (nota) partes.push(nota);
@@ -355,8 +355,37 @@ export function encabezadoConFotos(resultado: ResultadoRecomendacion, ctx: Conte
 
 /** Con fotos: va con las opciones, al final. */
 export const CIERRE_CON_FOTOS =
-  `Elige una opción para continuar o escríbeme tu pregunta.\n\n_Valores de matrícula publicados para ${VIGENCIA_VALORES}; ` +
+  `Elige una opción o escríbeme tu pregunta.\n\n_Valores de matrícula ${VIGENCIA_VALORES}; ` +
   `verifica requisitos y costos en la página de cada programa._\n🔗 Todos los posgrados: ${POSGRADOS_URL}`;
+
+/** Con flyers, un solo mensaje después de ellos: el encabezado, el cierre y las opciones. */
+export function cuerpoListaConFotos(resultado: ResultadoRecomendacion, ctx: ContextoResultados, opciones: { mas?: boolean } = {}): string {
+  return `${encabezadoConFotos(resultado, ctx, opciones)}\n\n${CIERRE_CON_FOTOS}`.slice(0, 1024);
+}
+
+/** "¿Te sirvió?" dentro de la lista de opciones, la primera vez: un mensaje menos. */
+export const FILAS_UTIL: readonly FilaLista[] = [
+  { id: 'reco_util_si', title: '👍 Me sirvieron', description: 'Cuéntanos si estas opciones te sirven' },
+  { id: 'reco_util_no', title: '👎 No me sirvieron', description: 'Te ayudamos a buscar algo más a tu medida' },
+];
+
+/** Después de calificar, botones para seguir (valen en el paso de recomendaciones). */
+export const GRACIAS_UTIL_SIGUE = '¡Qué bien! 🙌 Gracias por contarnos. ¿Quieres ver uno en detalle o que te contacte un asesor?';
+export const BOTONES_TRAS_UTIL: readonly Boton[] = [
+  { id: 'ficha', displayText: '📄 Ver un programa' },
+  { id: 'asesor', displayText: '👤 Hablar con asesor' },
+];
+export const BOTONES_TRAS_NO_UTIL: readonly Boton[] = [
+  { id: 'asesor', displayText: '👤 Hablar con asesor' },
+  { id: 'nivel', displayText: '🎚️ Cambiar nivel' },
+];
+
+/** "2" cuando solo se mostró un programa: se explica qué número escribir. */
+export function numeroFueraDeRango(total: number): string {
+  return total === 1
+    ? 'Solo te mostré 1 programa: escribe *1* para verlo, o elige otra opción 👇'
+    : `Solo te mostré ${total} programas: escribe un número del *1* al *${total}*, o elige otra opción 👇`;
+}
 
 function notaRelajado(resultado: ResultadoRecomendacion, ctx: ContextoResultados): string | null {
   if (resultado.relajado === 'modalidad') {
@@ -404,7 +433,7 @@ const FILA_ASESOR: FilaLista = { id: 'asesor', title: '👤 Hablar con asesor', 
 const FILA_MENU: FilaLista = { id: 'menu', title: '🏠 Menú principal', description: 'Volver al inicio' };
 
 /** Acciones tras ver las recomendaciones; solo se ofrece lo que aplica. */
-export function filasAcciones(resultado: ResultadoRecomendacion, ctx: ContextoResultados, yaVioMas: boolean): FilaLista[] {
+export function filasAcciones(resultado: ResultadoRecomendacion, ctx: ContextoResultados, yaVioMas: boolean, conUtil = false): FilaLista[] {
   const filas: FilaLista[] = [
     { id: 'ficha', title: '📄 Ver un programa', description: 'Detalle, plan de estudios y valor (o escribe su número)' },
     FILA_IA,
@@ -421,6 +450,8 @@ export function filasAcciones(resultado: ResultadoRecomendacion, ctx: ContextoRe
     { id: 'pregrado', title: '🔄 Cambiar pregrado', description: 'Empezar de nuevo con otro pregrado' },
     FILA_MENU,
   );
+  // WhatsApp acepta hasta 10 filas: la calificación entra si cabe.
+  if (conUtil && filas.length + FILAS_UTIL.length <= 10) filas.push(...FILAS_UTIL);
   return filas;
 }
 
@@ -602,6 +633,11 @@ export function parseUtil(texto: string): 'si' | 'no' | null {
 
 /** Quien ya autorizó sus datos al empezar: solo se le piden los de contacto. */
 export const ASESOR_CON_AUTORIZACION = '👤 ¡Claro! Para que un asesor de Posgrados te contacte necesito un par de datos.';
+
+/** Quien ya dio su correo: se le conecta sin volver a pedirlo. */
+export function asesorConCorreoConocido(correo: string): string {
+  return `👤 ¡Claro! Un asesor de Posgrados te contactará al correo *${correo}* 📧\n\n_Si es otro, díselo al asesor en el chat._`;
+}
 
 /** El correo, sin volver a dar las gracias (va después de ASESOR_CON_AUTORIZACION). */
 export const PEDIR_SOLO_CORREO = '📧 ¿Cuál es tu *correo electrónico*?\n\n_Escribe *0* para volver._';

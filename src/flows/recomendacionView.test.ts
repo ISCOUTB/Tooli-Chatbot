@@ -48,6 +48,8 @@ import {
   BOTONES_FICHA, CIERRE_CON_FOTOS, formatearPlan, parseAccionFicha, pieFicha, pieFlyer, preguntaCostos,
 } from './recomendacionView';
 import { urlFotoPermitida } from '../services/fotoProgramaService';
+import { BOTONES_TRAS_NO_UTIL, BOTONES_TRAS_UTIL, FILAS_UTIL, asesorConCorreoConocido, numeroFueraDeRango } from './recomendacionView';
+import { expandirCarrera, interpretarPregrado } from './recomendacionPregrado';
 
 /**
  * Vista del flujo de recomendación: que todo quepa en las listas y botones
@@ -380,5 +382,32 @@ describe('posgrados con foto oficial', () => {
     const p = POSGRADOS_UTB[0];
     assert.match(formatearPlan(p), new RegExp(p.nombre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(preguntaCostos(p), /becas/);
+  });
+});
+
+describe('recomendación: lo que encontraron las 100 simulaciones', () => {
+  it('reconoce carreras abreviadas y oficios', () => {
+    const casos: [string, string][] = [
+      ['ing. industrial', 'ingenieria-industrial'], ['adm de empresas', 'administracion-de-empresas'],
+      ['ingeniero químico', 'ingenieria-quimica'], ['contadora', 'contaduria-publica'], ['abogado', 'derecho'],
+      ['ingeniero de sistemas', 'ingenieria-de-sistemas-y-computacion'], ['economista', 'economia'],
+    ];
+    for (const [texto, id] of casos) {
+      const r = interpretarPregrado(texto);
+      assert.ok(r && r.tipo === 'utb' && r.pregradoId === id, `${texto} → ${JSON.stringify(r)}`);
+    }
+    assert.equal(expandirCarrera('Ingeniería Civil'), 'ingeniería civil');
+    assert.deepEqual(interpretarPregrado('lic. en matemáticas'), { tipo: 'familia', familiaId: 'educacion' });
+  });
+
+  it('el "¿te sirvió?" va dentro de la lista y caben a lo sumo 10 filas', () => {
+    for (const f of FILAS_UTIL) assert.ok([...f.title].length <= 24 && [...(f.description ?? '')].length <= 72, f.title);
+    for (const b of [...BOTONES_TRAS_UTIL, ...BOTONES_TRAS_NO_UTIL]) assert.ok([...b.displayText].length <= 20, b.displayText);
+  });
+
+  it('explica qué número escribir y no vuelve a pedir el correo conocido', () => {
+    assert.match(numeroFueraDeRango(1), /escribe \*1\*/);
+    assert.match(numeroFueraDeRango(3), /del \*1\* al \*3\*/);
+    assert.match(asesorConCorreoConocido('ana@correo.com'), /ana@correo\.com/);
   });
 });

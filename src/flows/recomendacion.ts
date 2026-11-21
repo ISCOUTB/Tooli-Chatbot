@@ -17,6 +17,7 @@ import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../servic
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
 import { registrarDecision } from '../services/consentimientoService';
+import { completarPerfil, conLoRecordado } from '../services/perfilService';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
@@ -31,23 +32,25 @@ import {
   CORREO_REGEX,
   FILAS_TRAS_FICHA,
   ASESOR_CON_AUTORIZACION,
+  asesorConCorreoConocido,
   BOTONES_FICHA,
-  CIERRE_CON_FOTOS,
   PIE_BOTONES_FICHA,
   PREGUNTA_FICHA,
-  encabezadoConFotos,
   formatearPlan,
   pieFicha,
   pieFlyer,
   pieFlyerRecomendado,
   piePrograma,
   preguntaCostos,
-  BOTONES_UTIL,
+  BOTONES_TRAS_NO_UTIL,
+  BOTONES_TRAS_UTIL,
+  GRACIAS_UTIL_SIGUE,
+  cuerpoListaConFotos,
+  numeroFueraDeRango,
   esTextoLibre,
   GRACIAS_NO_UTIL,
   GRACIAS_UTIL,
   PIE_UTIL,
-  PREGUNTA_UTIL,
   PEDIR_SOLO_CORREO,
   PEDIR_CONSENTIMIENTO,
   PEDIR_NOMBRE,
@@ -486,10 +489,10 @@ function calcular(data: SessionData) {
   return { resultado, ctx };
 }
 
-async function enviarAcciones(from: string, data: SessionData, cuerpo = 'Elige una opción para continuar'): Promise<void> {
+async function enviarAcciones(from: string, data: SessionData, cuerpo = 'Elige una opción para continuar', conUtil = false): Promise<void> {
   const { resultado, ctx } = calcular(data);
   if (!ctx) return;
-  await enviarLista(from, '¿Qué quieres hacer?', cuerpo, 'Opciones', filasAcciones(resultado, ctx, data.vioMas === '1'));
+  await enviarLista(from, '¿Qué quieres hacer?', cuerpo, 'Opciones', filasAcciones(resultado, ctx, data.vioMas === '1', conUtil));
 }
 
 export async function mostrarResultados(from: string, data: SessionData, mas = false): Promise<void> {
@@ -510,21 +513,16 @@ export async function mostrarResultados(from: string, data: SessionData, mas = f
     // Un flyer por programa (foto oficial + datos); sin flyer, el mismo programa en texto.
     const lista = mas ? resultado.resto : resultado.recomendaciones;
     const desde = mas ? resultado.recomendaciones.length + 1 : 1;
-    await messaging.sendText({ to: from, text: encabezadoConFotos(resultado, ctx, { mas }) });
+    // Los flyers y después un solo mensaje con el encabezado, el cierre y las opciones (con "¿te sirvió?").
     for (const [i, r] of lista.entries()) {
       if (!await enviarFlyerPrograma(from, r.programa, pieFlyerRecomendado(r, desde + i))) {
         await messaging.sendText({ to: from, text: piePrograma(r, desde + i) });
       }
     }
-    await enviarAcciones(from, nuevaData, CIERRE_CON_FOTOS);
+    await enviarAcciones(from, nuevaData, cuerpoListaConFotos(resultado, ctx, { mas }), preguntarUtil);
   } else {
     await messaging.sendText({ to: from, text: formatearResultados(resultado, ctx, { mas }) });
-    await enviarAcciones(from, nuevaData);
-  }
-  if (preguntarUtil) {
-    await messaging.sendButtons({
-      to: from, title: '', description: PREGUNTA_UTIL, footer: PIE_UTIL, buttons: [...BOTONES_UTIL],
-    });
+    await enviarAcciones(from, nuevaData, 'Elige una opción para continuar', preguntarUtil);
   }
 }
 
@@ -532,7 +530,7 @@ export async function mostrarResultados(from: string, data: SessionData, mas = f
  * 👍/👎 sobre la recomendación: queda la métrica y, si autorizó sus datos, una
  * nota en su ficha para el asesor. No cambia el paso en que está la persona.
  */
-export async function atenderUtil(from: string, valor: 'si' | 'no', data: SessionData): Promise<void> {
+export async function atenderUtil(from: string, valor: 'si' | 'no', data: SessionData, paso?: string): Promise<void> {
   await track(valor === 'si' ? 'reco_util_si' : 'reco_util_no', { area: 'posgrados' });
   if (data.datos === 'si') {
     try {
@@ -543,6 +541,14 @@ export async function atenderUtil(from: string, valor: 'si' | 'no', data: Sessio
     } catch (err) {
       console.error('[reco] no se pudo anotar la calificación:', describeExternalError(err));
     }
+  }
+  // En las recomendaciones, la conversación sigue con botones; desde otro paso, solo el agradecimiento.
+  if (paso === 'reco_resultados') {
+    await messaging.sendButtons({
+      to: from, title: '', description: valor === 'si' ? GRACIAS_UTIL_SIGUE : GRACIAS_NO_UTIL, footer: PIE_UTIL,
+      buttons: [...(valor === 'si' ? BOTONES_TRAS_UTIL : BOTONES_TRAS_NO_UTIL)],
+    });
+    return;
   }
   await messaging.sendText({ to: from, text: valor === 'si' ? GRACIAS_UTIL : GRACIAS_NO_UTIL });
 }
@@ -560,6 +566,11 @@ export async function handleRecoResultados(ctx: FlowContext): Promise<void> {
   // Escribir el número de un programa abre su ficha directamente.
   const porNumero = programaPorNumero(text, mostrados);
   if (porNumero) return mostrarFicha(from, data, porNumero);
+  if (/^\d+$/.test(text.trim()) && mostrados.length) {
+    await messaging.sendText({ to: from, text: numeroFueraDeRango(mostrados.length) });
+    await enviarAcciones(from, data);
+    return;
+  }
 
   const accion = parseAccion(text);
   if (accion === 'ficha') {
@@ -672,9 +683,16 @@ function sesionIa(data: SessionData): Session {
   };
 }
 
-/** Lo que escribió (una pregunta, lo que buscaba) lo responde la IA de una vez. */
+/**
+ * Lo que escribió (una pregunta, lo que buscaba) lo responde la IA de la
+ * conversación: con sugerencias, el flyer del programa y el asesor si hace falta.
+ */
 async function responderConIaDesdeResultados(from: string, data: SessionData, texto: string): Promise<void> {
   await track('reco_ia', { area: 'posgrados' });
+  if (config.conversacion.activa) {
+    const { responderEnConversacion } = await import('./conversacion');
+    return responderEnConversacion(from, data, texto);
+  }
   const sesion = sesionIa(data);
   await setSession(from, sesion);
   await handleChattingWithAI({ from, text: texto, session: sesion });
@@ -682,6 +700,10 @@ async function responderConIaDesdeResultados(from: string, data: SessionData, te
 
 async function iniciarIa(from: string, data: SessionData): Promise<void> {
   await track('reco_ia', { area: 'posgrados' });
+  if (config.conversacion.activa) {
+    const { abrirPreguntasEnConversacion } = await import('./conversacion');
+    return abrirPreguntasEnConversacion(from, data);
+  }
   await setSession(from, sesionIa(data));
   await messaging.sendText({
     to: from,
@@ -700,6 +722,11 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
  */
 async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string): Promise<void> {
   const autorizado: SessionData = { ...data, consentimiento: 'Sí' };
+  // Quien ya dio nombre y correo antes no los vuelve a escribir: se le conecta de una.
+  if (data.nombre && data.correo && CORREO_REGEX.test(data.correo)) {
+    await messaging.sendText({ to: from, text: asesorConCorreoConocido(data.correo) });
+    return registrarLeadYConectar(from, autorizado);
+  }
   if (data.nombre) {
     await setSession(from, { step: 'reco_correo', data: autorizado });
     await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_SOLO_CORREO}` : pedirCorreo(data.nombre) });
@@ -715,8 +742,10 @@ async function volverALaConversacion(from: string, data: SessionData, texto: str
   await messaging.sendText({ to: from, text: texto });
 }
 
-export async function pedirConsentimiento(from: string, data: SessionData): Promise<void> {
+export async function pedirConsentimiento(from: string, datosSesion: SessionData): Promise<void> {
   await track('reco_asesor', { area: 'posgrados' });
+  // Una sesión reiniciada no trae la autorización ni el nombre: se recuperan si ya se dieron.
+  const data = await conLoRecordado(from, datosSesion).catch(() => datosSesion);
   // Quien autorizó el tratamiento de sus datos al empezar no tiene que autorizar de nuevo.
   if (data.datos === 'si') return pedirDatosDeContacto(from, data, ASESOR_CON_AUTORIZACION);
   await setSession(from, { step: 'reco_consentimiento', data });
@@ -782,6 +811,11 @@ export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
     return;
   }
   await setSession(from, { step: 'reco_correo', data: { ...data, nombre } });
+  // El nombre queda de una vez (con autorización): si no termina, no se le vuelve a pedir.
+  if (data.datos === 'si') {
+    await completarPerfil(from, { nombre, datos: 'si' }).catch((err) =>
+      console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
+  }
   await messaging.sendText({ to: from, text: pedirCorreo(nombre) });
 }
 
@@ -856,6 +890,11 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
   });
 
   await track('reco_lead_completado', { area: 'posgrados' });
+  // Nombre y correo quedan en el perfil (con autorización) para no volver a pedirlos.
+  if (data.datos === 'si') {
+    await completarPerfil(from, { nombre, correo, datos: 'si' }).catch((err) =>
+      console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
+  }
   await conectarConAsesorPosgrado(from, {
     nombre,
     email: correo,
