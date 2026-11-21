@@ -35,6 +35,7 @@ export type MetricEvent =
   | 'conv_seguimiento'
   | 'reco_util_si'
   | 'reco_util_no'
+  | 'conv_asesor_sugerido'
   | 'conv_sugerencia'
   | 'duplicate_message'
   // Posgrados

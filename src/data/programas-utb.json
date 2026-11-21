@@ -1237,6 +1237,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-ANALISIS-Y-DISENO-ESTRUCTURAL-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/hero-8.jpg",
       "profesores": [
         "Sergio Villar Salinas",
         "Glenia Barrios",
@@ -1346,6 +1347,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-AUTOMATIZACION-Y-CONTROL-DE-PROCESOS-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero-2.jpg",
       "profesores": [
         "Jorge Eliécer Duque Pardo",
         "Eduardo Gómez Vásquez",
@@ -1468,6 +1470,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/abogado-especializado-licitacion-publica_1200w.jpg",
       "profesores": [
         "Yina Torres",
         "Giannina Guerrero Arrieta"
@@ -1558,6 +1561,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESPECIALIZACION-EN-DERECHO-COMERCIAL-2-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-6.jpg",
       "profesores": [
         "Nicolás Pareja Bermúdez",
         "Maria del Socorro Pimienta de Gomez",
@@ -1654,6 +1658,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-DERECHO-DEL-TRABAJO-Y-RELACIONES-LABORALES-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Especializacion-en-Derecho-del-Trabajo-y-Relaciones-Laborales.png",
       "profesores": [
         "Giannina Guerrero Arrieta",
         "Kiara Coralia Campo Landines",
@@ -1774,6 +1779,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/abogada-especializacion-derechos-humanos_1200w.jpg",
       "profesores": [
         "Marcos Posada",
         "Giannina Guerrero Arrieta"
@@ -1869,6 +1875,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero-5.jpg",
       "profesores": [
         "William Arellano Cartagena",
         "Gilma Mestre de Mogollón",
@@ -1978,6 +1985,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/hero-especializacion-educacion-mediada-tic_1200w.jpg",
       "profesores": [
         "Gilma Mestre de Mogollón",
         "Jorge Luis Muñiz Olite",
@@ -2077,6 +2085,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-ESTADISTICA-APLICADA.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/hero-17.jpg",
       "profesores": [
         "David Sierra Porta",
         "Raúl Vargas Ramírez",
@@ -2172,6 +2181,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-5.jpg",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -2260,6 +2270,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-FINANZAS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero-1.jpg",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -2345,6 +2356,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-GEOTECNIA-VIAL-Y-PAVIMENTOS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-1.jpg",
       "profesores": [
         "Angela Patricia Barreto Maya",
         "Juan Diego Vanegas Miranda",
@@ -2437,6 +2449,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/hero-15.jpg",
       "profesores": [
         "Holman Ospina Mateus",
         "Kiara Coralia Campo Landines",
@@ -2548,6 +2561,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/hero-especializacion-seguridad-salud-trabajo_1200w.jpg",
       "profesores": [
         "Kiara Campo Landines",
         "Holman Ospina Mateus",
@@ -2639,6 +2653,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-DE-MANTENIMIENTO-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero.jpg",
       "profesores": [
         "Alfonso Núñez Nieto",
         "Armando Mendoza Diaz",
@@ -2749,6 +2764,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-DE-MERCADEO.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-2.jpg",
       "profesores": [
         "Albeiro Berbesi Urbina",
         "Rolando Ariza",
@@ -2852,6 +2868,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-DE-PRODUCCION-Y-CALIDAD.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero.jpg",
       "profesores": [
         "Fabián Alfonso Gazabón Arrieta",
         "Alfonso Núñez Nieto",
@@ -2952,6 +2969,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-DE-PROYECTOS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-gerencia-1.jpg",
       "profesores": [
         "Fabián Alfonso Gazabón Arrieta",
         "Alfonso Núñez Nieto",
@@ -3052,6 +3070,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/expertos-especializacion-gerencia-hospitalaria_1200w.jpg",
       "profesores": [
         "Ana Susana Cantillo Orozco",
         "Iván Ramiro Tenorio Barragán",
@@ -3143,6 +3162,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-DE-TALENTO-HUMANO-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-1-1.jpg",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -3234,6 +3254,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/03/ESP.-EN-GERENCIA-EMPRESARIAL-1.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero-3.jpg",
       "profesores": [
         "Martha Patricia Castro Porto",
         "María del Rosario Curi",
@@ -3329,6 +3350,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/07/ESP.-EN-GERENCIA-TRIBUTARIA.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-tributaria.jpg",
       "profesores": [
         "Joaquín Pablo Sierra Arias",
         "Víctor Alfredo Tarrá Diaz",
@@ -3424,6 +3446,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/imagen_hero-4.jpg",
       "profesores": [
         "Claudia Diaz Mendoza",
         "Milton Guerrero Pájaro",
@@ -3516,6 +3539,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-11.jpg",
       "profesores": [
         "Aarón Espinosa Espinosa",
         "Jorge Alvis Arrieta",
@@ -3613,6 +3637,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-13.jpg",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -3698,6 +3723,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-10.jpg",
       "profesores": [
         "Gloria Isabel Bautista Lasprilla",
         "Juan Carlos Martínez Santos",
@@ -3794,6 +3820,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-4.jpg",
       "profesores": [
         "Lien Neil Tejeda Lopez",
         "Ricardo Rada González",
@@ -3885,6 +3912,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-GESTION-TERRITORIAL-Y-DERECHO-URBANO.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-Esp.-Gestion-Territorial-y-Derecho-Urbano.png",
       "profesores": [
         "Jeffrey Janer Quiñones",
         "Ramón Pérez Yepes",
@@ -4013,6 +4041,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/hero-especializacion-ingenieria-software_1200w.jpg",
       "profesores": [
         "Juan Carlos Mantilla Gómez",
         "Juan Carlos Martínez Santos",
@@ -4112,6 +4141,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/BROCHURE-ESPECIALIZACION-EN-PLANEACION-ESTRATEGICA-Y-PROSPECTIVA.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-7.jpg",
       "profesores": [
         "Jorge Luis del Río Cortina",
         "Jorge Augusto Martínez Agudelo",
@@ -4203,6 +4233,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-SISTEMAS-ENERGETICOS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/Hero-3.jpg",
       "profesores": [
         "Juan Gabriel Fajardo Cuadro",
         "Marco Sanjuan Mejía",
@@ -4297,6 +4328,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/ESPECIALIZACION-EN-TELECOMUNICACIONES-Y-REDES.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/hero-16.jpg",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -4410,6 +4442,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/BROCHURE-DIGITAL-MBA.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/02/hero-mba-1.jpg",
       "profesores": [
         "Jorge Luis del Río Cortina",
         "Juan Diego Mejía",
@@ -4534,6 +4567,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-CIBERSEGURIDAD.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Startups-y-companias-de-innovacion-tecnologica-1.jpg",
       "profesores": [
         "Edwin Puertas del Castillo",
         "Jairo Enrique Serrano Castañeda",
@@ -4630,6 +4664,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2025/09/MAESTRIA-EN-DERECHO.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Rama-judicial-y-organismos-jurisdiccionales.webp",
       "profesores": [
         "Rafaela Sayas",
         "María de Jesús Illera",
@@ -4761,6 +4796,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-educacion-scaled.webp",
       "profesores": [
         "William Arellano Cartagena",
         "Gilma Mestre de Mogollón",
@@ -4898,6 +4934,7 @@
       "plan_estudios": [],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://virtual.utb.edu.co/images/hero-maestria-educacion-medidada-tic_1200w.jpg",
       "profesores": [
         "Gilma Mestre de Mogollón",
         "Jorge Luis Muñiz Olite",
@@ -4993,6 +5030,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-ENSENANZA-DE-MATEMATICAS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Proyectos-de-innovacion-educativa-y-transformacion-digital-1.webp",
       "profesores": [
         "Danilo Lusbin Ariza Rúa",
         "Julio Seferino Hurtado Márquez",
@@ -5123,6 +5161,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-ESTADISTICA-APLICADA-Y-CIENCIAS-DE-DATOS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-estadistica-aplicada.jpg",
       "profesores": [
         "David Sierra Porta",
         "Andy Domínguez Monterrosa",
@@ -5226,6 +5265,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-FINANZAS.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-finanzas-scaled.webp",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -5332,6 +5372,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-educacion-scaled.webp",
       "profesores": [
         "Alfonso Núñez Nieto",
         "Jairo Enrique Serrano Castañeda",
@@ -5455,6 +5496,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-gerencia-de-proyectos-scaled.webp",
       "profesores": [
         "Fabián Alfonso Gazabón Arrieta",
         "Alfredo Miguel Abuchar Curi",
@@ -5556,6 +5598,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-gerencia-tributaria-scaled.webp",
       "profesores": [
         "Joaquín Pablo Sierra Arias",
         "Cristóbal González Montes",
@@ -5669,6 +5712,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2020/11/11.-Maestria-en-gestion-de-la-innovacion.jpg",
       "profesores": [
         "Luis Carlos Arraut Camargo"
       ],
@@ -5772,6 +5816,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Instituciones-culturales-museos-y-centros-patrimoniales.webp",
       "profesores": [
         "Aarón Espinosa Espinosa",
         "Jorge Alvis Arrieta",
@@ -5883,6 +5928,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-gestion-humana-scaled.webp",
       "profesores": [
         "Yuly Patricia Fang Alandette",
         "Ana Valera Rubio",
@@ -6010,6 +6056,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Industrias-manufactureras-y-de-produccion.webp",
       "profesores": [
         "Jorge Eliécer Duque Pardo",
         "Oscar Acevedo Patiño",
@@ -6118,6 +6165,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-INGENIERIA.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-ingenieria-scaled.webp",
       "profesores": [
         "Jairo Useche Vivero",
         "Argemiro Palencia Díaz",
@@ -6240,6 +6288,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-INTERVENCION-PSICOSOCIAL.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Entidades-publicas-del-orden-local-nacional-e-internacional.webp",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -6326,6 +6375,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/Director-o-Gerente-de-Transformacion-Digital.webp",
       "profesores": [
         "Alfonso Núñez Nieto",
         "Jorge Luis del Río Cortina",
@@ -6434,6 +6484,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": "https://www.utb.edu.co/wp-content/uploads/2026/09/MAESTRIA-EN-METODOS-DE-INVESTIGACION-SOCIAL.pdf",
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/04/maestria-en-metodos-de-investigacion-social-scaled.webp",
       "profesores": [
         "Pedro Vázquez Miraz",
         "Graciela Victoria Franco Martínez",
@@ -6552,6 +6603,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/06/Hero-.png",
       "profesores": [
         "Verónica Tordecilla Acevedo",
         "Daniella De Luca Navarrete",
@@ -6663,6 +6715,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/05/classmates-discussing-information-study-session.webp",
       "profesores": [],
       "inscripcion_url": "https://inscribete.utb.edu.co/ords/r/formulario_inscripcion/formulario-inscripcion/inscripciones",
       "fuentes": [
@@ -6779,6 +6832,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/05/classmates-discussing-information-study-session.webp",
       "profesores": [
         "William Arellano Cartagena",
         "Daniel Toro González",
@@ -6893,6 +6947,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/05/Doctorado-en-ingenieria.jpg",
       "profesores": [
         "Oscar Danilo Montoya Giraldo",
         "Oscar Acevedo Patiño",
@@ -7019,6 +7074,7 @@
       ],
       "plan_estudios_pdf": null,
       "brochure_pdf": null,
+      "imagen": "https://www.utb.edu.co/wp-content/uploads/2026/05/Doctorado-en-Sostenibilidad.webp",
       "profesores": [
         "Tania Jiménez Castilla"
       ],

@@ -15,6 +15,7 @@ import { startBroadcastWorker } from './services/broadcastJobService';
 import { startInboundWorker } from './services/inboundInbox';
 import { iniciarSeguimientos } from './services/seguimientoService';
 import { recordarPendiente } from './flows/conversacion';
+import { iniciarPrecalentamientoFlyers } from './flows/fotosPrograma';
 import { securityHeaders, bodySizeLimit, errorHandler, notFoundHandler } from './middleware/security';
 import { checkRateLimit } from './services/rateLimit';
 import { validateJwtSecret } from './middleware/auth';
@@ -94,6 +95,7 @@ app.use(errorHandler);
   startBroadcastWorker();
   startInboundWorker();
   iniciarSeguimientos(recordarPendiente);
+  iniciarPrecalentamientoFlyers();
   app.listen(config.port, () => {
     console.log(`Tooli Chatbot escuchando en puerto ${config.port}`);
     console.log(`UI Asesores → http://localhost:${config.port}/app/`);

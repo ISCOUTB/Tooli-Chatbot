@@ -23,6 +23,7 @@ import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
 import { conectarConAsesorPosgrado } from './prospecto';
 import { handleChattingWithAI } from './aiChat';
+import { enviarFlyerPrograma, fotosDisponibles } from './fotosPrograma';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
   BOTONES_CONSENTIMIENTO,
@@ -30,6 +31,17 @@ import {
   CORREO_REGEX,
   FILAS_TRAS_FICHA,
   ASESOR_CON_AUTORIZACION,
+  BOTONES_FICHA,
+  CIERRE_CON_FOTOS,
+  PIE_BOTONES_FICHA,
+  PREGUNTA_FICHA,
+  encabezadoConFotos,
+  formatearPlan,
+  pieFicha,
+  pieFlyer,
+  pieFlyerRecomendado,
+  piePrograma,
+  preguntaCostos,
   BOTONES_UTIL,
   esTextoLibre,
   GRACIAS_NO_UTIL,
@@ -474,10 +486,10 @@ function calcular(data: SessionData) {
   return { resultado, ctx };
 }
 
-async function enviarAcciones(from: string, data: SessionData): Promise<void> {
+async function enviarAcciones(from: string, data: SessionData, cuerpo = 'Elige una opción para continuar'): Promise<void> {
   const { resultado, ctx } = calcular(data);
   if (!ctx) return;
-  await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', filasAcciones(resultado, ctx, data.vioMas === '1'));
+  await enviarLista(from, '¿Qué quieres hacer?', cuerpo, 'Opciones', filasAcciones(resultado, ctx, data.vioMas === '1'));
 }
 
 export async function mostrarResultados(from: string, data: SessionData, mas = false): Promise<void> {
@@ -494,8 +506,21 @@ export async function mostrarResultados(from: string, data: SessionData, mas = f
   };
   await setSession(from, { step: 'reco_resultados', data: nuevaData });
   await track(mas ? 'reco_mas_opciones' : 'reco_resultados', { area: 'posgrados', nivel: data.nivel || 'todos' });
-  await messaging.sendText({ to: from, text: formatearResultados(resultado, ctx, { mas }) });
-  await enviarAcciones(from, nuevaData);
+  if (fotosDisponibles()) {
+    // Un flyer por programa (foto oficial + datos); sin flyer, el mismo programa en texto.
+    const lista = mas ? resultado.resto : resultado.recomendaciones;
+    const desde = mas ? resultado.recomendaciones.length + 1 : 1;
+    await messaging.sendText({ to: from, text: encabezadoConFotos(resultado, ctx, { mas }) });
+    for (const [i, r] of lista.entries()) {
+      if (!await enviarFlyerPrograma(from, r.programa, pieFlyerRecomendado(r, desde + i))) {
+        await messaging.sendText({ to: from, text: piePrograma(r, desde + i) });
+      }
+    }
+    await enviarAcciones(from, nuevaData, CIERRE_CON_FOTOS);
+  } else {
+    await messaging.sendText({ to: from, text: formatearResultados(resultado, ctx, { mas }) });
+    await enviarAcciones(from, nuevaData);
+  }
   if (preguntarUtil) {
     await messaging.sendButtons({
       to: from, title: '', description: PREGUNTA_UTIL, footer: PIE_UTIL, buttons: [...BOTONES_UTIL],
@@ -582,8 +607,20 @@ async function mostrarFicha(from: string, data: SessionData, id: string): Promis
   if (!programa) return volverARecomendaciones(from, data);
   await setSession(from, { step: 'reco_ficha', data: { ...data, programaInteres: id } });
   await track('reco_ficha', { area: 'posgrados', programa: id });
-  await messaging.sendText({ to: from, text: formatearFicha(programa) });
-  await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
+  if (!fotosDisponibles()) {
+    await messaging.sendText({ to: from, text: formatearFicha(programa) });
+    await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
+    return;
+  }
+  // El flyer con lo esencial; lo demás lo pregunta con un botón o escribiendo.
+  if (!await enviarFlyerPrograma(from, programa, pieFlyer(programa))) await messaging.sendText({ to: from, text: pieFicha(programa) });
+  await enviarBotonesFicha(from);
+}
+
+async function enviarBotonesFicha(from: string): Promise<void> {
+  await messaging.sendButtons({
+    to: from, title: '', description: PREGUNTA_FICHA, footer: PIE_BOTONES_FICHA, buttons: [...BOTONES_FICHA],
+  });
 }
 
 export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
@@ -592,9 +629,20 @@ export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
   if (await comandos(from, text, () => volverARecomendaciones(from, data))) return;
 
   const accion = parseAccionFicha(text);
+  const programa = data.programaInteres ? getPrograma(data.programaInteres) : undefined;
   if (accion === 'ia') return iniciarIa(from, data);
   if (accion === 'asesor') return pedirConsentimiento(from, data);
   if (accion === 'recomendaciones') return volverARecomendaciones(from, data);
+  if (accion === 'plan' && programa) {
+    await messaging.sendText({ to: from, text: formatearPlan(programa) });
+    await enviarBotonesFicha(from);
+    return;
+  }
+  if (accion === 'costos' && programa) return responderConIaDesdeResultados(from, data, preguntaCostos(programa));
+  // Cualquier otra cosa escrita es una pregunta sobre el programa: la responde la IA con su contexto.
+  if (programa && text.trim() && !/^\d+$/.test(text.trim()) && !text.startsWith('__')) {
+    return responderConIaDesdeResultados(from, data, text);
+  }
 
   await noReconocido(from, 'Elige una opción de la lista 👇');
   await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
@@ -602,8 +650,10 @@ export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
 
 // ── 6. IA con el contexto del pregrado ──────────────────────────────────────
 
-/** Solo pasan a la IA campos cerrados (IDs y valores fijos); `aiChat` arma el resumen con `resumenRecomendacion`. */
-/** La sesión de la IA de posgrados con el contexto de lo recomendado. */
+/**
+ * La sesión de la IA de posgrados con el contexto de lo recomendado. Solo pasan
+ * campos cerrados (IDs y valores fijos); `aiChat` arma el resumen con `resumenRecomendacion`.
+ */
 function sesionIa(data: SessionData): Session {
   return {
     step: 'chatting_with_ai',

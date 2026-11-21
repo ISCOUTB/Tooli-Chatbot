@@ -47,6 +47,8 @@ export interface ProgramaUtb {
   plan_estudios: PeriodoPlan[];
   plan_estudios_pdf: string | null;
   brochure_pdf: string | null;
+  /** Foto principal de la página oficial del programa (solo posgrados). */
+  imagen?: string | null;
   profesores: string[];
   inscripcion_url: string | null;
   oferta_vigente: boolean;

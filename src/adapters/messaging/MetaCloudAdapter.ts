@@ -171,12 +171,9 @@ export class MetaCloudAdapter implements IMessagingAdapter {
     );
   }
 
-  async sendImage(msg: OutboundImage): Promise<void> {
-    const mimetype = msg.mimetype ?? 'image/png';
-
-    // Paso 1: subir la imagen a la Media API de Meta
+  async subirImagen(buffer: Buffer, mimetype: string): Promise<string> {
     const form = new FormData();
-    form.append('file', new Blob([msg.buffer], { type: mimetype }), 'image.png');
+    form.append('file', new Blob([buffer], { type: mimetype }), mimetype === 'image/jpeg' ? 'image.jpg' : 'image.png');
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimetype);
 
@@ -185,9 +182,25 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       form,
       { headers: { Authorization: `Bearer ${this.token}` }, timeout: 60_000 }
     );
-    const mediaId: string = uploadRes.data.id;
+    return uploadRes.data.id as string;
+  }
 
-    // Paso 2: enviar la imagen usando el media_id
+  async sendImageId(to: string, mediaId: string, caption?: string): Promise<void> {
+    await axios.post(
+      this.messagesUrl,
+      {
+        messaging_product: 'whatsapp',
+        ...metaRecipient(to),
+        type: 'image',
+        image: { id: mediaId, ...(caption ? { caption: caption.slice(0, 1024) } : {}) },
+      },
+      { headers: this.headers, timeout: 15_000 }
+    );
+  }
+
+  async sendImage(msg: OutboundImage): Promise<void> {
+    // Paso 1: subir la imagen a la Media API de Meta; paso 2: enviarla por su id.
+    const mediaId = await this.subirImagen(msg.buffer, msg.mimetype ?? 'image/png');
     await axios.post(
       this.messagesUrl,
       {

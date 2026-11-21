@@ -16,7 +16,7 @@ import { config } from '../config';
 import { getSession, setSession } from '../services/session';
 import { preguntarAI, AIUnavailableError, ChatTurn } from '../services/aiAssistant';
 import { track } from '../services/metrics';
-import { getPrograma } from '../services/catalogoUtb';
+import { NIVELES_POSGRADO, ProgramaUtb, buscarPrograma, getPrograma } from '../services/catalogoUtb';
 import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaService';
 import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
@@ -25,6 +25,8 @@ import { guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsent
 import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
 import { CONFIRMACION_BAJA } from './campanaReco';
+import { enviarFlyerPrograma } from './fotosPrograma';
+import { pieFlyer } from './recomendacionView';
 import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
@@ -32,7 +34,7 @@ import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado'
 import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BOTON_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
+  BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, OFRECER_ASESOR, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
@@ -365,6 +367,13 @@ async function atenderPregrado(from: string, data: SessionData, texto: string): 
 
 // ── IA ──────────────────────────────────────────────────────────────────────
 
+/** El posgrado que consultó la IA, si el nombre corresponde a uno solo. */
+function programaDeLaConsulta(nombre?: string): ProgramaUtb | null {
+  if (!nombre) return null;
+  const encontrados = buscarPrograma(nombre, NIVELES_POSGRADO);
+  return encontrados.length === 1 ? encontrados[0] : null;
+}
+
 function historial(data: SessionData): ChatTurn[] {
   try {
     const parsed: unknown = JSON.parse(data.aiHistory ?? '[]');
@@ -397,12 +406,16 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   const anterior = historial(conPerfil);
   let respuesta: string;
   let sugerencias: string[];
+  let necesitaAsesor = false;
+  let consultado: ProgramaUtb | null = null;
   try {
     const contexto = area === 'posgrados' ? resumenRecomendacion(conPerfil) ?? undefined : undefined;
     const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS);
     const separada = separarSugerencias(ai.answer);
     respuesta = separada.texto || ai.answer;
     sugerencias = separada.sugerencias;
+    necesitaAsesor = separada.asesor;
+    consultado = programaDeLaConsulta(ai.programaConsultado);
     if (ai.usedTool) await track('ai_used_tool', { area });
     await track('ai_resolved', { area });
   } catch (err) {
@@ -416,6 +429,12 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
     return;
   }
 
+  // Si la IA habló de un programa, primero su flyer con lo esencial (una vez por conversación).
+  const vistas = (conPerfil.fotosVistas ?? '').split(',').filter(Boolean);
+  if (consultado && !vistas.includes(consultado.id)) {
+    if (await enviarFlyerPrograma(from, consultado, pieFlyer(consultado))) vistas.push(consultado.id);
+  }
+
   const botones = botonesSugeridos(sugerencias, area, texto);
   const turnos = (Number.parseInt(conPerfil.aiTurnCount ?? '0', 10) || 0) + 1;
   const nuevo: SessionData = {
@@ -423,7 +442,20 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
     aiHistory: JSON.stringify([...anterior, { role: 'user', content: texto.trim() }, { role: 'assistant', content: respuesta }]),
     aiTurnCount: String(turnos),
     preguntaInicial: '',
+    fotosVistas: vistas.slice(-10).join(','),
+    ...(consultado ? { programaInteres: consultado.id } : {}),
   };
+
+  // La IA marcó que esto lo resuelve mejor una persona: se ofrece el asesor (una vez por conversación).
+  if (necesitaAsesor && conPerfil.asesorOfrecido !== '1') {
+    await track('conv_asesor_sugerido');
+    await messaging.sendText({ to: from, text: respuesta });
+    await guardarSesion(from, { ...nuevo, asesorOfrecido: '1' });
+    await messaging.sendButtons({
+      to: from, title: TITULO, description: OFRECER_ASESOR, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR],
+    });
+    return;
+  }
 
   if (turnos === TURNOS_ANTES_DE_ASESOR) {
     await messaging.sendText({ to: from, text: respuesta });

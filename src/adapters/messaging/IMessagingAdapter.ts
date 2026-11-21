@@ -94,4 +94,8 @@ export interface IMessagingAdapter {
   resolveSenderId(jid: string): Promise<string>;
   /** Marca el mensaje como leído y, si se pide, muestra "escribiendo…" (solo Cloud API). */
   marcarLeido?(messageId: string, escribiendo: boolean): Promise<void>;
+  /** Sube una imagen a la Media API y devuelve su id, para enviarla varias veces sin volver a subirla. */
+  subirImagen?(buffer: Buffer, mimetype: string): Promise<string>;
+  /** Envía una imagen ya subida (id de `subirImagen`). */
+  sendImageId?(to: string, mediaId: string, caption?: string): Promise<void>;
 }

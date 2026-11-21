@@ -161,7 +161,18 @@ export const INFO_RECHAZADA = 'Entendido, no te enviaremos información 👍';
 export const INSTRUCCION_SUGERENCIAS =
   'Al final de tu respuesta, en una línea aparte, escribe exactamente "SUGERENCIAS: " seguido de dos preguntas ' +
   'muy cortas (máximo 20 caracteres cada una) que la persona podría hacerte a continuación sobre este tema, ' +
-  'separadas por " | ". Sin emojis ni comillas. Ejemplo: SUGERENCIAS: ¿Hay becas? | ¿Cuándo empieza?';
+  'separadas por " | ". Sin emojis ni comillas. Ejemplo: SUGERENCIAS: ¿Hay becas? | ¿Cuándo empieza?\n' +
+  'Si la persona quiere inscribirse, matricularse o pagar; pide que la llamen o la contacten; pregunta por su caso ' +
+  'particular (homologación de materias, descuentos o becas para su situación, validación de títulos, excepciones); ' +
+  'o pregunta algo que no puedes confirmar con la información oficial, agrega además una línea "ASESOR: sí". ' +
+  'No la agregues para preguntas generales que sí respondiste.';
+
+/** Se ofrece una vez por conversación, cuando la IA marca que hace falta una persona. */
+export const OFRECER_ASESOR = '👤 Esto te lo resuelve mejor un asesor de Posgrados. ¿Quieres que te contacte?';
+export const BOTONES_OFRECER_ASESOR: readonly BotonConversacion[] = [
+  { id: 'conv_asesor', displayText: '👤 Sí, contáctenme' },
+  { id: 'conv_seguir', displayText: '💬 Seguir con Tooli' },
+];
 
 export const PREFIJO_SUGERENCIA = 'conv_sug:';
 export const BOTON_ASESOR: BotonConversacion = { id: 'conv_asesor', displayText: '👤 Hablar con asesor' };
@@ -179,20 +190,29 @@ function limpiarSugerencia(s: string): string {
   return s.replace(/["'“”*_]/g, '').replace(/\s+/g, ' ').trim();
 }
 
-/** Separa la línea "SUGERENCIAS: a | b" de la respuesta; solo quedan las que caben en un botón. */
-export function separarSugerencias(respuesta: string): { texto: string; sugerencias: string[] } {
+/**
+ * Separa de la respuesta la línea "SUGERENCIAS: a | b" (solo quedan las que
+ * caben en un botón) y la marca "ASESOR: sí" (hace falta una persona).
+ */
+export function separarSugerencias(respuesta: string): { texto: string; sugerencias: string[]; asesor: boolean } {
   const resto: string[] = [];
   let sugerencias: string[] = [];
+  let asesor = false;
   for (const linea of (respuesta ?? '').split('\n')) {
     const m = /^\s*[*_]*\s*sugerencias\s*[*_]*\s*:\s*(.*)$/i.exec(linea);
     if (m) {
       sugerencias = m[1].split('|').map(limpiarSugerencia).filter(Boolean);
       continue;
     }
+    const a = /^\s*[*_]*\s*asesor\s*[*_]*\s*:\s*(.*)$/i.exec(linea);
+    if (a) {
+      asesor = /^\s*[*_]*\s*s[ií](?!\p{L})/iu.test(a[1]);
+      continue;
+    }
     resto.push(linea);
   }
   const validas = [...new Set(sugerencias)].filter((s) => [...s].length <= 20).slice(0, 2);
-  return { texto: resto.join('\n').trim(), sugerencias: validas };
+  return { texto: resto.join('\n').trim(), sugerencias: validas, asesor };
 }
 
 const clavePregunta = (s: string) => normalize(s).replace(/[^\p{L}\p{N}]/gu, '');
@@ -350,10 +370,24 @@ export function esSaludo(texto: string): boolean {
   return n === '' || SALUDOS.has(n);
 }
 
+const PERSONA = String.raw`(asesor|asesora|asesores|humano|persona|alguien|agente|ejecutivo|ejecutiva)`;
+const ARTICULO = String.raw`( (con|a))?( (un|una|el|la|algun|alguna))?`;
+const PEDIDOS_ASESOR: readonly RegExp[] = [
+  // La persona va justo después del verbo: "hablar con un asesor", "quiero un asesor", "necesito alguien".
+  new RegExp(String.raw`\b(hablar|comunicarme|contactar|contactarme|chatear|conversar|pasame|paseme|comuniqueme|comunicame)${ARTICULO} ${PERSONA}\b`),
+  new RegExp(String.raw`\b(quiero|necesito|deseo|prefiero)( (hablar|comunicarme|chatear))?${ARTICULO} ${PERSONA}\b`),
+  /\bque me (llamen|llame|contacten|contacte|escriba|escriban)\b/,
+  /\bme (pueden|puede|podrian|podria) (llamar|contactar)\b/,
+  /\b(llamenme|llamame|contactenme|contactame)\b/,
+];
+
+/** Pide hablar con una persona: "asesor", "quiero hablar con alguien", "que me llamen"… */
 export function esPedidoAsesor(texto: string): boolean {
   const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-  return ['asesor', 'humano', 'agente', 'un asesor', 'hablar con asesor', 'hablar con un asesor', 'quiero un asesor',
-    'quiero hablar con un asesor', 'hablar con una persona'].includes(n);
+  if (!n) return false;
+  // Una palabra o dos sueltas ("asesor", "un asesor", "asesor porfa").
+  if (n.split(' ').length <= 3 && new RegExp(String.raw`\b(asesor|asesora|humano|agente)\b`).test(n)) return true;
+  return PEDIDOS_ASESOR.some((r) => r.test(n));
 }
 
 /** Una pregunta va a la IA aunque el bot esté esperando la carrera. */

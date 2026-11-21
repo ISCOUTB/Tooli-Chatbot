@@ -17,6 +17,7 @@
     "test:watch": "node tools/run-tests.cjs --watch"
   },
   "dependencies": {
+    "@fontsource/montserrat": "5.3.0",
     "axios": "^1.7.2",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",

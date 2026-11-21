@@ -44,6 +44,10 @@ import {
   textoConfirmacion,
 } from './recomendacionView';
 import { ASESOR_CON_AUTORIZACION, BOTONES_UTIL, PEDIR_SOLO_CORREO, esTextoLibre, parseUtil } from './recomendacionView';
+import {
+  BOTONES_FICHA, CIERRE_CON_FOTOS, formatearPlan, parseAccionFicha, pieFicha, pieFlyer, preguntaCostos,
+} from './recomendacionView';
+import { urlFotoPermitida } from '../services/fotoProgramaService';
 
 /**
  * Vista del flujo de recomendación: que todo quepa en las listas y botones
@@ -347,5 +351,34 @@ describe('recomendación: ¿te sirvió?', () => {
     assert.match(ASESOR_CON_AUTORIZACION, /asesor/);
     assert.match(PEDIR_SOLO_CORREO, /correo electrónico/);
     assert.doesNotMatch(PEDIR_SOLO_CORREO, /Gracias/);
+  });
+});
+
+describe('posgrados con foto oficial', () => {
+  it('cada posgrado tiene su foto de un sitio de la UTB', () => {
+    for (const p of POSGRADOS_UTB) assert.ok(urlFotoPermitida(p.imagen), `${p.id}: ${p.imagen}`);
+  });
+
+  it('los pies de foto caben en WhatsApp (1024) y llevan nombre, datos y enlace', () => {
+    for (const p of POSGRADOS_UTB) {
+      for (const pie of [pieFicha(p), pieFlyer(p)]) {
+        assert.ok([...pie].length <= 1024, p.id);
+        assert.ok(pie.includes(p.nombre) && pie.includes(p.url), p.id);
+      }
+    }
+    assert.ok([...CIERRE_CON_FOTOS].length <= 1024);
+  });
+
+  it('la ficha ofrece costos, plan y asesor con botones que caben', () => {
+    for (const b of BOTONES_FICHA) assert.ok([...b.displayText].length <= 20, b.displayText);
+    assert.equal(parseAccionFicha('ficha_costos'), 'costos');
+    assert.equal(parseAccionFicha('ficha_plan'), 'plan');
+    assert.equal(parseAccionFicha('asesor'), 'asesor');
+  });
+
+  it('el plan de estudios y la pregunta de costos nombran el programa', () => {
+    const p = POSGRADOS_UTB[0];
+    assert.match(formatearPlan(p), new RegExp(p.nombre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(preguntaCostos(p), /becas/);
   });
 });

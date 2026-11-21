@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
+  BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
   cabeConBotones, datosAceptados, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
@@ -257,5 +257,37 @@ describe('conversación: autorización de datos en el primer contacto', () => {
     assert.match(datosAceptados('Laura Gómez'), /^¡Gracias, Laura! Ya quedaste registrado/);
     assert.match(datosAceptados('Laura'), /BAJA/);
     assert.match(DATOS_RECHAZADOS, /no guardaré tus datos/);
+  });
+});
+
+describe('conversación: cuándo entra el asesor', () => {
+  it('reconoce más formas de pedir una persona', () => {
+    for (const t of ['asesor porfa', '¿Puedo hablar con una persona?', 'necesito alguien que me explique',
+      'que me llamen por favor', '¿me pueden llamar?', 'llámenme', 'quiero un asesor']) {
+      assert.equal(esPedidoAsesor(t), true, t);
+    }
+  });
+
+  it('no confunde preguntas que solo mencionan a una persona', () => {
+    for (const t of ['quiero saber si una persona sin título puede entrar', '¿qué hace un asesor financiero?',
+      'busco una maestría para una persona que trabaja', '¿Cuánto cuesta el MBA?']) {
+      assert.equal(esPedidoAsesor(t), false, t);
+    }
+  });
+
+  it('la IA marca cuándo hace falta una persona, y la marca no llega al texto', () => {
+    const r = separarSugerencias('Para inscribirte entra al portal.\nSUGERENCIAS: ¿Hay becas? | ¿Fechas?\nASESOR: sí');
+    assert.equal(r.texto, 'Para inscribirte entra al portal.');
+    assert.equal(r.asesor, true);
+    assert.equal(separarSugerencias('Texto\n**Asesor:** Sí.').asesor, true);
+    assert.equal(separarSugerencias('Texto\nASESOR: no').asesor, false);
+    assert.equal(separarSugerencias('Solo texto').asesor, false);
+  });
+
+  it('los botones de ofrecer asesor caben y se reconocen', () => {
+    for (const b of BOTONES_OFRECER_ASESOR) {
+      assert.ok([...b.displayText].length <= 20, b.displayText);
+      assert.equal(parseBoton(b.id), b.id);
+    }
   });
 });

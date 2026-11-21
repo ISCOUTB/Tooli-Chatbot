@@ -308,16 +308,55 @@ export interface ContextoResultados {
   soloVirtual: boolean;
 }
 
-function lineaPrograma(r: Recomendacion, numero: number): string {
-  const p: ProgramaUtb = r.programa;
-  const modalidad = esVirtual(p) ? 'Virtual' : p.modalidad ?? 'Presencial';
-  const datos = [
-    modalidad,
+/** Modalidad, duración y valor en una línea. */
+function datosPrograma(p: ProgramaUtb): string {
+  return [
+    esVirtual(p) ? 'Virtual' : p.modalidad ?? 'Presencial',
     p.duracion_semestres ? `${p.duracion_semestres} semestres` : null,
     valorCorto(p) ?? 'valor por confirmar',
   ].filter(Boolean).join(' · ');
-  return `${numero}. *${p.nombre}*\n   ${r.motivo}\n   ${datos}\n   🔗 ${p.url}`;
 }
+
+function lineaPrograma(r: Recomendacion, numero: number): string {
+  const p: ProgramaUtb = r.programa;
+  return `${numero}. *${p.nombre}*\n   ${r.motivo}\n   ${datosPrograma(p)}\n   🔗 ${p.url}`;
+}
+
+/** Pie de la foto de un programa recomendado. */
+export function piePrograma(r: Recomendacion, numero: number): string {
+  const p = r.programa;
+  return `${numero}. *${p.nombre}*\n${r.motivo}\n${datosPrograma(p)}\n🔗 ${p.url}`;
+}
+
+/** Pie del flyer de un programa recomendado: el flyer ya trae los datos. */
+export function pieFlyerRecomendado(r: Recomendacion, numero: number): string {
+  return `${numero}. *${r.programa.nombre}*\n${r.motivo}\n🔗 ${r.programa.url}`;
+}
+
+/** Pie del flyer de la ficha o del programa del que habla la IA. */
+export function pieFlyer(p: ProgramaUtb): string {
+  return `📄 *${p.nombre}*\n🔗 ${p.url}`;
+}
+
+/** Con fotos: lo que va antes de ellas (las fotos llevan cada programa). */
+export function encabezadoConFotos(resultado: ResultadoRecomendacion, ctx: ContextoResultados, opciones: { mas?: boolean } = {}): string {
+  const partes = [
+    opciones.mas
+      ? '➕ *Más opciones para ti* 👇'
+      : `🎯 *Posgrados para ti*\nSegún tu pregrado (${ctx.etiquetaPregrado}), estas opciones de la UTB pueden encajarte 👇`,
+  ];
+  const nota = opciones.mas ? null : notaRelajado(resultado, ctx);
+  if (nota) partes.push(nota);
+  if (!opciones.mas && ctx.relacion === 'egresado_utb') {
+    partes.push('🎓 Como egresado(a) UTB tienes beneficios en posgrados; pide sus condiciones al asesor.');
+  }
+  return partes.join('\n\n');
+}
+
+/** Con fotos: va con las opciones, al final. */
+export const CIERRE_CON_FOTOS =
+  `Elige una opción para continuar o escríbeme tu pregunta.\n\n_Valores de matrícula publicados para ${VIGENCIA_VALORES}; ` +
+  `verifica requisitos y costos en la página de cada programa._\n🔗 Todos los posgrados: ${POSGRADOS_URL}`;
 
 function notaRelajado(resultado: ResultadoRecomendacion, ctx: ContextoResultados): string | null {
   if (resultado.relajado === 'modalidad') {
@@ -474,7 +513,42 @@ export function formatearFicha(p: ProgramaUtb): string {
   return partes.join('\n\n');
 }
 
-export type AccionFicha = 'ia' | 'asesor' | 'recomendaciones';
+/** Pie de la foto de la ficha: lo esencial del programa. */
+export function pieFicha(p: ProgramaUtb): string {
+  const lineas = [
+    `📄 *${p.nombre}*`,
+    `${NOMBRE_NIVEL[p.nivel]} · ${datosPrograma(p)}`,
+    p.titulo_otorgado && `🎓 Título: ${p.titulo_otorgado}`,
+    p.snies && `🏛️ SNIES ${p.snies}${p.acreditacion_alta_calidad ? ' · Acreditación de alta calidad' : ''}`,
+    `🔗 ${p.url}`,
+  ].filter(Boolean);
+  return lineas.join('\n').slice(0, 1024);
+}
+
+/** El plan de estudios de la ficha, aparte, cuando la persona lo pide. */
+export function formatearPlan(p: ProgramaUtb): string {
+  const enlace = p.plan_estudios_pdf
+    ? `📎 Plan de estudios (PDF): ${p.plan_estudios_pdf}`
+    : p.brochure_pdf ? `📎 Brochure (PDF): ${p.brochure_pdf}` : `🔗 ${p.url}`;
+  if (!p.plan_estudios.length) return `📚 El plan de estudios de la *${p.nombre}* está en su página oficial:\n${enlace}`;
+  const plan = p.plan_estudios.slice(0, 8).map((s) => `• *${s.periodo}:* ${recortar(s.asignaturas.join(', '), 220)}`);
+  return `📚 *Plan de estudios — ${p.nombre}*\n\n${plan.join('\n')}\n\n${enlace}`;
+}
+
+export const PREGUNTA_FICHA = '¿Qué quieres saber de este programa?';
+export const PIE_BOTONES_FICHA = 'O escríbeme tu pregunta · 0 para volver';
+export const BOTONES_FICHA: readonly Boton[] = [
+  { id: 'ficha_costos', displayText: '💰 Costos y becas' },
+  { id: 'ficha_plan', displayText: '📚 Plan de estudios' },
+  { id: 'asesor', displayText: '👤 Hablar con asesor' },
+];
+
+/** La pregunta que hace el botón de costos, con el nombre del programa. */
+export function preguntaCostos(p: ProgramaUtb): string {
+  return `¿Cuánto cuesta la ${p.nombre} y qué becas, descuentos o financiación tiene?`;
+}
+
+export type AccionFicha = 'ia' | 'asesor' | 'recomendaciones' | 'costos' | 'plan';
 
 export const FILAS_TRAS_FICHA: readonly FilaLista[] = [
   { ...FILA_IA, description: 'Pregunta lo que quieras sobre este programa' },
@@ -488,6 +562,8 @@ export function parseAccionFicha(input: string): AccionFicha | null {
   if (PALABRAS_ACCION.ia.includes(n)) return 'ia';
   if (PALABRAS_ACCION.asesor.includes(n)) return 'asesor';
   if (['recomendaciones', 'ver recomendaciones', 'volver a las recomendaciones'].includes(n)) return 'recomendaciones';
+  if (n === 'ficha_costos') return 'costos';
+  if (n === 'ficha_plan') return 'plan';
   return null;
 }
 

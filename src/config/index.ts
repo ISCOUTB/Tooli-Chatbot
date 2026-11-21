@@ -19,6 +19,8 @@ const schema = z.object({
   FLUJO_CONVERSACIONAL: z.string().optional().default('false'),
   // Una sola vez, 3 horas después, a quien deja sin contestar una pregunta del flujo. 'false' lo apaga.
   SEGUIMIENTO_CONVERSACION: z.string().optional().default('true'),
+  // Recomendaciones y fichas con el flyer de cada posgrado (foto oficial + datos). 'false' vuelve al texto.
+  FOTOS_PROGRAMAS: z.string().optional().default('true'),
   OPENAI_TRANSCRIBE_MODEL: z.string().optional().default('gpt-4o-mini-transcribe'),
   // ── Meta WhatsApp Cloud API ──────────────────────────────────────────────────
   WHATSAPP_TOKEN: z.string().optional(),
@@ -137,6 +139,9 @@ export const config = {
   },
   seguimiento: {
     activo: env.SEGUIMIENTO_CONVERSACION !== 'false',
+  },
+  fotos: {
+    activas: env.FOTOS_PROGRAMAS !== 'false',
   },
   chatwoot: {
     url: env.CHATWOOT_URL ?? '',
