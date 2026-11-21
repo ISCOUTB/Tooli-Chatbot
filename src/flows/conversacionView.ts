@@ -13,7 +13,9 @@ export interface BotonConversacion {
 }
 
 /** Lo que el bot espera que responda la persona después de su última pregunta. */
-export type Pendiente = 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer' | 'regreso';
+export type Pendiente =
+  | 'datos' | 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer'
+  | 'regreso';
 
 export const SALUDO_CONVERSACION =
   '¡Hola! 👋 Soy *Tooli*, el asistente de Posgrados de la Universidad Tecnológica de Bolívar 🎓\n\n' +
@@ -21,6 +23,9 @@ export const SALUDO_CONVERSACION =
   'También puedes mandarme un audio 🎤';
 
 export const SALUDO_CORTO = '¡Hola! 👋 Soy *Tooli*, de Posgrados UTB 🎓';
+
+/** Primer mensaje con una pregunta: se responde apenas la persona decida sobre sus datos. */
+export const SALUDO_CON_PREGUNTA = '¡Hola! 👋 Soy *Tooli*, de Posgrados UTB 🎓 Con gusto te ayudo.';
 
 export const TITULO = '🎓 Posgrados UTB';
 export const PIE = 'También puedes escribirme tu pregunta';
@@ -87,6 +92,18 @@ export const PREGUNTAS: Record<Pendiente, Pregunta> = {
   nombre_info: {
     pendiente: 'nombre_info',
     texto: '¡Genial! 🙌 ¿Cómo te llamas? Así quedas registrado(a) 📝',
+  },
+  datos: {
+    pendiente: 'datos',
+    texto:
+      '🔒 Una pregunta rápida, solo esta vez: ¿autorizas a la UTB a tratar tus datos (nombre y número de WhatsApp) ' +
+      'para orientarte, registrarte como interesado(a), que un asesor te contacte y enviarte información de ' +
+      'posgrados por este medio? (*Ley 1581 de 2012*)\n\nPuedes revocarla cuando quieras escribiendo *BAJA*.',
+    botones: [
+      { id: 'conv_datos_si', displayText: '✅ Sí, autorizo' },
+      { id: 'conv_datos_no', displayText: '❌ No autorizo' },
+    ],
+    pie: 'Tus datos se usan solo para fines de admisión',
   },
   regreso: {
     pendiente: 'regreso',
@@ -213,6 +230,14 @@ export function parseSugerencia(texto: string): string | null {
   return pregunta || null;
 }
 
+// ── Seguimiento ─────────────────────────────────────────────────────────────
+
+/** Encabeza la pregunta que quedó sin contestar, unas horas después. */
+export function recordatorioSeguimiento(nombre?: string): string {
+  const primero = (nombre ?? '').trim().split(/\s+/)[0] ?? '';
+  return `👋 ${primero ? `¡Hola, ${primero}! ` : '¡Hola! '}¿Seguimos donde quedamos?`;
+}
+
 // ── Quien vuelve ────────────────────────────────────────────────────────────
 
 const PLURAL_NIVEL: Record<string, string> = {
@@ -236,6 +261,15 @@ export function saludoRegreso(nombre?: string, carrera?: string | null, nivel?: 
     ? (plural ? `La última vez buscabas *${plural}* para *${carrera}*.` : `La última vez hablamos de posgrados para *${carrera}*.`)
     : 'La última vez hablamos de posgrados.';
   return `${saludoCortoRegreso(nombre)} ${busqueda} ¿Seguimos?`;
+}
+
+export const DATOS_RECHAZADOS = 'Entendido, no guardaré tus datos 👍 Igual puedo responder tus preguntas de posgrados.';
+
+/** Quien autorizó al empezar y dio su nombre: ya está en el CRM. */
+export function datosAceptados(nombre: string): string {
+  const primero = nombre.trim().split(/\s+/)[0] ?? '';
+  return `¡Gracias, ${primero}! Ya quedaste registrado(a) ✅ Te contaremos de becas, fechas y eventos de posgrados 📬\n\n` +
+    '_Si cambias de opinión, escribe *BAJA*._';
 }
 
 export function infoAceptada(nombre: string): string {
@@ -291,7 +325,7 @@ export const TURNOS_ANTES_DE_ASESOR = 12;
 export type BotonId =
   | 'conv_tengo' | 'conv_elegir' | 'conv_utb_si' | 'conv_utb_no' | 'conv_egresado' | 'conv_estudiante'
   | 'conv_esp' | 'conv_mae' | 'conv_doc' | 'conv_reco' | 'conv_asesor' | 'conv_pregrados' | 'conv_seguir'
-  | 'conv_info_si' | 'conv_info_no' | 'conv_seguir_perfil' | 'conv_reiniciar';
+  | 'conv_info_si' | 'conv_info_no' | 'conv_seguir_perfil' | 'conv_reiniciar' | 'conv_datos_si' | 'conv_datos_no';
 
 const IDS: ReadonlySet<string> = new Set([
   ...Object.values(PREGUNTAS).flatMap((p) => (p.botones ?? []).map((b) => b.id)),
@@ -339,6 +373,10 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
   const si = corto && /^(si|sip|claro|correcto|asi es|exacto|obvio|por supuesto)( .*)?$/.test(n);
   const no = corto && /^(no|nop|nunca|todavia no|aun no)( .*)?$/.test(n);
   switch (pendiente) {
+    case 'datos':
+      if (no || /\bno (acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_no' };
+      if (si || /\b(acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_si' };
+      return null;
     case 'tiene_programa':
       if (si) return { boton: 'conv_tengo' };
       if (no || /ayuda|elegir|no se|recomiend/.test(n)) return { boton: 'conv_elegir' };
@@ -398,13 +436,15 @@ export function detectarPerfil(texto: string): PerfilDetectado {
  * nivel. Con todo eso ya se puede recomendar.
  */
 export function siguientePregunta(data: Record<string, string>): Pendiente | null {
+  // Lo primero es la autorización de datos (quien ya respondió lo de recibir información, ya decidió).
+  if (!data.datos && !data.info) return 'datos';
   // Sin título universitario no hay posgrado que recomendar: no se pregunta más.
   if (data.sinPregrado === '1') return null;
   if (!data.relacion) return 'estudia_utb';
   if (!data.pregradoId && !data.familiaId) return 'pregrado';
   if (data.nivelListo !== '1') return 'nivel';
   // Con el perfil completo: si quiere recibir información, y su nombre si aceptó.
-  if (!data.info) return 'info';
+  if (!data.info && data.datos !== 'no') return 'info';
   if (data.info === 'si' && !data.nombre) return 'nombre_info';
   return null;
 }

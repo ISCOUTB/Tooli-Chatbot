@@ -17,6 +17,8 @@ const schema = z.object({
   TRANSCRIBIR_AUDIOS: z.string().optional().default('true'),
   // Inicio conversacional de posgrados: la IA responde y el bot pregunta con botones. 'true' lo activa.
   FLUJO_CONVERSACIONAL: z.string().optional().default('false'),
+  // Una sola vez, 3 horas después, a quien deja sin contestar una pregunta del flujo. 'false' lo apaga.
+  SEGUIMIENTO_CONVERSACION: z.string().optional().default('true'),
   OPENAI_TRANSCRIBE_MODEL: z.string().optional().default('gpt-4o-mini-transcribe'),
   // ── Meta WhatsApp Cloud API ──────────────────────────────────────────────────
   WHATSAPP_TOKEN: z.string().optional(),
@@ -132,6 +134,9 @@ export const config = {
   },
   conversacion: {
     activa: env.FLUJO_CONVERSACIONAL === 'true',
+  },
+  seguimiento: {
+    activo: env.SEGUIMIENTO_CONVERSACION !== 'false',
   },
   chatwoot: {
     url: env.CHATWOOT_URL ?? '',

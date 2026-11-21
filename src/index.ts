@@ -13,6 +13,8 @@ import { seedDefaultAdmin } from './services/usersService';
 import { startReminderWorker } from './services/reminderService';
 import { startBroadcastWorker } from './services/broadcastJobService';
 import { startInboundWorker } from './services/inboundInbox';
+import { iniciarSeguimientos } from './services/seguimientoService';
+import { recordarPendiente } from './flows/conversacion';
 import { securityHeaders, bodySizeLimit, errorHandler, notFoundHandler } from './middleware/security';
 import { checkRateLimit } from './services/rateLimit';
 import { validateJwtSecret } from './middleware/auth';
@@ -91,6 +93,7 @@ app.use(errorHandler);
   startReminderWorker();
   startBroadcastWorker();
   startInboundWorker();
+  iniciarSeguimientos(recordarPendiente);
   app.listen(config.port, () => {
     console.log(`Tooli Chatbot escuchando en puerto ${config.port}`);
     console.log(`UI Asesores → http://localhost:${config.port}/app/`);

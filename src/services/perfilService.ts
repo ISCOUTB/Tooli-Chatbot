@@ -14,11 +14,23 @@ export const TTL_PERFIL_SEGUNDOS = 90 * 24 * 60 * 60;
 
 /** Lo que se recuerda entre conversaciones. */
 export const CAMPOS_PERFIL = [
-  'relacion', 'pregradoId', 'familiaId', 'nivel', 'nivelListo', 'nombre', 'info', 'filaCrm', 'sinPregrado',
+  'relacion', 'pregradoId', 'familiaId', 'nivel', 'nivelListo', 'nombre', 'datos', 'info', 'filaCrm', 'sinPregrado',
+  'pendiente', 'pendienteEn',
 ] as const;
 
-/** Lo que nunca se pierde al empezar de nuevo: el nombre y la autorización. */
-export const CAMPOS_CONSENTIMIENTO = ['nombre', 'info', 'filaCrm'] as const;
+/**
+ * La pregunta sin contestar se recuerda un día: quien responde "Ingeniería Civil"
+ * dos horas después (con la sesión ya vencida) sigue contestando esa pregunta.
+ */
+export const PENDIENTE_VIGENTE_MS = 24 * 60 * 60 * 1000;
+
+export function pendienteVigente(perfil: Record<string, string>, ahora = Date.now()): boolean {
+  const desde = Number(perfil.pendienteEn);
+  return !!perfil.pendiente && Number.isFinite(desde) && desde > 0 && ahora - desde < PENDIENTE_VIGENTE_MS;
+}
+
+/** Lo que nunca se pierde al empezar de nuevo: el nombre y las autorizaciones. */
+export const CAMPOS_CONSENTIMIENTO = ['nombre', 'datos', 'info', 'filaCrm'] as const;
 
 export function perfilDeDatos(data: Record<string, string>): Record<string, string> {
   const perfil: Record<string, string> = {};

@@ -30,6 +30,11 @@ export type MetricEvent =
   | 'info_baja'
   | 'audio_fallido'
   | 'conv_regreso'
+  | 'datos_acepta'
+  | 'datos_rechaza'
+  | 'conv_seguimiento'
+  | 'reco_util_si'
+  | 'reco_util_no'
   | 'conv_sugerencia'
   | 'duplicate_message'
   // Posgrados

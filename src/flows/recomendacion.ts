@@ -16,17 +16,27 @@ import { getPrograma } from '../services/catalogoUtb';
 import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../services/registroService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
+import { registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
 import { conectarConAsesorPosgrado } from './prospecto';
+import { handleChattingWithAI } from './aiChat';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
   BOTONES_CONSENTIMIENTO,
   CONSENTIMIENTO_NEGADO,
   CORREO_REGEX,
   FILAS_TRAS_FICHA,
+  ASESOR_CON_AUTORIZACION,
+  BOTONES_UTIL,
+  esTextoLibre,
+  GRACIAS_NO_UTIL,
+  GRACIAS_UTIL,
+  PIE_UTIL,
+  PREGUNTA_UTIL,
+  PEDIR_SOLO_CORREO,
   PEDIR_CONSENTIMIENTO,
   PEDIR_NOMBRE,
   etiquetasCrmRecomendacion,
@@ -478,11 +488,38 @@ export async function mostrarResultados(from: string, data: SessionData, mas = f
     return;
   }
   const mostrados = (mas ? resultado.recomendaciones.concat(resultado.resto) : resultado.recomendaciones).map((r) => r.programa.id);
-  const nuevaData = { ...data, vioMas: mas ? '1' : data.vioMas ?? '', recomendados: JSON.stringify(mostrados) };
+  const preguntarUtil = data.utilPreguntada !== '1';
+  const nuevaData = {
+    ...data, vioMas: mas ? '1' : data.vioMas ?? '', recomendados: JSON.stringify(mostrados), utilPreguntada: '1',
+  };
   await setSession(from, { step: 'reco_resultados', data: nuevaData });
   await track(mas ? 'reco_mas_opciones' : 'reco_resultados', { area: 'posgrados', nivel: data.nivel || 'todos' });
   await messaging.sendText({ to: from, text: formatearResultados(resultado, ctx, { mas }) });
   await enviarAcciones(from, nuevaData);
+  if (preguntarUtil) {
+    await messaging.sendButtons({
+      to: from, title: '', description: PREGUNTA_UTIL, footer: PIE_UTIL, buttons: [...BOTONES_UTIL],
+    });
+  }
+}
+
+/**
+ * 👍/👎 sobre la recomendación: queda la métrica y, si autorizó sus datos, una
+ * nota en su ficha para el asesor. No cambia el paso en que está la persona.
+ */
+export async function atenderUtil(from: string, valor: 'si' | 'no', data: SessionData): Promise<void> {
+  await track(valor === 'si' ? 'reco_util_si' : 'reco_util_no', { area: 'posgrados' });
+  if (data.datos === 'si') {
+    try {
+      const nota = valor === 'si'
+        ? '👍 Le sirvió la recomendación del bot.'
+        : '👎 La recomendación del bot no le sirvió mucho: conviene orientarle.';
+      await agregarNota(from, nota, AUTOR_BOT);
+    } catch (err) {
+      console.error('[reco] no se pudo anotar la calificación:', describeExternalError(err));
+    }
+  }
+  await messaging.sendText({ to: from, text: valor === 'si' ? GRACIAS_UTIL : GRACIAS_NO_UTIL });
 }
 
 export async function handleRecoResultados(ctx: FlowContext): Promise<void> {
@@ -513,6 +550,8 @@ export async function handleRecoResultados(ctx: FlowContext): Promise<void> {
   if (accion === 'presencial') return mostrarResultados(from, { ...data, soloVirtual: '', vioMas: '' });
   if (accion === 'nivel') return aNivel();
   if (accion === 'pregrado') return iniciarRecomendacion(from);
+  // Una frase o una pregunta ("¿cuál es más barata?", "algo de salud mental") va a la IA.
+  if (esTextoLibre(text)) return responderConIaDesdeResultados(from, data, text);
 
   await noReconocido(from, 'Elige una opción de la lista o escribe el número de un programa 👇');
   await enviarAcciones(from, data);
@@ -564,9 +603,9 @@ export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
 // ── 6. IA con el contexto del pregrado ──────────────────────────────────────
 
 /** Solo pasan a la IA campos cerrados (IDs y valores fijos); `aiChat` arma el resumen con `resumenRecomendacion`. */
-async function iniciarIa(from: string, data: SessionData): Promise<void> {
-  await track('reco_ia', { area: 'posgrados' });
-  await setSession(from, {
+/** La sesión de la IA de posgrados con el contexto de lo recomendado. */
+function sesionIa(data: SessionData): Session {
+  return {
     step: 'chatting_with_ai',
     data: {
       area: 'posgrados',
@@ -578,8 +617,22 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
       recomendados: data.recomendados ?? '[]',
       ...(data.programaInteres ? { programaInteres: data.programaInteres } : {}),
       ...(data.campana === '1' ? { campana: '1' } : {}),
+      ...(data.datos ? { datos: data.datos } : {}),
     },
-  });
+  };
+}
+
+/** Lo que escribió (una pregunta, lo que buscaba) lo responde la IA de una vez. */
+async function responderConIaDesdeResultados(from: string, data: SessionData, texto: string): Promise<void> {
+  await track('reco_ia', { area: 'posgrados' });
+  const sesion = sesionIa(data);
+  await setSession(from, sesion);
+  await handleChattingWithAI({ from, text: texto, session: sesion });
+}
+
+async function iniciarIa(from: string, data: SessionData): Promise<void> {
+  await track('reco_ia', { area: 'posgrados' });
+  await setSession(from, sesionIa(data));
   await messaging.sendText({
     to: from,
     text:
@@ -591,8 +644,31 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
 
 // ── 7. Asesor: consentimiento, nombre, correo y lead ────────────────────────
 
+/**
+ * Con la autorización dada, al asesor solo le faltan el nombre (si no lo dio) y
+ * el correo. Con `intro`, va un solo mensaje que explica para qué son.
+ */
+async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string): Promise<void> {
+  const autorizado: SessionData = { ...data, consentimiento: 'Sí' };
+  if (data.nombre) {
+    await setSession(from, { step: 'reco_correo', data: autorizado });
+    await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_SOLO_CORREO}` : pedirCorreo(data.nombre) });
+    return;
+  }
+  await setSession(from, { step: 'reco_nombre', data: autorizado });
+  await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_NOMBRE}` : PEDIR_NOMBRE });
+}
+
+/** Desde la conversación libre no hay recomendaciones a las cuales volver. */
+async function volverALaConversacion(from: string, data: SessionData, texto: string): Promise<void> {
+  await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+  await messaging.sendText({ to: from, text: texto });
+}
+
 export async function pedirConsentimiento(from: string, data: SessionData): Promise<void> {
   await track('reco_asesor', { area: 'posgrados' });
+  // Quien autorizó el tratamiento de sus datos al empezar no tiene que autorizar de nuevo.
+  if (data.datos === 'si') return pedirDatosDeContacto(from, data, ASESOR_CON_AUTORIZACION);
   await setSession(from, { step: 'reco_consentimiento', data });
   await messaging.sendButtons({
     to: from,
@@ -616,23 +692,14 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
 
   const respuesta = parseSiNo(text);
   if (respuesta === 'si') {
+    await registrarDecision(from, 'si');
     // Si ya dio su nombre al aceptar recibir información, solo falta el correo.
-    if (data.nombre) {
-      await setSession(from, { step: 'reco_correo', data: { ...data, consentimiento: 'Sí' } });
-      await messaging.sendText({ to: from, text: pedirCorreo(data.nombre) });
-      return;
-    }
-    await setSession(from, { step: 'reco_nombre', data: { ...data, consentimiento: 'Sí' } });
-    await messaging.sendText({ to: from, text: PEDIR_NOMBRE });
-    return;
+    return pedirDatosDeContacto(from, { ...data, datos: 'si' });
   }
   if (respuesta === 'no') {
     await track('reco_consentimiento_no', { area: 'posgrados' });
-    // Desde la conversación libre no hay recomendaciones a las cuales volver.
     if (!data.recomendados) {
-      await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
-      await messaging.sendText({ to: from, text: 'Entendido, no guardaré tus datos 👍\n\nPuedes seguir preguntándome lo que quieras.' });
-      return;
+      return volverALaConversacion(from, data, 'Entendido, no guardaré tus datos 👍\n\nPuedes seguir preguntándome lo que quieras.');
     }
     await setSession(from, { step: 'reco_resultados', data });
     await messaging.sendText({ to: from, text: CONSENTIMIENTO_NEGADO });
@@ -651,7 +718,13 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
 export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
-  if (await comandos(from, text, () => pedirConsentimiento(from, data))) return;
+  // Con la autorización dada al empezar, "volver" sale del paso del asesor en vez de repetirlo.
+  const atras = data.datos !== 'si'
+    ? () => pedirConsentimiento(from, data)
+    : data.recomendados
+      ? () => volverAntesDeAsesor(from, data)
+      : () => volverALaConversacion(from, data, 'Listo 👍 Puedes seguir preguntándome lo que quieras.');
+  if (await comandos(from, text, atras)) return;
 
   const nombre = text.trim().replace(/\s+/g, ' ').slice(0, 80);
   if (nombre.length < 3) {

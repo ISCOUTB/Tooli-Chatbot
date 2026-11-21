@@ -9,6 +9,7 @@ import { track } from './metrics';
 import { describeExternalError, maskPhone } from './logSafe';
 import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
+import { cancelarSeguimiento } from './seguimientoService';
 import { iniciarRecomendacion } from '../flows/recomendacion';
 import { atenderAsistencia } from '../flows/asistencia';
 import { AudioError, mensajeAudioFallido, mensajeEntendido, transcribirAudioDeMeta } from './transcripcionAudio';
@@ -120,6 +121,9 @@ export async function processInboundMessage(
     }
     return 'ignored';
   }
+
+  // Escribió: si había un seguimiento programado, ya no hace falta.
+  await cancelarSeguimiento(from);
 
   // Con un asesor el bot no marca nada: los chulitos azules los pone quien lee en Chatwoot.
   if (source === 'meta') {

@@ -498,6 +498,38 @@ export const PEDIR_CONSENTIMIENTO =
   '👤 Para que un asesor de Posgrados te contacte necesito tu nombre y tu correo.\n\n' +
   '🔒 ¿Autorizas que un asesor de la UTB te contacte y el tratamiento de tus datos personales conforme a la *Ley 1581 de 2012*?';
 
+// ── ¿Te sirvió? ─────────────────────────────────────────────────────────────
+
+/** Una vez por conversación, después de la primera recomendación: la cifra de utilidad. */
+export const PREGUNTA_UTIL = '¿Te sirvió esta recomendación?';
+export const PIE_UTIL = 'Tu respuesta nos ayuda a mejorar';
+export const BOTONES_UTIL: readonly Boton[] = [
+  { id: 'reco_util_si', displayText: '👍 Me sirvió' },
+  { id: 'reco_util_no', displayText: '👎 No mucho' },
+];
+export const GRACIAS_UTIL = '¡Qué bien! 🙌 Gracias por contarnos.';
+export const GRACIAS_NO_UTIL =
+  'Gracias por contarnos 🙏 Escríbeme qué buscabas y lo intento de nuevo, o elige *👤 Hablar con asesor* en las opciones.';
+
+/** Texto que no es una opción: una pregunta o una frase de al menos tres palabras. */
+export function esTextoLibre(texto: string): boolean {
+  const t = (texto ?? '').trim();
+  if (!t || /^\d+$/.test(t) || t.startsWith('__')) return false;
+  return t.includes('?') || t.split(/\s+/).length >= 3;
+}
+
+/** Los botones valen aunque se toquen tarde o desde otro paso. */
+export function parseUtil(texto: string): 'si' | 'no' | null {
+  const t = (texto ?? '').trim();
+  return t === 'reco_util_si' ? 'si' : t === 'reco_util_no' ? 'no' : null;
+}
+
+/** Quien ya autorizó sus datos al empezar: solo se le piden los de contacto. */
+export const ASESOR_CON_AUTORIZACION = '👤 ¡Claro! Para que un asesor de Posgrados te contacte necesito un par de datos.';
+
+/** El correo, sin volver a dar las gracias (va después de ASESOR_CON_AUTORIZACION). */
+export const PEDIR_SOLO_CORREO = '📧 ¿Cuál es tu *correo electrónico*?\n\n_Escribe *0* para volver._';
+
 export const BOTONES_CONSENTIMIENTO: readonly Boton[] = [
   { id: 'si', displayText: '✅ Sí, autorizo' },
   { id: 'no', displayText: '❌ No' },

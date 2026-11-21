@@ -16,9 +16,11 @@ import {
   handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
   handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
   atenderRespuestaCampana,
+  atenderUtil,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { handleConversacion } from './conversacion';
+import { parseUtil } from './recomendacionView';
 import { config } from '../config';
 import { handleWithAgent } from './withAgent';
 // Flujos legacy (turno, recibo, TI) — se mantienen por si algún usuario tiene sesión activa
@@ -111,6 +113,9 @@ export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
   // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
   if (await atenderRespuestaCampana(from, text, session)) return;
+  // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.
+  const util = parseUtil(text);
+  if (util) return atenderUtil(from, util, session?.data ?? {});
   const step = session?.step ?? 'menu';
 
   // Con el inicio conversacional, el paso raíz lo atiende la IA con preguntas de botones.

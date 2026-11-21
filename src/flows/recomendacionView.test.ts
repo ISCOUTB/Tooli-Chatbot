@@ -43,6 +43,7 @@ import {
   resumenRecomendacion,
   textoConfirmacion,
 } from './recomendacionView';
+import { ASESOR_CON_AUTORIZACION, BOTONES_UTIL, PEDIR_SOLO_CORREO, esTextoLibre, parseUtil } from './recomendacionView';
 
 /**
  * Vista del flujo de recomendación: que todo quepa en las listas y botones
@@ -323,5 +324,28 @@ describe('lead en HubSpot', () => {
     assert.equal(relacionLead({ relacion: 'egresado_utb' }), 'Egresado(a) UTB');
     assert.equal(relacionLead({ relacion: 'externo' }), 'Otra universidad');
     assert.equal(relacionLead({ relacion: 'otra-cosa' }), '');
+  });
+});
+
+describe('recomendación: ¿te sirvió?', () => {
+  it('los botones caben en WhatsApp y se reconocen desde cualquier paso', () => {
+    for (const b of BOTONES_UTIL) assert.ok([...b.displayText].length <= 20, b.displayText);
+    assert.equal(parseUtil('reco_util_si'), 'si');
+    assert.equal(parseUtil(' reco_util_no '), 'no');
+    assert.equal(parseUtil('sí'), null);
+  });
+
+  it('una frase o una pregunta en los resultados es texto libre; una opción no', () => {
+    assert.equal(esTextoLibre('Busco algo más enfocado en salud mental'), true);
+    assert.equal(esTextoLibre('¿cuál es más barata?'), true);
+    assert.equal(esTextoLibre('2'), false);
+    assert.equal(esTextoLibre('virtual'), false);
+    assert.equal(esTextoLibre('__image__'), false);
+  });
+
+  it('con la autorización dada, el asesor pide el correo en un solo mensaje', () => {
+    assert.match(ASESOR_CON_AUTORIZACION, /asesor/);
+    assert.match(PEDIR_SOLO_CORREO, /correo electrónico/);
+    assert.doesNotMatch(PEDIR_SOLO_CORREO, /Gracias/);
   });
 });

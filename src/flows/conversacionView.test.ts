@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
-  cabeConBotones, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
+  BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
+  cabeConBotones, datosAceptados, detectarPerfil, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
@@ -86,7 +86,7 @@ describe('conversación: quien todavía no tiene pregrado', () => {
   });
 
   it('no le sigue preguntando ni le ofrece recomendaciones', () => {
-    assert.equal(siguientePregunta({ sinPregrado: '1' }), null);
+    assert.equal(siguientePregunta({ datos: 'si', sinPregrado: '1' }), null);
   });
 
   it('sus botones también caben en WhatsApp y se reconocen', () => {
@@ -98,15 +98,24 @@ describe('conversación: quien todavía no tiene pregrado', () => {
 });
 
 describe('conversación: qué preguntar', () => {
+  it('primero la autorización de datos, aunque no tenga pregrado', () => {
+    assert.equal(siguientePregunta({}), 'datos');
+    assert.equal(siguientePregunta({ sinPregrado: '1' }), 'datos');
+    // Quien ya respondió lo de recibir información (antes de existir esta pregunta) no la repite.
+    assert.equal(siguientePregunta({ info: 'si' }), 'estudia_utb');
+  });
+
   it('pregunta relación, carrera y nivel, en ese orden', () => {
-    assert.equal(siguientePregunta({}), 'estudia_utb');
-    assert.equal(siguientePregunta({ relacion: 'externo' }), 'pregrado');
-    assert.equal(siguientePregunta({ relacion: 'externo', familiaId: 'salud' }), 'nivel');
-    const perfil = { relacion: 'egresado_utb', pregradoId: 'x', nivelListo: '1', nivel: '' };
+    assert.equal(siguientePregunta({ datos: 'si' }), 'estudia_utb');
+    assert.equal(siguientePregunta({ datos: 'si', relacion: 'externo' }), 'pregrado');
+    assert.equal(siguientePregunta({ datos: 'si', relacion: 'externo', familiaId: 'salud' }), 'nivel');
+    const perfil = { datos: 'si', relacion: 'egresado_utb', pregradoId: 'x', nivelListo: '1', nivel: '' };
     assert.equal(siguientePregunta(perfil), 'info', 'con el perfil completo pregunta si quiere recibir información');
     assert.equal(siguientePregunta({ ...perfil, info: 'si' }), 'nombre_info');
     assert.equal(siguientePregunta({ ...perfil, info: 'si', nombre: 'Ana' }), null);
     assert.equal(siguientePregunta({ ...perfil, info: 'no' }), null);
+    // Sin autorización de datos no se le ofrece recibir información.
+    assert.equal(siguientePregunta({ ...perfil, datos: 'no' }), null);
   });
 
   it('la pregunta de la carrera depende de la relación con la UTB', () => {
@@ -222,5 +231,31 @@ describe('conversación: quien vuelve', () => {
     assert.deepEqual(interpretarRespuestaEscrita('regreso', 'no'), { boton: 'conv_reiniciar' });
     assert.equal(parseBoton('conv_seguir_perfil'), 'conv_seguir_perfil');
     assert.equal(parseBoton('conv_reiniciar'), 'conv_reiniciar');
+  });
+});
+
+describe('conversación: autorización de datos en el primer contacto', () => {
+  it('nombra la ley, las finalidades y cómo revocarla, y cabe en WhatsApp', () => {
+    const texto = PREGUNTAS.datos.texto;
+    assert.match(texto, /Ley 1581 de 2012/);
+    assert.match(texto, /registrarte/);
+    assert.match(texto, /asesor te contacte/);
+    assert.match(texto, /BAJA/);
+    assert.ok([...texto].length <= 1024);
+    assert.deepEqual(PREGUNTAS.datos.botones?.map((b) => b.id), ['conv_datos_si', 'conv_datos_no']);
+  });
+
+  it('entiende la respuesta escrita', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'sí'), { boton: 'conv_datos_si' });
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'acepto'), { boton: 'conv_datos_si' });
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'no acepto'), { boton: 'conv_datos_no' });
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'no'), { boton: 'conv_datos_no' });
+    assert.equal(interpretarRespuestaEscrita('datos', '¿cuánto cuesta el MBA?'), null);
+  });
+
+  it('confirma el registro por su primer nombre y recuerda cómo darse de baja', () => {
+    assert.match(datosAceptados('Laura Gómez'), /^¡Gracias, Laura! Ya quedaste registrado/);
+    assert.match(datosAceptados('Laura'), /BAJA/);
+    assert.match(DATOS_RECHAZADOS, /no guardaré tus datos/);
   });
 });

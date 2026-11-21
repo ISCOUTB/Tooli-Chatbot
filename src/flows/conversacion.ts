@@ -8,16 +8,21 @@
  * persona quiere, la pasa a un asesor con su consentimiento. Si ignora una
  * pregunta, el bot no insiste en el siguiente turno. Cada respuesta de la IA
  * trae dos preguntas sugeridas para tocar, y quien vuelve (el perfil dura 90
- * días) retoma donde quedó en vez de contestar todo de nuevo.
+ * días) retoma donde quedó en vez de contestar todo de nuevo. La primera vez
+ * que alguien escribe, antes de todo, se le pide la autorización de datos
+ * (Ley 1581) y, si acepta, su nombre para registrarlo en el CRM.
  */
-import { setSession } from '../services/session';
+import { config } from '../config';
+import { getSession, setSession } from '../services/session';
 import { preguntarAI, AIUnavailableError, ChatTurn } from '../services/aiAssistant';
 import { track } from '../services/metrics';
 import { getPrograma } from '../services/catalogoUtb';
-import { darDeBaja, quitarBaja } from '../services/campanaService';
+import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaService';
+import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { guardarRegistroProspecto } from '../services/registroService';
-import { guardarPerfil, leerPerfil, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
+import { guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
+import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
 import { CONFIRMACION_BAJA } from './campanaReco';
 import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
@@ -27,10 +32,10 @@ import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado'
 import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BOTON_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
+  BOTON_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
-  SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
-  TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, detectarPerfil, esBaja, esPedidoAsesor, esSaludo,
+  SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
+  TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
   parseSugerencia, saludoCortoRegreso, saludoRegreso, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
@@ -41,7 +46,9 @@ import {
 /** El perfil es una ayuda: si Redis falla al guardarlo, la conversación sigue. */
 async function recordarPerfil(from: string, data: SessionData): Promise<void> {
   try {
-    await guardarPerfil(from, data);
+    // Sin autorización de datos no se recuerda nada; si la negó, se borra lo que hubiera.
+    if (data.datos === 'si') await guardarPerfil(from, { ...data, pendienteEn: data.pendiente ? String(Date.now()) : '' });
+    else if (data.datos === 'no') await guardarPerfil(from, {});
   } catch (err) {
     console.error('[conversacion] no se pudo guardar el perfil:', describeExternalError(err));
   }
@@ -73,25 +80,50 @@ function carreraDe(data: SessionData): string | null {
 
 // ── Envíos ──────────────────────────────────────────────────────────────────
 
+/** Preguntas que, si quedan sin respuesta, se recuerdan una vez (ver seguimientoService). */
+const RECORDABLES: ReadonlySet<string> = new Set<Pendiente>([
+  'tiene_programa', 'estudia_utb', 'egresado', 'pregrado', 'nivel', 'info', 'nombre_info', 'ofrecer',
+]);
+
+async function seguirSiNoContesta(from: string, data: SessionData, pendiente: string): Promise<void> {
+  if (data.datos === 'si' && RECORDABLES.has(pendiente)) await programarSeguimiento(from, pendiente);
+}
+
 /** Hace la pregunta y la deja pendiente para entender la respuesta escrita. */
-async function preguntar(from: string, data: SessionData, pendiente: Pendiente): Promise<void> {
+async function preguntar(from: string, data: SessionData, pendiente: Pendiente, prefijo?: string): Promise<void> {
   await guardarSesion(from, { ...data, pendiente, saltada: '' });
   const pregunta = PREGUNTAS[pendiente];
-  if (pendiente === 'pregrado') {
-    await messaging.sendText({ to: from, text: textoPregrado(data.relacion) });
-    return;
+  const conPrefijo = (texto: string) => (prefijo ? `${prefijo}\n\n${texto}` : texto);
+  if (pendiente === 'pregrado' || !pregunta.botones) {
+    const texto = pendiente === 'pregrado' ? textoPregrado(data.relacion) : pregunta.texto;
+    await messaging.sendText({ to: from, text: conPrefijo(texto) });
+  } else {
+    await messaging.sendButtons({
+      to: from,
+      title: TITULO,
+      description: conPrefijo(pregunta.texto),
+      footer: pregunta.pie ?? PIE,
+      buttons: [...pregunta.botones],
+    });
   }
-  if (!pregunta.botones) {
-    await messaging.sendText({ to: from, text: pregunta.texto });
-    return;
-  }
-  await messaging.sendButtons({
-    to: from,
-    title: TITULO,
-    description: pregunta.texto,
-    footer: pregunta.pie ?? PIE,
-    buttons: [...(pregunta.botones ?? [])],
-  });
+  await seguirSiNoContesta(from, data, pendiente);
+}
+
+/**
+ * Seguimiento de una pregunta sin contestar (lo llama seguimientoService). Solo
+ * si la persona no está en otra cosa, sigue autorizando sus datos y no pidió
+ * la baja. Devuelve si se le escribió.
+ */
+export async function recordarPendiente(from: string, pendiente: string): Promise<boolean> {
+  if (!config.conversacion.activa || !RECORDABLES.has(pendiente)) return false;
+  if (await getSession(from)) return false;
+  if ((await decisionGuardada(from)) !== 'si') return false;
+  if (await estaDadoDeBaja(from)) return false;
+  const perfil = (await perfilGuardado(from)) ?? {};
+  delete perfil.pendienteEn;
+  await track('conv_seguimiento');
+  await preguntar(from, { ...perfil, datos: 'si' }, pendiente as Pendiente, recordatorioSeguimiento(perfil.nombre));
+  return true;
 }
 
 /**
@@ -189,6 +221,18 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
       // El nombre ya conocido (por ejemplo, de un registro anterior) no se vuelve a pedir.
       if (data.nombre) return registrarSuscripcion(from, { ...data, info: 'si' }, data.nombre);
       return preguntar(from, { ...data, info: 'si' }, 'nombre_info');
+    case 'conv_datos_si': {
+      await track('datos_acepta');
+      await registrarDecision(from, 'si');
+      const autorizado: SessionData = { ...data, datos: 'si', info: 'si', registro: 'datos' };
+      if (data.nombre) return registrarSuscripcion(from, autorizado, data.nombre);
+      return preguntar(from, autorizado, 'nombre_info');
+    }
+    case 'conv_datos_no':
+      await track('datos_rechaza');
+      await negarDatos(from);
+      await messaging.sendText({ to: from, text: DATOS_RECHAZADOS });
+      return seguirTrasAutorizar(from, { ...data, datos: 'no', info: 'no' });
     case 'conv_info_no':
       await track('info_rechaza');
       try {
@@ -203,7 +247,39 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
   }
 }
 
-// ── Autorización para recibir información ───────────────────────────────────
+// ── Autorización de datos y de recibir información ──────────────────────────
+
+/** Sin autorización: queda la constancia y no se le envía información. */
+async function negarDatos(from: string): Promise<void> {
+  await registrarDecision(from, 'no');
+  try {
+    await darDeBaja(from);
+  } catch (err) {
+    console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
+  }
+}
+
+/** Primera vez que escribe: el saludo y la autorización. Lo que preguntó se responde después. */
+async function pedirAutorizacion(from: string, data: SessionData, texto: string): Promise<void> {
+  const t = texto.trim();
+  const esPregunta = !!t && !esSaludo(t) && !parseBoton(t) && !parseSugerencia(t) && !parseGlobalCommand(t) &&
+    !t.startsWith('__');
+  const inicial = esPregunta ? t.slice(0, 500) : '';
+  await messaging.sendText({ to: from, text: inicial ? SALUDO_CON_PREGUNTA : SALUDO_CONVERSACION });
+  return preguntar(from, { ...data, preguntaInicial: inicial }, 'datos');
+}
+
+/** Después de decidir: responde lo que había preguntado o empieza con la primera pregunta. */
+async function seguirTrasAutorizar(from: string, data: SessionData): Promise<void> {
+  const pregunta = data.preguntaInicial ?? '';
+  const sigue: SessionData = { ...data, preguntaInicial: '', registro: '', pendiente: '' };
+  if (pregunta) {
+    if (esPedidoAsesor(pregunta)) return pedirConsentimiento(from, sigue);
+    return responderConIa(from, sigue, pregunta);
+  }
+  if (!sigue.relacion && !sigue.modo) return preguntar(from, sigue, 'tiene_programa');
+  return continuar(from, sigue);
+}
 
 const AUTOR_BOT = 'Tooli (bot)';
 
@@ -230,16 +306,20 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
       console.error('[conversacion] no se pudo guardar en el CRM:', describeExternalError(err));
     }
   }
+  const alEmpezar = data.registro === 'datos';
   try {
     const resumen = resumenRecomendacion(data);
-    await agregarNota(from, `📬 Autorizó recibir información de posgrados por WhatsApp (Ley 1581 de 2012).${resumen ? `\n🧭 ${resumen}` : ''}`, AUTOR_BOT);
+    const autorizacion = alEmpezar
+      ? '🔒 Autorizó el tratamiento de sus datos y recibir información de posgrados por WhatsApp (Ley 1581 de 2012) en su primer mensaje al bot.'
+      : '📬 Autorizó recibir información de posgrados por WhatsApp (Ley 1581 de 2012).';
+    await agregarNota(from, `${autorizacion}${resumen ? `\n🧭 ${resumen}` : ''}`, AUTOR_BOT);
     const ficha = await getFicha(from);
     await setEtiquetas(from, [...new Set([...ficha.etiquetas, 'acepta-informacion', 'bot-conversacion'])], AUTOR_BOT);
   } catch (err) {
     console.error('[conversacion] no se pudo anotar en la ficha:', describeExternalError(err));
   }
-  await messaging.sendText({ to: from, text: infoAceptada(nombre) });
-  return continuar(from, { ...data, info: 'si', nombre, filaCrm, pendiente: '' });
+  await messaging.sendText({ to: from, text: alEmpezar ? datosAceptados(nombre) : infoAceptada(nombre) });
+  return seguirTrasAutorizar(from, { ...data, datos: 'si', info: 'si', nombre, filaCrm });
 }
 
 // ── Carrera escrita ─────────────────────────────────────────────────────────
@@ -342,6 +422,7 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
     ...conPerfil,
     aiHistory: JSON.stringify([...anterior, { role: 'user', content: texto.trim() }, { role: 'assistant', content: respuesta }]),
     aiTurnCount: String(turnos),
+    preguntaInicial: '',
   };
 
   if (turnos === TURNOS_ANTES_DE_ASESOR) {
@@ -356,6 +437,7 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   if (conPerfil.pendiente && conPerfil.saltada !== '1') {
     await guardarSesion(from, { ...nuevo, saltada: '1' });
     await enviarConSugerencias(from, respuesta, botones);
+    await seguirSiNoContesta(from, nuevo, conPerfil.pendiente);
     return;
   }
   // Si falta algo, después de la respuesta va la pregunta: esa es la interacción de este turno.
@@ -377,6 +459,18 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const perfil = session ? null : await perfilGuardado(from);
   const data: SessionData = { ...(session?.data ?? perfil ?? {}) };
   const saludo = session ? undefined : perfil ? saludoCortoRegreso(perfil.nombre) : SALUDO_CORTO;
+  if (!session) {
+    const decision = await decisionGuardada(from);
+    if (decision) data.datos = decision;
+    // La pregunta que quedó sin contestar vale hasta un día después; un saludo empieza de cero.
+    if (!pendienteVigente(data) || esSaludo(text)) data.pendiente = '';
+    delete data.pendienteEn;
+  }
+  // Quien ya respondió lo de recibir información decidió también sobre sus datos.
+  if (!data.datos && data.info) data.datos = data.info;
+
+  // La primera vez que escribe, antes de todo, la autorización de datos (Ley 1581).
+  if (!session && !data.datos && !esBaja(text)) return pedirAutorizacion(from, data, text);
 
   const comando = parseGlobalCommand(text);
   if (comando === 'menu' || comando === 'salir') return reiniciar(from, data);
@@ -388,7 +482,8 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     } catch (err) {
       console.error('[conversacion] no se pudo registrar la baja:', describeExternalError(err));
     }
-    await guardarSesion(from, { ...data, info: 'no', pendiente: '' });
+    await registrarDecision(from, 'no');
+    await guardarSesion(from, { ...data, datos: 'no', info: 'no', pendiente: '' });
     await messaging.sendText({ to: from, text: CONFIRMACION_BAJA });
     return;
   }
@@ -442,8 +537,9 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
 
   // Un saludo suelto al empezar: presentación y primera pregunta. Quien vuelve retoma.
   if (esSaludo(text)) {
+    if (pendiente === 'datos') return preguntar(from, data, 'datos');
     const carrera = perfil ? carreraDe(perfil) : null;
-    if (perfil && carrera) return ofrecerRetomar(from, perfil, carrera);
+    if (perfil && carrera) return ofrecerRetomar(from, data, carrera);
     if (!session || (!data.aiHistory && !data.relacion)) {
       // Empieza con lo que ya se sabe; si no tenía pregrado, se le vuelve a preguntar.
       const conocido = perfilDeDatos(data);
