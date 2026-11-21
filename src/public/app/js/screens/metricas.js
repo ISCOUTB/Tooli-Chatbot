@@ -72,6 +72,7 @@ const EVENT_META = {
   datos_acepta:              { label: 'Autorizó sus datos',     icon: '🔒', color: '#2f6fd6' },
   datos_rechaza:             { label: 'No autorizó sus datos',  icon: '🔒', color: '#64748b' },
   conv_sugerencia:           { label: 'Tocó una pregunta sugerida', icon: '💬', color: '#2f6fd6' },
+  ai_reutilizada:            { label: 'Respuestas reutilizadas (sin gastar IA)', icon: '🔁', color: '#0f9d58' },
   conv_regreso:              { label: 'Volvió y retomó',        icon: '👋', color: '#2f6fd6' },
   conv_seguimiento:          { label: 'Seguimientos enviados',  icon: '⏰', color: '#2f6fd6' },
   conv_asesor_sugerido:      { label: 'La IA ofreció asesor',   icon: '🙋', color: '#2f6fd6' },
@@ -94,7 +95,7 @@ const TIPO_INCIDENCIA = {
 /* Solo los eventos del flujo conversacional de posgrados: los del menú anterior
    (turnos, notas, recibos, Mi vida académica…) ya no aparecen aquí. */
 const EVENTOS_FLUJO = [
-  'conv_inicio', 'datos_acepta', 'datos_rechaza', 'ai_request', 'ai_resolved', 'ai_failed', 'ai_used_tool', 'conv_sugerencia',
+  'conv_inicio', 'datos_acepta', 'datos_rechaza', 'ai_request', 'ai_resolved', 'ai_failed', 'ai_used_tool', 'ai_reutilizada', 'conv_sugerencia',
   'audio_transcrito', 'audio_fallido', 'reco_inicio', 'reco_relacion_egresado_utb', 'reco_relacion_estudiante_utb',
   'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide', 'reco_externo_sin_coincidencia', 'reco_resultados',
   'reco_mas_opciones', 'reco_ficha', 'reco_ia', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'reco_asesor',
@@ -124,6 +125,14 @@ function totalesDelFlujo(days) {
     }
   }
   return totals;
+}
+
+/** Cada respuesta reutilizada ahorra una llamada a la IA (unos 4.000 tokens con el catálogo). */
+const TOKENS_POR_LLAMADA = 4000;
+function textoReutilizadas(reutilizadas, preguntas) {
+  if (!reutilizadas) return 'Lo que más le preguntan a la IA en los últimos 30 días. Las respuestas a las preguntas que abren una conversación se guardan y se reutilizan.';
+  const pct = preguntas > 0 ? ` (${Math.round(reutilizadas / preguntas * 100)}% de las preguntas)` : '';
+  return `En este rango ${reutilizadas} respuestas salieron guardadas, sin llamar a la IA${pct}: unos ${(reutilizadas * TOKENS_POR_LLAMADA).toLocaleString('es-CO')} tokens ahorrados.`;
 }
 
 const fechaCorta = (iso) => new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
@@ -168,10 +177,11 @@ async function renderMetricas(main) {
     destroyMetricsCharts();
     marcarCargando(content, true);
     try {
-      const [r, rNo, rInc] = await Promise.all([
+      const [r, rNo, rInc, rFrec] = await Promise.all([
         api(`/api/tools/metrics/range?days=${metDays}`),
         api('/api/tools/metrics/no-reconocidos').catch(() => null),
         api('/api/tools/metrics/incidencias').catch(() => null),
+        api('/api/tools/metrics/preguntas-frecuentes').catch(() => null),
       ]);
       if (!content.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -179,6 +189,7 @@ async function renderMetricas(main) {
       // Lo que el bot no entendió: si falla, la pantalla sigue sin esta tarjeta.
       const noReconocidos = rNo?.ok ? ((await rNo.json()).textos ?? []) : [];
       const incidencias = rInc?.ok ? ((await rInc.json()).incidencias ?? []) : [];
+      const frecuentes = rFrec?.ok ? ((await rFrec.json()).preguntas ?? []) : [];
       if (!content.isConnected || seq !== loadSeq) return;
       const dateKeys = Object.keys(days).sort();
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
@@ -222,6 +233,20 @@ async function renderMetricas(main) {
                 </div>
               `;
             }).join('')}
+          </div>
+        </div>
+
+        <div class="widget-card" style="margin-top:16px;">
+          <div class="widget-card-head"><h2>🔁 Preguntas más frecuentes</h2></div>
+          <div style="padding:4px 20px 16px;">
+            <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">${escapeHtml(textoReutilizadas(totals.ai_reutilizada ?? 0, totals.ai_request ?? 0))}</p>
+            ${frecuentes.length === 0
+              ? `<p style="color:var(--text-muted);text-align:center;padding:12px 0;">Todavía no hay preguntas guardadas.</p>`
+              : frecuentes.slice(0, 15).map((x) => `
+                <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                  <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(x.veces)} ${x.veces === 1 ? 'vez' : 'veces'}</span>
+                </div>`).join('')}
           </div>
         </div>
 

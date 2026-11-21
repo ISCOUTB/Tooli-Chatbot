@@ -432,7 +432,8 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   let consultado: ProgramaUtb | null = null;
   try {
     const contexto = area === 'posgrados' ? resumenRecomendacion(conPerfil) ?? undefined : undefined;
-    const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS);
+    const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
+    if (ai.reutilizada) await track('ai_reutilizada', { area });
     const separada = separarSugerencias(ai.answer);
     respuesta = separada.texto || ai.answer;
     sugerencias = separada.sugerencias;
@@ -542,7 +543,8 @@ function lugar(data: SessionData): SessionData {
 export async function responderPreguntaSuelta(from: string, data: SessionData, texto: string, sigue = SIGUE_ARRIBA): Promise<void> {
   await track('ai_request', { area: 'posgrados' });
   try {
-    const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS);
+    const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
+    if (ai.reutilizada) await track('ai_reutilizada', { area: 'posgrados' });
     const separada = separarSugerencias(ai.answer);
     await track('ai_resolved', { area: 'posgrados' });
     if (separada.sinDato) await registrarNoReconocido('ia_sin_dato', texto);

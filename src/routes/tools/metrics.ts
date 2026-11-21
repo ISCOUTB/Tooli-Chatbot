@@ -8,6 +8,7 @@ import { getMetrics, track } from '../../services/metrics';
 import { isMetricEvent } from '../../services/metricEventAllowlist';
 import { ultimosNoReconocidos } from '../../services/noReconocidoService';
 import { ultimasIncidencias } from '../../services/incidenciasService';
+import { preguntasFrecuentes } from '../../services/respuestasFrecuentes';
 import { Response } from 'express';
 
 export const metricsRouter = Router();
@@ -39,6 +40,11 @@ metricsRouter.get('/metrics/no-reconocidos', async (_req, res) => {
 /** Los últimos errores del bot (sin teléfonos ni mensajes), para revisarlos. */
 metricsRouter.get('/metrics/incidencias', async (_req, res) => {
   res.json({ incidencias: await ultimasIncidencias(50) });
+});
+
+/** Lo que más le preguntan a la IA en los últimos 30 días (sin datos personales). */
+metricsRouter.get('/metrics/preguntas-frecuentes', async (_req, res) => {
+  res.json({ preguntas: await preguntasFrecuentes(20) });
 });
 
 metricsRouter.post('/track', async (req: AuthedRequest, res: Response) => {

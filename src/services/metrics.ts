@@ -39,6 +39,7 @@ export type MetricEvent =
   | 'no_reconocido'
   | 'incidencia'
   | 'conv_inicio'
+  | 'ai_reutilizada'
   | 'conv_sugerencia'
   | 'duplicate_message'
   // Posgrados

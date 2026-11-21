@@ -246,7 +246,7 @@ app.get('/api/tools/metrics/range', (req, res) => {
     out[fecha] = { conv_inicio: 24 + i * 3, menu_shown: 8 + (i % 4), ai_request: 30 + i * 2, agent_handoff: 3 + (i % 3),
       datos_acepta: 18 + i * 2, datos_rechaza: 2 + (i % 3), reco_inicio: 12 + i, reco_resultados: 11 + i, reco_ficha: 6 + (i % 4),
       reco_asesor: 3 + (i % 3), reco_lead_completado: 2 + (i % 2), reco_util_si: 3 + (i % 2), reco_util_no: i % 2,
-      conv_sugerencia: 8 + i, conv_regreso: 2 + (i % 2), conv_asesor_sugerido: 1 + (i % 2), audio_transcrito: 2 + (i % 3),
+      conv_sugerencia: 8 + i, ai_reutilizada: 9 + i, conv_regreso: 2 + (i % 2), conv_asesor_sugerido: 1 + (i % 2), audio_transcrito: 2 + (i % 3),
       no_reconocido: Object.values(noEntendio).reduce((a, b) => a + b, 0), incidencia: Object.values(errores).reduce((a, b) => a + b, 0) };
     for (const [paso, n] of Object.entries(noEntendio)) if (n) out[fecha][`no_reconocido:paso:${paso}`] = n;
     for (const [tipo, n] of Object.entries(errores)) if (n) out[fecha][`incidencia:tipo:${tipo}`] = n;
@@ -261,6 +261,11 @@ app.get('/api/tools/metrics/no-reconocidos', (_q, res) => j(res, { textos: [
   { paso: 'ia_sin_dato', texto: '¿la maestría en logística tiene doble titulación?', fecha: new Date(hace(90)).toISOString() },
   { paso: 'confusion', texto: 'no entiendo · al preguntar «¿Qué nivel de posgrado te interesa?»', fecha: new Date(hace(600)).toISOString() },
   { paso: 'imagen', texto: 'una imagen', fecha: new Date(hace(2000)).toISOString() },
+] }));
+app.get('/api/tools/metrics/preguntas-frecuentes', (_q, res) => j(res, { preguntas: [
+  { texto: '¿Cuánto cuesta el MBA?', veces: 41 }, { texto: '¿Hay becas?', veces: 33 }, { texto: '¿Qué maestrías virtuales tienen?', veces: 27 },
+  { texto: '¿Cuándo inician las clases?', veces: 19 }, { texto: 'Requisitos para la especialización en gerencia de proyectos', veces: 12 },
+  { texto: '¿Tienen descuento para egresados?', veces: 9 }, { texto: '¿Cuánto dura la maestría en ciberseguridad?', veces: 4 },
 ] }));
 app.get('/api/tools/metrics/incidencias', (_q, res) => j(res, { incidencias: [
   { tipo: 'crm', detalle: 'No se pudo guardar el prospecto en la hoja de registros · Google Sheets respondió 503', fecha: new Date(hace(45)).toISOString() },

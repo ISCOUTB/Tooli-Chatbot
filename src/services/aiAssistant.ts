@@ -6,6 +6,7 @@ import { KB_ADMISIONES, KB_POSGRADOS } from './knowledgeBase';
 import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma } from './catalogoUtb';
 import { KB_TI } from './knowledgeBaseTI';
 import { observeAILatency } from './promMetrics';
+import { buscarRespuesta, claveDeRespuesta, contarPregunta, guardarRespuesta } from './respuestasFrecuentes';
 
 const openai = config.openai.apiKey ? new OpenAI({ apiKey: config.openai.apiKey }) : null;
 const redis = new Redis(config.redis.url);
@@ -218,6 +219,16 @@ export interface AIResponse {
   programaConsultado?: string;
   /** Si el AI determinó que se necesita verificar identidad y escalar a TI */
   triggerIdentityVerification?: boolean;
+  /** La respuesta salió de las preguntas frecuentes guardadas, sin llamar a la IA. */
+  reutilizada?: boolean;
+}
+
+export interface OpcionesIa {
+  /**
+   * La pregunta entra al ranking de preguntas frecuentes y, si abre la
+   * conversación (sin historial), su respuesta se guarda y se reutiliza.
+   */
+  frecuentes?: boolean;
 }
 
 export interface ChatTurn {
@@ -231,6 +242,10 @@ const MAX_HISTORY = 10;
 /**
  * Pregunta al AI assistant. El comportamiento (KB y herramientas) depende del área.
  */
+function promptDe(area: AIArea): string {
+  return area === 'ti' ? SYSTEM_PROMPT_TI : area === 'posgrados' ? SYSTEM_PROMPT_POSGRADOS : SYSTEM_PROMPT_ADMISIONES;
+}
+
 export async function preguntarAI(
   area: AIArea,
   question: string,
@@ -238,15 +253,41 @@ export async function preguntarAI(
   guidanceContext?: string,
   /** Instrucción adicional de formato (por ejemplo, proponer preguntas de seguimiento). */
   instruccionExtra?: string,
+  opciones: OpcionesIa = {},
+): Promise<AIResponse> {
+  if (!openai) {
+    throw new AIUnavailableError('not_configured');
+  }
+  if (!opciones.frecuentes) return consultarIa(area, question, history, guidanceContext, instruccionExtra);
+
+  await contarPregunta(question);
+  // Solo la pregunta que abre la conversación: una de seguimiento depende de lo anterior.
+  const clave = history.length === 0
+    ? claveDeRespuesta(area, question, [promptDe(area), guidanceContext ?? '', instruccionExtra ?? ''].join('\n'))
+    : null;
+  if (clave) {
+    const guardada = await buscarRespuesta(clave);
+    if (guardada) return { answer: guardada.answer, programaConsultado: guardada.programaConsultado, usedTool: false, reutilizada: true };
+  }
+  const respuesta = await consultarIa(area, question, history, guidanceContext, instruccionExtra);
+  if (clave && !respuesta.triggerIdentityVerification) {
+    await guardarRespuesta(clave, { answer: respuesta.answer, programaConsultado: respuesta.programaConsultado });
+  }
+  return respuesta;
+}
+
+async function consultarIa(
+  area: AIArea,
+  question: string,
+  history: ChatTurn[],
+  guidanceContext?: string,
+  instruccionExtra?: string,
 ): Promise<AIResponse> {
   if (!openai) {
     throw new AIUnavailableError('not_configured');
   }
 
-  const systemPrompt =
-    area === 'ti' ? SYSTEM_PROMPT_TI :
-    area === 'posgrados' ? SYSTEM_PROMPT_POSGRADOS :
-    SYSTEM_PROMPT_ADMISIONES;
+  const systemPrompt = promptDe(area);
   const tools =
     area === 'ti' ? TOOLS_TI :
     area === 'posgrados' ? TOOLS_POSGRADOS :
