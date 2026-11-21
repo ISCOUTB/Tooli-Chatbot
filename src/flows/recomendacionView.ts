@@ -702,6 +702,22 @@ export function resumenRecomendacion(data: Record<string, string> | undefined | 
  * con el nivel que buscaba. Va solo, sin el resumen: el CRM del panel
  * clasifica la fila buscando "doctorado", "maestr" o "especial" en este texto.
  */
+/**
+ * Lo que la IA necesita saber de la persona además del historial: su búsqueda,
+ * el programa del que habló la última vez (para retomar cuando vuelve) y, en
+ * las preguntas de seguimiento, su primer nombre si autorizó sus datos. El
+ * nombre no va en la primera pregunta, cuya respuesta se guarda para todos.
+ */
+export function contextoConversacion(data: Record<string, string> | undefined | null, conHistorial: boolean): string | undefined {
+  if (!data) return undefined;
+  const resumen = resumenRecomendacion(data);
+  const interes = !resumen && data.programaInteres ? getPrograma(data.programaInteres)?.nombre : undefined;
+  const primero = (data.nombre ?? '').trim().split(/\s+/)[0] ?? '';
+  const nombre = conHistorial && data.datos === 'si' && primero ? primero.charAt(0).toLocaleUpperCase('es') + primero.slice(1) : '';
+  const partes = [resumen, interes && `Antes preguntó por: ${interes}.`, nombre && `Se llama ${nombre}.`].filter(Boolean);
+  return partes.length ? partes.join(' ') : undefined;
+}
+
 export function programaInteresLead(data: Record<string, string>): string {
   const revisado = data.programaInteres && getPrograma(data.programaInteres)?.nombre;
   if (revisado) return revisado;

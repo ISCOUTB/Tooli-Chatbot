@@ -73,6 +73,7 @@ const EVENT_META = {
   datos_rechaza:             { label: 'No autorizó sus datos',  icon: '🔒', color: '#64748b' },
   conv_sugerencia:           { label: 'Tocó una pregunta sugerida', icon: '💬', color: '#2f6fd6' },
   ai_reutilizada:            { label: 'Respuestas reutilizadas (sin gastar IA)', icon: '🔁', color: '#0f9d58' },
+  ia_corregida:              { label: 'Programa o enlace de la IA corregido', icon: '🛠️', color: '#b45309' },
   conv_regreso:              { label: 'Volvió y retomó',        icon: '👋', color: '#2f6fd6' },
   conv_seguimiento:          { label: 'Seguimientos enviados',  icon: '⏰', color: '#2f6fd6' },
   conv_asesor_sugerido:      { label: 'La IA ofreció asesor',   icon: '🙋', color: '#2f6fd6' },
@@ -95,7 +96,7 @@ const TIPO_INCIDENCIA = {
 /* Solo los eventos del flujo conversacional de posgrados: los del menú anterior
    (turnos, notas, recibos, Mi vida académica…) ya no aparecen aquí. */
 const EVENTOS_FLUJO = [
-  'conv_inicio', 'datos_acepta', 'datos_rechaza', 'ai_request', 'ai_resolved', 'ai_failed', 'ai_used_tool', 'ai_reutilizada', 'conv_sugerencia',
+  'conv_inicio', 'datos_acepta', 'datos_rechaza', 'ai_request', 'ai_resolved', 'ai_failed', 'ai_used_tool', 'ai_reutilizada', 'ia_corregida', 'conv_sugerencia',
   'audio_transcrito', 'audio_fallido', 'reco_inicio', 'reco_relacion_egresado_utb', 'reco_relacion_estudiante_utb',
   'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide', 'reco_externo_sin_coincidencia', 'reco_resultados',
   'reco_mas_opciones', 'reco_ficha', 'reco_ia', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'reco_asesor',

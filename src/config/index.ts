@@ -11,6 +11,8 @@ const schema = z.object({
   WEBHOOK_SECRET: z.string(),
   REDIS_URL: z.string().default('redis://redis:6379'),
   SESSION_TTL_SECONDS: z.string().default('3600'),
+  // Cuántas personas atiende el bot a la vez (cada una en orden). Con 1, si 20 escriben juntas la última espera ~40 s.
+  INBOUND_CONCURRENCIA: z.string().default('6'),
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string(),
   OPENAI_API_KEY: z.string().optional(),
   // Notas de voz: se transcriben y siguen la conversación como texto. 'false' las rechaza como antes.
@@ -105,6 +107,9 @@ export const config = {
   redis: {
     url: env.REDIS_URL,
     sessionTtl: parseInt(env.SESSION_TTL_SECONDS),
+  },
+  inbound: {
+    concurrencia: Math.max(1, Math.min(20, parseInt(env.INBOUND_CONCURRENCIA, 10) || 6)),
   },
   google: {
     serviceAccount: JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON),

@@ -166,9 +166,19 @@ async function finishInbound(item: InboxItem, estado: 'atendido' | 'ignorado' | 
   return Number(result) === 1;
 }
 
+/**
+ * Atiende la cola con `concurrencia` carriles. Cada carril reclama a una persona
+ * distinta (el reclamo saca a esa persona de la fila de listas hasta terminar su
+ * mensaje), así que varias personas se atienden a la vez y cada una en orden.
+ */
 export async function processInboundInbox(
   process: typeof processInboundMessage = processInboundMessage,
+  concurrencia = 1,
 ): Promise<void> {
+  await Promise.all(Array.from({ length: Math.max(1, concurrencia) }, () => procesarCarril(process)));
+}
+
+async function procesarCarril(process: typeof processInboundMessage): Promise<void> {
   for (let i = 0; i < 20; i++) {
     const item = await claimInbound(Date.now());
     if (!item) return;
@@ -256,16 +266,22 @@ export async function resolveInboundReview(
 }
 
 let timer: NodeJS.Timeout | null = null;
-let running = false;
+let carrilesActivos = 0;
 
-export function startInboundWorker(intervalMs = 1_000): void {
+/**
+ * Cada segundo completa los carriles que falten hasta `concurrencia`. Los
+ * carriles son independientes: mientras uno espera una respuesta lenta de la
+ * IA, los demás siguen tomando a otras personas.
+ */
+export function startInboundWorker(intervalMs = 1_000, concurrencia = config.inbound.concurrencia): void {
   if (timer) return;
-  const tick = async () => {
-    if (running) return;
-    running = true;
-    try { await processInboundInbox(); }
-    catch (err) { console.error('[inbound] worker:', describeExternalError(err)); }
-    finally { running = false; }
+  const tick = () => {
+    while (carrilesActivos < Math.max(1, concurrencia)) {
+      carrilesActivos++;
+      void procesarCarril(processInboundMessage)
+        .catch((err) => console.error('[inbound] worker:', describeExternalError(err)))
+        .finally(() => { carrilesActivos--; });
+    }
   };
   timer = setInterval(tick, intervalMs);
   timer.unref();

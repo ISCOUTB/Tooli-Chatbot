@@ -7,6 +7,8 @@ import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma } from '
 import { KB_TI } from './knowledgeBaseTI';
 import { observeAILatency } from './promMetrics';
 import { buscarRespuesta, claveDeRespuesta, contarPregunta, guardarRespuesta } from './respuestasFrecuentes';
+import { corregirRespuestaIa } from './verificarRespuestaIa';
+import { MAX_HISTORIAL, recortarHistorial } from './historialIa';
 
 const openai = config.openai.apiKey ? new OpenAI({ apiKey: config.openai.apiKey }) : null;
 const redis = new Redis(config.redis.url);
@@ -98,7 +100,11 @@ Reglas:
 5. Si el usuario muestra interés concreto en inscribirse o quiere hablar con alguien, dile: "Escribe *asesor* y te conecto con el equipo de Posgrados."
 6. Sé proactivo: si el usuario describe su perfil profesional, sugiere el programa que mejor le encaje.
 7. Si la persona solo saluda, preséntate así: "¡Hola! 👋 Soy *Tooli Posgrados*, tu asistente" y dile que puede preguntarte sobre programas, costos, financiación, horarios, requisitos o inscripción.
-8. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
+8. Nombra cada programa exactamente como aparece en tu base y con su nivel: una especialización no es una maestría. Si piden una maestría de un área donde solo hay especialización, dilo y ofrece la especialización.
+9. Si preguntan por programas virtuales, nombra solo los marcados (virtual) en tu base.
+10. Comparte solo enlaces que aparezcan en tu base o en la ficha del programa.
+11. Para el costo total usa el "valor total" de tu base o de la ficha; no hagas multiplicaciones.
+12. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
 
 Tu base de conocimiento:
 ${KB_POSGRADOS}
@@ -221,6 +227,8 @@ export interface AIResponse {
   triggerIdentityVerification?: boolean;
   /** La respuesta salió de las preguntas frecuentes guardadas, sin llamar a la IA. */
   reutilizada?: boolean;
+  /** Nombres de programa o enlaces que se corrigieron contra el catálogo antes de enviar. */
+  corregida?: number;
 }
 
 export interface OpcionesIa {
@@ -237,7 +245,6 @@ export interface ChatTurn {
 }
 
 /** Máximo de mensajes (user+assistant) que conservamos para mantener contexto. */
-const MAX_HISTORY = 10;
 
 /**
  * Pregunta al AI assistant. El comportamiento (KB y herramientas) depende del área.
@@ -258,7 +265,7 @@ export async function preguntarAI(
   if (!openai) {
     throw new AIUnavailableError('not_configured');
   }
-  if (!opciones.frecuentes) return consultarIa(area, question, history, guidanceContext, instruccionExtra);
+  if (!opciones.frecuentes) return revisar(area, await consultarIa(area, question, history, guidanceContext, instruccionExtra));
 
   await contarPregunta(question);
   // Solo la pregunta que abre la conversación: una de seguimiento depende de lo anterior.
@@ -269,11 +276,18 @@ export async function preguntarAI(
     const guardada = await buscarRespuesta(clave);
     if (guardada) return { answer: guardada.answer, programaConsultado: guardada.programaConsultado, usedTool: false, reutilizada: true };
   }
-  const respuesta = await consultarIa(area, question, history, guidanceContext, instruccionExtra);
+  const respuesta = revisar(area, await consultarIa(area, question, history, guidanceContext, instruccionExtra));
   if (clave && !respuesta.triggerIdentityVerification) {
     await guardarRespuesta(clave, { answer: respuesta.answer, programaConsultado: respuesta.programaConsultado });
   }
   return respuesta;
+}
+
+/** En posgrados, los programas con el nivel cambiado y los enlaces inventados se corrigen antes de enviar. */
+function revisar(area: AIArea, respuesta: AIResponse): AIResponse {
+  if (area !== 'posgrados') return respuesta;
+  const r = corregirRespuestaIa(respuesta.answer);
+  return r.cambios ? { ...respuesta, answer: r.texto, corregida: r.cambios } : respuesta;
 }
 
 async function consultarIa(
@@ -293,7 +307,7 @@ async function consultarIa(
     area === 'posgrados' ? TOOLS_POSGRADOS :
     TOOLS_ADMISIONES;
 
-  const trimmedHistory = history.slice(-MAX_HISTORY);
+  const trimmedHistory = recortarHistorial(history, MAX_HISTORIAL);
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },

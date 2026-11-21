@@ -43,7 +43,7 @@ import {
   resumenRecomendacion,
   textoConfirmacion,
 } from './recomendacionView';
-import { ASESOR_CON_AUTORIZACION, BOTONES_UTIL, PEDIR_SOLO_CORREO, esTextoLibre, parseUtil } from './recomendacionView';
+import { ASESOR_CON_AUTORIZACION, BOTONES_UTIL, PEDIR_SOLO_CORREO, contextoConversacion, esTextoLibre, parseUtil } from './recomendacionView';
 import {
   BOTONES_FICHA, CIERRE_CON_FOTOS, formatearPlan, parseAccionFicha, pieFicha, pieFlyer, preguntaCostos,
 } from './recomendacionView';
@@ -452,5 +452,23 @@ describe('carrera: como se presenta la gente', () => {
       const r = interpretarPregrado(texto);
       assert.ok(r && r.tipo === 'utb' && r.pregradoId === id, `${texto} → ${JSON.stringify(r)}`);
     }
+  });
+});
+
+describe('contexto de la conversación para la IA', () => {
+  it('quien vuelve: la IA sabe de qué programa habló la última vez', () => {
+    assert.equal(contextoConversacion({ programaInteres: 'maestria-en-ciberseguridad' }, false), 'Antes preguntó por: Maestría en Ciberseguridad.');
+  });
+
+  it('el nombre solo va en las preguntas de seguimiento y si autorizó sus datos', () => {
+    const data = { nombre: 'ana maría pérez', datos: 'si' };
+    assert.equal(contextoConversacion(data, true), 'Se llama Ana.');
+    assert.equal(contextoConversacion(data, false), undefined);
+    assert.equal(contextoConversacion({ ...data, datos: 'no' }, true), undefined);
+  });
+
+  it('sin nada que contar no hay contexto', () => {
+    assert.equal(contextoConversacion({}, true), undefined);
+    assert.equal(contextoConversacion(null, true), undefined);
   });
 });

@@ -9,7 +9,24 @@ import {
   getPrograma,
   valorCorto,
   valorSemestre,
+  valorTotal,
 } from './catalogoUtb';
+import { KB_POSGRADOS } from './knowledgeBase';
+
+describe('valor total del programa', () => {
+  it('se calcula aquí para que la IA no multiplique (en la prueba con IA real se equivocó)', () => {
+    const doctorado = getPrograma('doctorado-en-administracion')!;
+    assert.equal(valorTotal(doctorado), '$112.943.200 en total (8 semestres)');
+    assert.ok(fichaPrograma(doctorado).includes('Valor total del programa: $112.943.200 en total (8 semestres)'));
+    assert.ok(KB_POSGRADOS.includes('$112.943.200 en total (8 semestres)'));
+  });
+
+  it('sin valor o sin duración no se inventa un total', () => {
+    for (const p of POSGRADOS_UTB) {
+      if (p.inversion_cop == null || !p.duracion_semestres) assert.equal(valorTotal(p), null, p.nombre);
+    }
+  });
+});
 
 /**
  * Catálogo extraído de las páginas oficiales de la UTB. Las pruebas cuidan

@@ -113,6 +113,12 @@ export function valorSemestre(p: ProgramaUtb): string | null {
 }
 
 /** "$10.2M/sem", "$7.95M/sem" para listas cortas de WhatsApp. */
+/** Valor de todo el programa (semestres × valor), para que nadie tenga que multiplicar. */
+export function valorTotal(p: ProgramaUtb): string | null {
+  if (p.inversion_cop == null || !p.duracion_semestres) return null;
+  return `$${miles(p.inversion_cop * p.duracion_semestres)} en total (${p.duracion_semestres} semestres)`;
+}
+
 export function valorCorto(p: ProgramaUtb): string | null {
   if (p.inversion_cop == null) return valorSemestre(p);
   return `$${Number((p.inversion_cop / 1e6).toFixed(2))}M/sem`;
@@ -206,6 +212,7 @@ export function fichaPrograma(p: ProgramaUtb): string {
     p.duracion && `Duración: ${p.duracion}`,
     p.numero_asignaturas && `Asignaturas: ${p.numero_asignaturas}`,
     `Valor de matrícula ${VIGENCIA_VALORES}: ${valor ?? 'no publicado; confirmar con la UTB'}`,
+    valorTotal(p) && `Valor total del programa: ${valorTotal(p)}`,
     p.titulo_otorgado && `Título que otorga: ${p.titulo_otorgado}`,
     p.escuela && `Escuela: ${p.escuela}`,
     p.snies && `SNIES: ${p.snies}`,

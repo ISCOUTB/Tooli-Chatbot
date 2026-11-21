@@ -20,6 +20,7 @@ import {
   esVirtual,
   programasPorNivel,
   valorSemestre,
+  valorTotal,
 } from './catalogoUtb';
 
 /** Una línea por posgrado vigente: nombre, modalidad, duración, valor y (opcional) página oficial. */
@@ -31,6 +32,8 @@ function lineasPosgrado(nivel: NivelPrograma, conUrl: boolean): string {
         !esVirtual(p) && p.modalidad && !/^presencial$/i.test(p.modalidad) ? p.modalidad.toLowerCase() : null,
         p.duracion_semestres ? `${p.duracion_semestres} semestres` : null,
         valorSemestre(p) ?? 'valor no publicado, confirmar con Posgrados',
+        nivel !== 'pregrado' ? valorTotal(p) : null,
+        p.acreditacion_alta_calidad ? 'acreditación de alta calidad' : null,
         conUrl ? p.url : null,
       ];
       return `- ${partes.filter(Boolean).join(' — ')}`;
@@ -195,7 +198,7 @@ Transformación Digital: Ciencia de Datos, Ingeniería de Sistemas y Computació
 export const KB_POSGRADOS = `
 # UNIVERSIDAD TECNOLÓGICA DE BOLÍVAR (UTB) — Posgrados
 
-Formato: programa — modalidad si no es presencial — duración — valor de matrícula ${VIGENCIA_VALORES} por semestre — página oficial.
+Formato: programa — modalidad si no es presencial — duración — valor de matrícula ${VIGENCIA_VALORES} por semestre — valor total del programa — acreditación de alta calidad si la tiene — página oficial.
 Comparte la página oficial del programa cuando el usuario pida más información.
 
 ## ESPECIALIZACIONES

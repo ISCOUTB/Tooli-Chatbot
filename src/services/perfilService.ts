@@ -16,7 +16,7 @@ export const TTL_PERFIL_SEGUNDOS = 90 * 24 * 60 * 60;
 /** Lo que se recuerda entre conversaciones. */
 export const CAMPOS_PERFIL = [
   'relacion', 'pregradoId', 'familiaId', 'nivel', 'nivelListo', 'nombre', 'correo', 'datos', 'info', 'filaCrm', 'sinPregrado',
-  'pendiente', 'pendienteEn',
+  'pendiente', 'pendienteEn', 'programaInteres',
 ] as const;
 
 /**

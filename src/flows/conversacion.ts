@@ -35,7 +35,7 @@ import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado';
-import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
+import { contextoConversacion, parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
   BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, CON_GUSTO, OFRECER_ASESOR, SIGUE_ARRIBA,
@@ -432,9 +432,10 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   let necesitaAsesor = false;
   let consultado: ProgramaUtb | null = null;
   try {
-    const contexto = area === 'posgrados' ? resumenRecomendacion(conPerfil) ?? undefined : undefined;
+    const contexto = area === 'posgrados' ? contextoConversacion(conPerfil, anterior.length > 0) : undefined;
     const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
     if (ai.reutilizada) await track('ai_reutilizada', { area });
+    if (ai.corregida) await track('ia_corregida', { area });
     const separada = separarSugerencias(ai.answer);
     respuesta = separada.texto || ai.answer;
     sugerencias = separada.sugerencias;
@@ -546,6 +547,7 @@ export async function responderPreguntaSuelta(from: string, data: SessionData, t
   try {
     const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
     if (ai.reutilizada) await track('ai_reutilizada', { area: 'posgrados' });
+    if (ai.corregida) await track('ia_corregida', { area: 'posgrados' });
     const separada = separarSugerencias(ai.answer);
     await track('ai_resolved', { area: 'posgrados' });
     if (separada.sinDato) await registrarNoReconocido('ia_sin_dato', texto);
