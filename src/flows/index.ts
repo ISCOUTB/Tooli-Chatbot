@@ -26,7 +26,7 @@ import {
   parseSugerencia,
 } from './conversacionView';
 import { registrarNoReconocido } from '../services/noReconocidoService';
-import { parseUtil } from './recomendacionView';
+import { parseUtil, prefiereContactoSinCorreo } from './recomendacionView';
 import type { Session } from '../services/session';
 import { config } from '../config';
 import { handleWithAgent } from './withAgent';
@@ -165,6 +165,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   }
   // Mientras pide la carrera, el nombre o el correo, una pregunta se responde y después se recuerda el dato.
   if (PASOS_DE_TEXTO.has(step)) {
+    // "¿No me pueden contactar por acá? ¿Una llamada?" mientras pide el correo: lo atiende el paso, no la IA.
+    if (step === 'reco_correo' && prefiereContactoSinCorreo(text)) return false;
     // "?" o "no entiendo" mientras pide la carrera, el nombre o el correo: no es una pregunta para la IA.
     if (esRuido(text) || esConfusion(text)) {
       await messaging.sendText({ to: from, text: `${esConfusion(text) ? 'Perdón si no fui claro 🙏' : SEGUIMOS}\n\n${sigue}` });

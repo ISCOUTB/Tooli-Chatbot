@@ -35,6 +35,9 @@ import {
   CORREO_REGEX,
   FILAS_TRAS_FICHA,
   ASESOR_CON_AUTORIZACION,
+  ASESOR_POR_AQUI,
+  pideLlamada,
+  prefiereContactoSinCorreo,
   asesorConCorreoConocido,
   BOTONES_FICHA,
   PIE_BOTONES_FICHA,
@@ -54,7 +57,6 @@ import {
   GRACIAS_NO_UTIL,
   GRACIAS_UTIL,
   PIE_UTIL,
-  PEDIR_SOLO_CORREO,
   PEDIR_CONSENTIMIENTO,
   PEDIR_NOMBRE,
   etiquetasCrmRecomendacion,
@@ -65,7 +67,6 @@ import {
   formatearFicha,
   idsMostrados,
   parseAccionFicha,
-  pedirCorreo,
   programaInteresLead,
   programaPorNumero,
   resumenRecomendacion,
@@ -729,17 +730,17 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
  * Con la autorización dada, al asesor solo le faltan el nombre (si no lo dio) y
  * el correo. Con `intro`, va un solo mensaje que explica para qué son.
  */
+/**
+ * El asesor atiende por este mismo chat (Chatwoot), así que basta el nombre:
+ * quien ya lo dio pasa de una; si no, se le pide y se le conecta. El correo ya
+ * no se exige (la persona pedía "contáctenme por acá" y el bot insistía).
+ */
 async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string): Promise<void> {
   const autorizado: SessionData = { ...data, consentimiento: 'Sí' };
-  // Quien ya dio nombre y correo antes no los vuelve a escribir: se le conecta de una.
-  if (data.nombre && data.correo && CORREO_REGEX.test(data.correo)) {
-    await messaging.sendText({ to: from, text: asesorConCorreoConocido(data.correo) });
-    return registrarLeadYConectar(from, autorizado);
-  }
   if (data.nombre) {
-    await setSession(from, { step: 'reco_correo', data: autorizado });
-    await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_SOLO_CORREO}` : pedirCorreo(data.nombre) });
-    return;
+    const correo = data.correo && CORREO_REGEX.test(data.correo) ? data.correo : '';
+    await messaging.sendText({ to: from, text: correo ? asesorConCorreoConocido(correo) : ASESOR_POR_AQUI });
+    return registrarLeadYConectar(from, { ...autorizado, correo });
   }
   await setSession(from, { step: 'reco_nombre', data: autorizado });
   await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_NOMBRE}` : PEDIR_NOMBRE });
@@ -820,13 +821,15 @@ export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
     await messaging.sendText({ to: from, text: 'Escríbeme tu nombre completo, por ejemplo: *Laura Gómez* ✍️' });
     return;
   }
-  await setSession(from, { step: 'reco_correo', data: { ...data, nombre } });
   // El nombre queda de una vez (con autorización): si no termina, no se le vuelve a pedir.
   if (data.datos === 'si') {
     await completarPerfil(from, { nombre, datos: 'si' }).catch((err) =>
       console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
   }
-  await messaging.sendText({ to: from, text: pedirCorreo(nombre) });
+  // Con el nombre basta: el asesor le escribe por este mismo chat.
+  const correo = data.correo && CORREO_REGEX.test(data.correo) ? data.correo : '';
+  await messaging.sendText({ to: from, text: correo ? asesorConCorreoConocido(correo) : ASESOR_POR_AQUI });
+  await registrarLeadYConectar(from, { ...data, nombre, correo });
 }
 
 export async function handleRecoCorreo(ctx: FlowContext): Promise<void> {
@@ -838,9 +841,14 @@ export async function handleRecoCorreo(ctx: FlowContext): Promise<void> {
   };
   if (await comandos(from, text, aNombre)) return;
 
+  // "¿No me pueden contactar por acá?", "una llamada", "no tengo correo": se conecta sin correo.
+  if (prefiereContactoSinCorreo(text)) {
+    await messaging.sendText({ to: from, text: ASESOR_POR_AQUI });
+    return registrarLeadYConectar(from, { ...data, correo: '', ...(pideLlamada(text) ? { pideLlamada: '1' } : {}) });
+  }
   const correo = text.trim().toLowerCase();
   if (!CORREO_REGEX.test(correo)) {
-    await messaging.sendText({ to: from, text: '📧 Ese correo no parece válido. Escríbelo de nuevo, por ejemplo: *nombre@correo.com*' });
+    await messaging.sendText({ to: from, text: '📧 Ese correo no parece válido. Escríbelo de nuevo, por ejemplo: *nombre@correo.com*, o escribe *por acá* y el asesor te escribe por este chat.' });
     return;
   }
   await registrarLeadYConectar(from, { ...data, correo });
@@ -888,8 +896,8 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
   }
   await anotarEnCrm(from, data);
 
-  // HubSpot (CRM de la UTB) sin bloquear el flujo, como en la campaña de posgrados
-  void upsertContactoHubspot({
+  // HubSpot (CRM de la UTB) sin bloquear el flujo; guarda los contactos por correo, así que sin correo se omite.
+  if (correo) void upsertContactoHubspot({
     email: correo,
     nombre,
     whatsapp: from,
@@ -913,6 +921,7 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
     programa: interes,
     lineas: [
       ...(resumen ? [`🧭 ${resumen}`] : []),
+      ...(data.pideLlamada === '1' ? ['📞 Pidió que lo llamen'] : []),
       '🔒 Autorizó el tratamiento de datos (Ley 1581 de 2012)',
     ],
     etiquetas: etiquetasCrmRecomendacion(data),

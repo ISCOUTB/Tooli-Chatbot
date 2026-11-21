@@ -43,7 +43,9 @@ import {
   resumenRecomendacion,
   textoConfirmacion,
 } from './recomendacionView';
-import { ASESOR_CON_AUTORIZACION, BOTONES_UTIL, PEDIR_SOLO_CORREO, contextoConversacion, esTextoLibre, parseUtil } from './recomendacionView';
+import {
+  ASESOR_CON_AUTORIZACION, ASESOR_POR_AQUI, BOTONES_UTIL, contextoConversacion, esTextoLibre, parseUtil, pideLlamada, prefiereContactoSinCorreo,
+} from './recomendacionView';
 import {
   BOTONES_FICHA, CIERRE_CON_FOTOS, formatearPlan, parseAccionFicha, pieFicha, pieFlyer, preguntaCostos,
 } from './recomendacionView';
@@ -349,10 +351,19 @@ describe('recomendación: ¿te sirvió?', () => {
     assert.equal(esTextoLibre('__image__'), false);
   });
 
-  it('con la autorización dada, el asesor pide el correo en un solo mensaje', () => {
+  it('el asesor atiende por este mismo chat: no se exige el correo', () => {
     assert.match(ASESOR_CON_AUTORIZACION, /asesor/);
-    assert.match(PEDIR_SOLO_CORREO, /correo electrónico/);
-    assert.doesNotMatch(PEDIR_SOLO_CORREO, /Gracias/);
+    assert.match(ASESOR_POR_AQUI, /por aquí mismo/);
+    assert.doesNotMatch(ASESOR_POR_AQUI, /correo/);
+  });
+
+  it('«¿no me pueden contactar por acá?», «una llamada» o «no tengo correo» conectan sin correo', () => {
+    for (const t of ['Y no me pueden contactar por acá? Una llamada?', 'por aquí', 'mejor por WhatsApp', 'no tengo correo', 'llámenme', 'omitir']) {
+      assert.equal(prefiereContactoSinCorreo(t), true, t);
+    }
+    for (const t of ['ana@correo.com', 'laura.gomez@gmail.com', 'cuánto cuesta']) assert.equal(prefiereContactoSinCorreo(t), false, t);
+    assert.equal(pideLlamada('Y no me pueden contactar por acá? Una llamada?'), true);
+    assert.equal(pideLlamada('por acá'), false);
   });
 });
 

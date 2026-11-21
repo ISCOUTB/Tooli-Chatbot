@@ -632,15 +632,31 @@ export function parseUtil(texto: string): 'si' | 'no' | null {
 }
 
 /** Quien ya autorizó sus datos al empezar: solo se le piden los de contacto. */
-export const ASESOR_CON_AUTORIZACION = '👤 ¡Claro! Para que un asesor de Posgrados te contacte necesito un par de datos.';
+export const ASESOR_CON_AUTORIZACION = '👤 ¡Claro! Te paso con un asesor de Posgrados.';
 
-/** Quien ya dio su correo: se le conecta sin volver a pedirlo. */
+/** El asesor atiende por este mismo chat de WhatsApp (Chatwoot): no hace falta el correo. */
+export const ASESOR_POR_AQUI = '👤 ¡Listo! Te paso con un asesor de Posgrados: te escribirá por aquí mismo 💬';
+
+/** Quien ya dio su correo: también se le avisa que el asesor lo tiene. */
 export function asesorConCorreoConocido(correo: string): string {
-  return `👤 ¡Claro! Un asesor de Posgrados te contactará al correo *${correo}* 📧\n\n_Si es otro, díselo al asesor en el chat._`;
+  return `${ASESOR_POR_AQUI}\n\n_También tiene tu correo *${correo}*; si es otro, díselo en el chat._`;
+}
+
+/**
+ * Mientras se le pide el correo, "¿no me pueden contactar por acá?", "una
+ * llamada" o "no tengo correo" significan: conéctenme sin correo.
+ */
+export function prefiereContactoSinCorreo(texto: string): boolean {
+  const n = normalize(texto ?? '');
+  return /\b(por (aca|aqui|whatsapp|wpp|este (chat|medio|numero))|llamad|llamen|llamar|llamenme|telefono|celular|no tengo (correo|email|mail)|sin correo|prefiero (whatsapp|que me escriban)|omitir)\b/.test(n);
+}
+
+/** "¿Me pueden llamar?": se le avisa al asesor. */
+export function pideLlamada(texto: string): boolean {
+  return /\b(llamad|llamen|llamar|llamenme|telefono)/.test(normalize(texto ?? ''));
 }
 
 /** El correo, sin volver a dar las gracias (va después de ASESOR_CON_AUTORIZACION). */
-export const PEDIR_SOLO_CORREO = '📧 ¿Cuál es tu *correo electrónico*?\n\n_Escribe *0* para volver._';
 
 export const BOTONES_CONSENTIMIENTO: readonly Boton[] = [
   { id: 'si', displayText: '✅ Sí, autorizo' },
@@ -653,10 +669,6 @@ export const CONSENTIMIENTO_NEGADO =
 
 export const PEDIR_NOMBRE = '✍️ ¿Cuál es tu *nombre completo*?\n\n_Escribe *0* para volver._';
 
-export function pedirCorreo(nombre: string): string {
-  const primero = nombre.trim().split(/\s+/)[0] ?? '';
-  return `¡Gracias, ${primero}! 📧\n\n¿Cuál es tu *correo electrónico*?\n\n_Escribe *0* para volver._`;
-}
 
 /** Correo general (el institucional de `validation.ts` es solo para estudiantes UTB). */
 export const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

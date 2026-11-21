@@ -139,7 +139,7 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
     `🎓 Posgrado · ${programa} — ${nombre}\n\n` +
     `👤 Nombre: ${nombre}\n` +
     `📱 WhatsApp: ${contactIdLabel(from)}\n` +
-    `📧 Email: ${email}\n` +
+    `📧 Email: ${email || 'no lo dejó (escríbele por este chat)'}\n` +
     `🎯 Programa de interés: ${programa}\n` +
     (datos.lineas ?? []).map((l) => `${l}\n`).join('') +
     `📅 Recibido: ${ahora}`;
