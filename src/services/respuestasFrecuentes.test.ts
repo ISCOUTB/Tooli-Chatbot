@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { claveDeRespuesta, normalizarPregunta, preguntaGuardable } from './respuestasFrecuentes';
+import { claveDeRespuesta, normalizarPregunta, preguntaGuardable, seLeeMejor, textoParaPanel } from './respuestasFrecuentes';
 
 const PROMPT = 'prompt de posgrados v1';
 const NOV = new Date('2026-11-21T12:00:00Z');
@@ -44,5 +44,15 @@ describe('respuestas frecuentes', () => {
 
   it('descarta lo muy corto, lo vacío y lo muy largo', () => {
     for (const t of ['', 'hola', '?', 'ok', 'x'.repeat(200)]) assert.equal(preguntaGuardable(t), null, t);
+  });
+
+  it('el panel muestra la pregunta sin el saludo y prefiere la forma con signos', () => {
+    assert.equal(textoParaPanel('Hola, ¿Hay becas?'), '¿Hay becas?');
+    assert.equal(textoParaPanel('Buenas tardes. ¿Cuánto cuesta el MBA?'), '¿Cuánto cuesta el MBA?');
+    assert.equal(textoParaPanel('hola tooli cuales son los requisitos'), 'Cuales son los requisitos');
+    assert.equal(textoParaPanel('Hola'), 'Hola');
+    assert.equal(seLeeMejor('¿Cuáles son los requisitos?', 'Cuales son los requisitos'), true);
+    assert.equal(seLeeMejor('cuales son los requisitos', '¿Cuáles son los requisitos?'), false);
+    assert.equal(seLeeMejor('lo que sea', null), true);
   });
 });

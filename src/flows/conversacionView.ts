@@ -34,6 +34,9 @@ export const SALUDO_CONVERSACION =
 
 export const SALUDO_CORTO = `¡Hola! 👋 ${PRESENTACION}`;
 
+/** WhatsApp avisa de una foto con "__image__": no es un nombre, ni una carrera, ni una pregunta. */
+export const IMAGEN_NO = 'Por ahora no puedo ver imágenes 🙏 Escríbeme o mándame un audio 🎤';
+
 /** Primer mensaje con una pregunta: se responde apenas la persona decida sobre sus datos. */
 export const SALUDO_CON_PREGUNTA = `¡Hola! 👋 ${PRESENTACION} Con gusto te ayudo.`;
 
@@ -348,6 +351,8 @@ const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'san', 'da', '
  */
 export function limpiarNombre(texto: string): string | null {
   let t = (texto ?? '').trim();
+  // Marcas internas del canal ("__image__") no son un nombre.
+  if (t.startsWith('__')) return null;
   const presentado = /^(?:hola[,!.\s]+)?(?:me llamo|mi nombre es|soy|yo soy)\s+(.+)$/i.exec(t);
   if (presentado) t = presentado[1];
   if (/[@\d]/.test(t)) return null;
@@ -542,12 +547,14 @@ export function pareceUnaPregunta(texto: string): boolean {
     || /^(quiero|necesito|me interesa|me gustaria|quisiera|podrias|puedes|dime|cuentame|explicame|muestrame)\b/.test(n) && n.split(' ').length >= 4;
 }
 
-export type RespuestaEscrita = { boton: BotonId } | { nivel: NivelElegido };
+export type RespuestaEscrita = { boton: BotonId } | { nivel: NivelElegido; virtual?: boolean };
 
 /** Respuestas escritas a mano que equivalen a tocar un botón de la pregunta pendiente. */
 export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefined, texto: string): RespuestaEscrita | null {
   const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (!n) return null;
+  // "No entiendo" o "¿qué?" no son un "no": se explica la pregunta otra vez.
+  if (esConfusion(texto) || /^no (entiendo|entendi|comprendo|te entiendo)\b/.test(n)) return null;
   // Una pregunta ("¿Hay descuento por ser egresado?") no es la respuesta a la pregunta pendiente.
   if ((texto ?? '').includes('?') && n.split(' ').length > 3) return null;
   // Un "sí"/"no" corto equivale al botón; una frase larga es una pregunta para la IA.
@@ -557,6 +564,8 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
   const no = corto && /^(no+|nop|nones|nel|nah|nunca|negativo|para nada|todavia no|aun no)( .*)?$/.test(n);
   switch (pendiente) {
     case 'datos':
+      // "No sé" a la autorización no es un "no": se le explica.
+      if (/^no se\b/.test(n)) return null;
       if (no || /\bno (acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_no' };
       if (si || /\b(acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_si' };
       return null;
@@ -575,6 +584,11 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
       if (/estudi|curso|aun|todavia|semestre/.test(n)) return { boton: 'conv_estudiante' };
       return null;
     case 'nivel': {
+      // "Algo virtual" o "una maestría en línea": los programas virtuales, del nivel que nombre.
+      if (/\b(virtual|virtuales|en linea|online|a distancia|remot[oa])\b/.test(n)) {
+        const nombrado = /especializ/.test(n) ? 'conv_esp' : /maestr|magister|master|\bmba\b/.test(n) ? 'conv_mae' : /doctor|\bphd\b/.test(n) ? 'conv_doc' : null;
+        return { nivel: nombrado ? nivelDeBoton(nombrado) ?? '' : '', virtual: true };
+      }
       if (/no se|aun no|todavia no|cualquier|todos|todas|no estoy segur/.test(n)) return { nivel: '' };
       // "La más corta" o "la más rápida" es la especialización (un año).
       if (/\b(mas corta|mas corto|mas rapida|mas rapido|menos tiempo|la corta)\b/.test(n)) return { boton: 'conv_esp' };

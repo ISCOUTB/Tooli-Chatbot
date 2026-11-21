@@ -45,7 +45,7 @@ import {
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
-  parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, separarSugerencias, sinPregrado, siguientePregunta,
+  parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, IMAGEN_NO, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
 } from './conversacionView';
 
@@ -146,7 +146,8 @@ async function continuar(from: string, data: SessionData): Promise<void> {
   if (data.sinPregrado === '1') return enviarSinPregrado(from, data, 'ninguno');
   if (data.modo === 'elegir') {
     await recordarPerfil(from, data);
-    return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: '', vioMas: '' });
+    // Solo virtuales si lo pidió al contestar el nivel ("algo virtual").
+    return mostrarResultados(from, { ...data, pendiente: '', soloVirtual: data.pideVirtual === '1' ? '1' : '', pideVirtual: '', vioMas: '' });
   }
   return preguntar(from, { ...data, ofrecido: '1' }, 'ofrecer');
 }
@@ -699,6 +700,15 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     return;
   }
 
+  // Una foto no es el nombre, la carrera ni una pregunta: se avisa y se repite lo pendiente.
+  if (text === '__image__') {
+    await registrarNoReconocido('imagen', 'una imagen');
+    const pendienteImagen = (data.pendiente ?? '') as Pendiente | '';
+    if (pendienteImagen && PREGUNTAS[pendienteImagen]) return preguntar(from, data, pendienteImagen, IMAGEN_NO);
+    await messaging.sendText({ to: from, text: IMAGEN_NO });
+    return;
+  }
+
   // Una pregunta sugerida tocada es una pregunta escrita: va directo a la IA.
   const sugerencia = parseSugerencia(text);
   if (sugerencia) {
@@ -712,7 +722,9 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const pendiente = (data.pendiente ?? '') as Pendiente | '';
   const escrita = interpretarRespuestaEscrita(pendiente, text);
   if (escrita && 'boton' in escrita) return atenderBoton(from, data, escrita.boton);
-  if (escrita && 'nivel' in escrita) return continuar(from, { ...data, nivel: escrita.nivel, nivelListo: '1' });
+  if (escrita && 'nivel' in escrita) {
+    return continuar(from, { ...data, nivel: escrita.nivel, nivelListo: '1', ...(escrita.virtual ? { pideVirtual: '1' } : {}) });
+  }
 
   // Un saludo con una pregunta pendiente la repite: no es el nombre ni la carrera.
   if (pendiente && session && esSaludo(text) && pendiente !== 'datos') {
@@ -754,11 +766,5 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     // Ya venía conversando: se presenta otra vez y recuerda de qué puede preguntar, sin la IA.
     return saludarEnConversacion(from, data);
   }
-  if (text === '__image__') {
-    await registrarNoReconocido('imagen', 'una imagen');
-    await messaging.sendText({ to: from, text: 'Por ahora no puedo ver imágenes 🙏 Escríbeme o mándame un audio 🎤' });
-    return;
-  }
-
   return responderConIa(from, data, text, saludo);
 }

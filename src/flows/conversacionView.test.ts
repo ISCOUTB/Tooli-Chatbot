@@ -321,6 +321,28 @@ describe('conversación: bienvenida de Tooli Posgrados', () => {
   });
 });
 
+describe('conversación: lo que encontraron las 1.000 simulaciones', () => {
+  it('«no entiendo» o «no sé» a la autorización de datos no es un «no»', () => {
+    assert.equal(interpretarRespuestaEscrita('datos', 'no entiendo'), null);
+    assert.equal(interpretarRespuestaEscrita('datos', 'no sé'), null);
+    assert.equal(interpretarRespuestaEscrita('datos', '¿qué?'), null);
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'no'), { boton: 'conv_datos_no' });
+    assert.deepEqual(interpretarRespuestaEscrita('datos', 'nel'), { boton: 'conv_datos_no' });
+  });
+
+  it('«algo virtual» al preguntar el nivel pide los programas virtuales', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'algo virtual'), { nivel: '', virtual: true });
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'una maestría virtual'), { nivel: 'maestria', virtual: true });
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'especialización en línea'), { nivel: 'especializacion', virtual: true });
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'no sé'), { nivel: '' });
+  });
+
+  it('una foto no se toma como nombre', () => {
+    assert.equal(limpiarNombre('__image__'), null);
+    assert.equal(limpiarNombre('Laura Gómez'), 'Laura Gómez');
+  });
+});
+
 describe('conversación: lo que encontraron las 100 simulaciones', () => {
   it('un saludo con relleno sigue siendo saludo, pero una pregunta no', () => {
     for (const t of ['Hola Tooli', 'Hola, info por favor', 'buenas tardes, cómo estás?', 'Hola!!']) assert.equal(esSaludo(t), true, t);

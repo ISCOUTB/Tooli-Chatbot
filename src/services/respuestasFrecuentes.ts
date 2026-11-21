@@ -67,9 +67,19 @@ export function claveDeRespuesta(area: string, pregunta: string, loQueVeLaIa: st
   return `ia:respuesta:${hash}`;
 }
 
-/** Lo que se muestra en el panel: corto y sin números largos ni correos. */
+/** Lo que se muestra en el panel: la pregunta sin el saludo de adelante y corta. */
 export function textoParaPanel(texto: string): string {
-  return (texto ?? '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const sinSaludo = (texto ?? '').replace(/\s+/g, ' ').trim()
+    .replace(/^((buenas tardes|buenas noches|buenos dias|buenos días|buen dia|buen día|buenas|hola|holi|saludos)( tooli)?[\s,.!¡]+)+/i, '');
+  const t = sinSaludo || (texto ?? '').trim();
+  return (t.charAt(0).toLocaleUpperCase('es') + t.slice(1)).slice(0, 100);
+}
+
+/** Entre dos formas de la misma pregunta, la que tiene signos y tildes se lee mejor en el panel. */
+export function seLeeMejor(nueva: string, actual: string | null): boolean {
+  if (!actual) return true;
+  const puntos = (t: string) => (t.includes('¿') ? 2 : 0) + (/[áéíóúñ]/i.test(t) ? 1 : 0) - (t.length > 80 ? 1 : 0);
+  return puntos(nueva) > puntos(actual);
 }
 
 async function conLimite<T>(promesa: Promise<T>, siVence: T): Promise<T> {
@@ -108,12 +118,11 @@ export async function contarPregunta(texto: string): Promise<void> {
   if (!n) return;
   try {
     await conLimite((async () => {
-      await redis.multi()
-        .zincrby(CLAVE_CONTEO, 1, n)
-        .hsetnx(CLAVE_TEXTOS, n, textoParaPanel(texto))
-        .expire(CLAVE_CONTEO, TTL_CONTEO_SEG)
-        .expire(CLAVE_TEXTOS, TTL_CONTEO_SEG)
-        .exec();
+      const visible = textoParaPanel(texto);
+      const actual = await redis.hget(CLAVE_TEXTOS, n);
+      const pipe = redis.multi().zincrby(CLAVE_CONTEO, 1, n);
+      if (seLeeMejor(visible, actual)) pipe.hset(CLAVE_TEXTOS, n, visible);
+      await pipe.expire(CLAVE_CONTEO, TTL_CONTEO_SEG).expire(CLAVE_TEXTOS, TTL_CONTEO_SEG).exec();
       // El ranking no crece sin fin: se quedan las más preguntadas.
       if (await redis.zcard(CLAVE_CONTEO) > MAX_PREGUNTAS) {
         const sobran = await redis.zrange(CLAVE_CONTEO, 0, -(CONSERVAR + 1));

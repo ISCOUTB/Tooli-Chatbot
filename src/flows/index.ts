@@ -1,5 +1,5 @@
 import { getSession, setSession } from '../services/session';
-import { FlowContext, sendMenu } from './shared';
+import { FlowContext, messaging, sendMenu } from './shared';
 import { handleMenuClasico, handleMenuPosgrado, handleMenuPregrado } from './menu';
 import { handleProgramasCategoria, handleProgramasDetalle } from './programas';
 import { handleProspectoNombre, handleProspectoEmail, handleProspectoPrograma } from './prospecto';
@@ -21,7 +21,11 @@ import {
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import { agradecer, atenderBaja, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta } from './conversacion';
-import { esAgradecimiento, esBaja, esPedidoAsesor, pareceUnaPregunta, parseBoton, parseSugerencia } from './conversacionView';
+import {
+  IMAGEN_NO, SALUDO_CORTO, SEGUIMOS, esAgradecimiento, esBaja, esConfusion, esPedidoAsesor, esRuido, esSaludo, pareceUnaPregunta, parseBoton,
+  parseSugerencia,
+} from './conversacionView';
+import { registrarNoReconocido } from '../services/noReconocidoService';
 import { parseUtil } from './recomendacionView';
 import type { Session } from '../services/session';
 import { config } from '../config';
@@ -142,6 +146,18 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (!PASOS_DE_OPCION.has(step) && !PASOS_DE_TEXTO.has(step)) return false;
+  const sigue = DATO_QUE_FALTA[step] ?? '👆 Sigue con la opción de arriba o escríbeme tu pregunta.';
+  // Una foto no es la carrera, el nombre ni una opción.
+  if (text === '__image__') {
+    await registrarNoReconocido('imagen', 'una imagen');
+    await messaging.sendText({ to: from, text: `${IMAGEN_NO}\n\n${sigue}` });
+    return true;
+  }
+  // Un saludo a mitad del flujo: se presenta y sigue donde iba, sin la IA.
+  if (text.trim() && esSaludo(text)) {
+    await messaging.sendText({ to: from, text: `${SALUDO_CORTO}\n\n${sigue}` });
+    return true;
+  }
   // Botones de la conversación (ofrecer asesor, sugerencias) tocados desde un paso del flujo de recomendación.
   if (parseBoton(text) || parseSugerencia(text)) {
     await handleConversacion({ from, text, session: { step: 'menu', data: { ...data, pendiente: '' } } });
@@ -149,6 +165,11 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   }
   // Mientras pide la carrera, el nombre o el correo, una pregunta se responde y después se recuerda el dato.
   if (PASOS_DE_TEXTO.has(step)) {
+    // "?" o "no entiendo" mientras pide la carrera, el nombre o el correo: no es una pregunta para la IA.
+    if (esRuido(text) || esConfusion(text)) {
+      await messaging.sendText({ to: from, text: `${esConfusion(text) ? 'Perdón si no fui claro 🙏' : SEGUIMOS}\n\n${sigue}` });
+      return true;
+    }
     if (!pareceUnaPregunta(text)) return false;
     await responderPreguntaSuelta(from, data, text, DATO_QUE_FALTA[step]);
     return true;
