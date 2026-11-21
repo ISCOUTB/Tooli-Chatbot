@@ -185,8 +185,9 @@ export class MetaCloudAdapter implements IMessagingAdapter {
     return uploadRes.data.id as string;
   }
 
-  async sendImageId(to: string, mediaId: string, caption?: string): Promise<void> {
-    await axios.post(
+  /** Devuelve el id del mensaje para esperar su confirmación de envío. */
+  async sendImageId(to: string, mediaId: string, caption?: string): Promise<string | void> {
+    const res = await axios.post(
       this.messagesUrl,
       {
         messaging_product: 'whatsapp',
@@ -196,6 +197,8 @@ export class MetaCloudAdapter implements IMessagingAdapter {
       },
       { headers: this.headers, timeout: 15_000 }
     );
+    const id = res.data?.messages?.[0]?.id;
+    return typeof id === 'string' ? id : undefined;
   }
 
   async sendImage(msg: OutboundImage): Promise<void> {

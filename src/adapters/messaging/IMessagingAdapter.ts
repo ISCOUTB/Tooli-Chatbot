@@ -97,5 +97,5 @@ export interface IMessagingAdapter {
   /** Sube una imagen a la Media API y devuelve su id, para enviarla varias veces sin volver a subirla. */
   subirImagen?(buffer: Buffer, mimetype: string): Promise<string>;
   /** Envía una imagen ya subida (id de `subirImagen`). */
-  sendImageId?(to: string, mediaId: string, caption?: string): Promise<void>;
+  sendImageId?(to: string, mediaId: string, caption?: string): Promise<string | void>;
 }

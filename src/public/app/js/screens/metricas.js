@@ -11,6 +11,29 @@ const SERIES_AZUL = ['#003087', '#2f6fd6', '#8fb3ec', '#64748b'];
 const EVENT_META = {
   menu_shown:               { label: 'Menú mostrado',        icon: '📲', color: '#2f6fd6' },
   ai_request:                { label: 'Preguntas a la IA',    icon: '🤖', color: '#2f6fd6' },
+  ai_resolved:               { label: 'Respuestas de la IA',  icon: '🤖', color: '#2f6fd6' },
+  ai_failed:                 { label: 'La IA falló',          icon: '⚠️', color: '#c5221f' },
+  ai_used_tool:              { label: 'La IA consultó un programa', icon: '🔎', color: '#2f6fd6' },
+  conv_inicio:               { label: 'Conversaciones nuevas', icon: '💬', color: '#2f6fd6' },
+  reco_inicio:               { label: 'Pidió ayuda para elegir', icon: '🧭', color: '#2f6fd6' },
+  reco_relacion_egresado_utb:   { label: 'Egresado UTB',      icon: '🎓', color: '#2f6fd6' },
+  reco_relacion_estudiante_utb: { label: 'Estudiante UTB',    icon: '📚', color: '#2f6fd6' },
+  reco_relacion_externo:     { label: 'De otra universidad',  icon: '🏫', color: '#2f6fd6' },
+  reco_pregrado_utb:         { label: 'Carrera UTB reconocida', icon: '✅', color: '#2f6fd6' },
+  reco_externo_coincide:     { label: 'Carrera externa reconocida', icon: '✅', color: '#2f6fd6' },
+  reco_externo_sin_coincidencia: { label: 'Carrera no reconocida', icon: '❓', color: '#b45309' },
+  reco_resultados:           { label: 'Vio recomendaciones',  icon: '🎯', color: '#2f6fd6' },
+  reco_mas_opciones:         { label: 'Pidió más opciones',   icon: '➕', color: '#2f6fd6' },
+  reco_ficha:                { label: 'Abrió la ficha de un programa', icon: '📄', color: '#2f6fd6' },
+  reco_ia:                   { label: 'Preguntó desde las recomendaciones', icon: '🤖', color: '#2f6fd6' },
+  reco_asesor:               { label: 'Pidió asesor',         icon: '🙋', color: '#2f6fd6' },
+  reco_consentimiento_no:    { label: 'No autorizó al asesor', icon: '🔒', color: '#64748b' },
+  reco_lead_completado:      { label: 'Dejó nombre y correo para el asesor', icon: '📇', color: '#2f6fd6' },
+  info_acepta:               { label: 'Aceptó recibir información', icon: '📬', color: '#2f6fd6' },
+  info_rechaza:              { label: 'No quiso recibir información', icon: '📭', color: '#64748b' },
+  info_baja:                 { label: 'Escribió BAJA',        icon: '🚫', color: '#64748b' },
+  incidencia:                { label: 'Errores para revisar', icon: '⚠️', color: '#c5221f' },
+  rate_limited:              { label: 'Mensajes muy seguidos (frenados)', icon: '⏱️', color: '#64748b' },
   ai_disabled_escalation:    { label: 'Escaladas (IA apagada)', icon: '🙋', color: '#b45309' },
   turno_consultado:          { label: 'Turnos consultados',   icon: '📋', color: '#2f6fd6' },
   recibo_descargado:         { label: 'Recibos descargados',  icon: '🧾', color: '#2f6fd6' },
@@ -61,7 +84,50 @@ const EVENT_META = {
 const PASO_NO_RECONOCIDO = {
   carrera: 'Carrera', relacion: 'Relación con la UTB', pregrado_grupo: 'Escuela del pregrado', pregrado: 'Pregrado',
   nivel: 'Nivel', resultados: 'Recomendaciones', ficha_elegir: 'Elegir programa', ficha: 'Ficha del programa',
+  ia_sin_dato: 'La IA no tenía el dato', confusion: 'No entendió al bot', queja: 'Queja', imagen: 'Imagen', adjunto: 'Adjunto',
 };
+const TIPO_INCIDENCIA = {
+  ia: 'La IA no respondió', audio: 'Audio sin transcribir', asesor: 'No se conectó con el asesor', crm: 'No se guardó en el CRM',
+  flyer: 'Flyer sin enviar', mensaje: 'Mensaje sin procesar', seguimiento: 'Seguimiento sin enviar', datos: 'Perfil o autorización sin guardar',
+};
+
+/* Solo los eventos del flujo conversacional de posgrados: los del menú anterior
+   (turnos, notas, recibos, Mi vida académica…) ya no aparecen aquí. */
+const EVENTOS_FLUJO = [
+  'conv_inicio', 'datos_acepta', 'datos_rechaza', 'ai_request', 'ai_resolved', 'ai_failed', 'ai_used_tool', 'conv_sugerencia',
+  'audio_transcrito', 'audio_fallido', 'reco_inicio', 'reco_relacion_egresado_utb', 'reco_relacion_estudiante_utb',
+  'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide', 'reco_externo_sin_coincidencia', 'reco_resultados',
+  'reco_mas_opciones', 'reco_ficha', 'reco_ia', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'reco_asesor',
+  'reco_consentimiento_no', 'reco_lead_completado', 'agent_handoff', 'info_acepta', 'info_rechaza', 'info_baja',
+  'conv_seguimiento', 'conv_regreso', 'no_reconocido', 'incidencia', 'rate_limited',
+];
+
+/** Conteo de un evento por su detalle ("no_reconocido:paso:carrera") en todos los días del rango. */
+function contarPorDetalle(days, evento, clave) {
+  const prefijo = `${evento}:${clave}:`;
+  const out = {};
+  for (const day of Object.values(days ?? {})) {
+    for (const [k, v] of Object.entries(day ?? {})) {
+      if (k.startsWith(prefijo)) out[k.slice(prefijo.length)] = (out[k.slice(prefijo.length)] ?? 0) + (parseInt(v) || 0);
+    }
+  }
+  return Object.entries(out).sort((a, b) => b[1] - a[1]);
+}
+
+/** Totales del rango, solo de los eventos del flujo nuevo. */
+function totalesDelFlujo(days) {
+  const totals = {};
+  for (const day of Object.values(days ?? {})) {
+    for (const [k, v] of Object.entries(day ?? {})) {
+      if (k.includes(':') || !EVENTOS_FLUJO.includes(k)) continue;
+      totals[k] = (totals[k] ?? 0) + (parseInt(v) || 0);
+    }
+  }
+  return totals;
+}
+
+const fechaCorta = (iso) => new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
+const chips = (pares, nombres) => pares.map(([k, v]) => `<span style="display:inline-block;border:1px solid var(--border, #e2e8f0);border-radius:12px;padding:2px 10px;margin:0 6px 6px 0;font-size:13px;">${escapeHtml(nombres[k] ?? k)} · <b>${escapeHtml(v)}</b></span>`).join('');
 function eventMeta(key) {
   return EVENT_META[key] ?? { label: key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), icon: '📊', color: '#2f6fd6' };
 }
@@ -73,7 +139,7 @@ async function renderMetricas(main) {
   destroyMetricsCharts();
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>${icon('chart', 26)} Métricas</h1><div class="subtitle">Actividad general de Tooli — no solo posgrados</div></div>
+      <div><h1>${icon('chart', 26)} Métricas</h1><div class="subtitle">Flujo conversacional de posgrados, lo que no entendió y los errores para revisar</div></div>
       <div id="metRangeWrap"></div>
     </div>
     <div id="metricsContent">
@@ -102,37 +168,37 @@ async function renderMetricas(main) {
     destroyMetricsCharts();
     marcarCargando(content, true);
     try {
-      const [r, rNo] = await Promise.all([
+      const [r, rNo, rInc] = await Promise.all([
         api(`/api/tools/metrics/range?days=${metDays}`),
         api('/api/tools/metrics/no-reconocidos').catch(() => null),
+        api('/api/tools/metrics/incidencias').catch(() => null),
       ]);
       if (!content.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { days } = await r.json();
       // Lo que el bot no entendió: si falla, la pantalla sigue sin esta tarjeta.
       const noReconocidos = rNo?.ok ? ((await rNo.json()).textos ?? []) : [];
+      const incidencias = rInc?.ok ? ((await rInc.json()).incidencias ?? []) : [];
       if (!content.isConnected || seq !== loadSeq) return;
       const dateKeys = Object.keys(days).sort();
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
 
-      const totals = {};
-      for (const day of Object.values(days)) {
-        for (const [k, v] of Object.entries(day)) {
-          if (k.includes(':')) continue;
-          totals[k] = (totals[k] ?? 0) + (parseInt(v) || 0);
-        }
-      }
+      const totals = totalesDelFlujo(days);
       const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
       const maxVal = Math.max(1, ...rows.map(([, v]) => v));
-
-      const totalMsgs = numv({ ...totals }, 'menu_shown') + (totals.ai_request ?? 0) + (totals.turno_consultado ?? 0) + (totals.recibo_descargado ?? 0);
+      const noEntendidoPorPaso = contarPorDetalle(days, 'no_reconocido', 'paso');
+      const erroresPorTipo = contarPorDetalle(days, 'incidencia', 'tipo');
+      const desde = dateKeys[0] ?? '';
+      const enRango = (x) => (x.fecha ?? '').slice(0, 10) >= desde;
 
       content.innerHTML = `
         <div class="stats-grid stagger-in" style="margin-bottom:16px;">
-          <div class="stat-card"><div class="label">Interacciones con el bot</div><div class="value">${escapeHtml(totalMsgs)}</div></div>
+          <div class="stat-card"><div class="label">Conversaciones nuevas</div><div class="value">${escapeHtml(totals.conv_inicio ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">Autorizaron sus datos</div><div class="value">${escapeHtml(totals.datos_acepta ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Preguntas a la IA</div><div class="value">${escapeHtml(totals.ai_request ?? 0)}</div></div>
-          <div class="stat-card"><div class="label">Prospectos nuevos</div><div class="value">${escapeHtml(totals.prospecto_completado ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Derivados a asesor</div><div class="value">${escapeHtml(totals.agent_handoff ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">No entendió</div><div class="value">${escapeHtml(totals.no_reconocido ?? 0)}</div></div>
+          <div class="stat-card"><div class="label">Errores para revisar</div><div class="value" style="${totals.incidencia ? 'color:#c5221f;' : ''}">${escapeHtml(totals.incidencia ?? 0)}</div></div>
         </div>
 
         <div class="card" style="margin-bottom:16px;">
@@ -160,16 +226,33 @@ async function renderMetricas(main) {
         </div>
 
         <div class="widget-card" style="margin-top:16px;">
-          <div class="widget-card-head"><h2>❓ Lo que el bot no entendió</h2></div>
-          ${noReconocidos.length === 0
-            ? `<p style="color:var(--text-muted);text-align:center;padding:20px 0;">Nada en los últimos 30 días.</p>`
+          <div class="widget-card-head"><h2>⚠️ Errores para revisar</h2></div>
+          ${erroresPorTipo.length === 0 && !incidencias.some(enRango)
+            ? `<p style="color:var(--text-muted);text-align:center;padding:20px 0;">Sin errores en este rango 🎉</p>`
             : `<div style="padding:4px 20px 16px;">
-                <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que escribieron y el bot no reconoció, para enseñárselo. Sin teléfonos; números largos y correos van tapados.</p>
-                ${noReconocidos.slice(0, 30).map((x) => `
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que falló al atender a alguien (la IA, un audio, el asesor, el CRM…). Sin teléfonos ni mensajes.</p>
+                <div style="margin-bottom:6px;">${chips(erroresPorTipo, TIPO_INCIDENCIA)}</div>
+                ${incidencias.filter(enRango).slice(0, 30).map((x) => `
+                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                    <span style="flex:none;font-size:12px;color:#c5221f;min-width:150px;">${escapeHtml(TIPO_INCIDENCIA[x.tipo] ?? x.tipo)}</span>
+                    <span style="flex:1;">${escapeHtml(x.detalle)}</span>
+                    <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
+                  </div>`).join('')}
+              </div>`}
+        </div>
+
+        <div class="widget-card" style="margin-top:16px;">
+          <div class="widget-card-head"><h2>❓ Lo que el bot no entendió</h2></div>
+          ${noEntendidoPorPaso.length === 0 && !noReconocidos.some(enRango)
+            ? `<p style="color:var(--text-muted);text-align:center;padding:20px 0;">Nada en este rango.</p>`
+            : `<div style="padding:4px 20px 16px;">
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que escribieron y el bot no reconoció, lo que la IA no supo responder, confusiones y quejas: para enseñárselo. Sin teléfonos; números largos y correos van tapados.</p>
+                <div style="margin-bottom:6px;">${chips(noEntendidoPorPaso, PASO_NO_RECONOCIDO)}</div>
+                ${noReconocidos.filter(enRango).slice(0, 30).map((x) => `
                   <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
                     <span style="flex:none;font-size:12px;color:var(--text-muted);min-width:140px;">${escapeHtml(PASO_NO_RECONOCIDO[x.paso] ?? x.paso)}</span>
                     <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
-                    <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(new Date(x.fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }))}</span>
+                    <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
                   </div>`).join('')}
               </div>`}
         </div>
@@ -235,4 +318,4 @@ async function renderMetricas(main) {
 
 /* El área en mayúsculas ("ADMISIONES") no cabe en la tarjeta y se cortaba. */
 
-export { renderMetricas };
+export { renderMetricas, contarPorDetalle, totalesDelFlujo, EVENTOS_FLUJO };

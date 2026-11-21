@@ -17,15 +17,28 @@ export type Pendiente =
   | 'datos' | 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer'
   | 'regreso';
 
+/** Así se presenta Tooli en cada saludo. */
+export const PRESENTACION = 'Soy *Tooli Posgrados*, tu asistente 🎓';
+
+/** De qué se le puede preguntar: va en la bienvenida. */
+export const TEMAS =
+  '📚 Especializaciones, maestrías y doctorados\n' +
+  '💰 Costos, descuentos y financiación\n' +
+  '🕒 Horarios, modalidad y duración\n' +
+  '📝 Requisitos e inscripción';
+
 export const SALUDO_CONVERSACION =
-  '¡Hola! 👋 Soy *Tooli*, el asistente de Posgrados de la Universidad Tecnológica de Bolívar 🎓\n\n' +
-  'Pregúntame lo que quieras: programas, costos, horarios, requisitos o financiación. ' +
+  `¡Hola! 👋 ${PRESENTACION.replace(' 🎓', '')} de la Universidad Tecnológica de Bolívar 🎓\n\n` +
+  `Puedes preguntarme sobre:\n${TEMAS}\n\n` +
   'También puedes mandarme un audio 🎤';
 
-export const SALUDO_CORTO = '¡Hola! 👋 Soy *Tooli*, de Posgrados UTB 🎓';
+export const SALUDO_CORTO = `¡Hola! 👋 ${PRESENTACION}`;
 
 /** Primer mensaje con una pregunta: se responde apenas la persona decida sobre sus datos. */
-export const SALUDO_CON_PREGUNTA = '¡Hola! 👋 Soy *Tooli*, de Posgrados UTB 🎓 Con gusto te ayudo.';
+export const SALUDO_CON_PREGUNTA = `¡Hola! 👋 ${PRESENTACION} Con gusto te ayudo.`;
+
+/** Preguntas para tocar después del saludo de quien ya venía conversando. */
+export const SUGERENCIAS_SALUDO: readonly string[] = ['¿Qué programas hay?', '¿Cuánto cuesta?'];
 
 export const TITULO = '🎓 Posgrados UTB';
 export const PIE = 'También puedes escribirme tu pregunta';
@@ -166,7 +179,8 @@ export const INSTRUCCION_SUGERENCIAS =
   'Si la persona quiere inscribirse, matricularse o pagar; pide que la llamen o la contacten; pregunta por su caso ' +
   'particular (homologación de materias, descuentos o becas para su situación, validación de títulos, excepciones); ' +
   'o pregunta algo que no puedes confirmar con la información oficial, agrega además una línea "ASESOR: sí". ' +
-  'No la agregues para preguntas generales que sí respondiste.';
+  'No la agregues para preguntas generales que sí respondiste.\n' +
+  'Si la información oficial no tiene la respuesta a lo que preguntó, agrega también una línea "SIN_DATO: sí".';
 
 /** Se ofrece una vez por conversación, cuando la IA marca que hace falta una persona. */
 export const OFRECER_ASESOR = '👤 Esto te lo resuelve mejor un asesor de Posgrados. ¿Quieres que te contacte?';
@@ -195,10 +209,11 @@ function limpiarSugerencia(s: string): string {
  * Separa de la respuesta la línea "SUGERENCIAS: a | b" (solo quedan las que
  * caben en un botón) y la marca "ASESOR: sí" (hace falta una persona).
  */
-export function separarSugerencias(respuesta: string): { texto: string; sugerencias: string[]; asesor: boolean } {
+export function separarSugerencias(respuesta: string): { texto: string; sugerencias: string[]; asesor: boolean; sinDato: boolean } {
   const resto: string[] = [];
   let sugerencias: string[] = [];
   let asesor = false;
+  let sinDato = false;
   for (const linea of (respuesta ?? '').split('\n')) {
     const m = /^\s*[*_]*\s*sugerencias\s*[*_]*\s*:\s*(.*)$/i.exec(linea);
     if (m) {
@@ -210,10 +225,15 @@ export function separarSugerencias(respuesta: string): { texto: string; sugerenc
       asesor = /^\s*[*_]*\s*s[ií](?!\p{L})/iu.test(a[1]);
       continue;
     }
+    const sd = /^\s*[*_]*\s*sin[_ ]dato\s*[*_]*\s*:\s*(.*)$/i.exec(linea);
+    if (sd) {
+      sinDato = /^\s*[*_]*\s*s[ií](?!\p{L})/iu.test(sd[1]);
+      continue;
+    }
     resto.push(linea);
   }
   const validas = [...new Set(sugerencias)].filter((s) => [...s].length <= 20).slice(0, 2);
-  return { texto: resto.join('\n').trim(), sugerencias: validas, asesor };
+  return { texto: resto.join('\n').trim(), sugerencias: validas, asesor, sinDato };
 }
 
 const clavePregunta = (s: string) => normalize(s).replace(/[^\p{L}\p{N}]/gu, '');
@@ -265,11 +285,20 @@ const PLURAL_NIVEL: Record<string, string> = {
   especializacion: 'especializaciones', maestria: 'maestrías', doctorado: 'doctorados',
 };
 
+/** "ana maría" → "Ana": así se saluda aunque lo haya escrito en minúscula. */
 function primerNombre(nombre: string | undefined): string {
-  return (nombre ?? '').trim().split(/\s+/)[0] ?? '';
+  const primero = (nombre ?? '').trim().split(/\s+/)[0] ?? '';
+  return primero.charAt(0).toLocaleUpperCase('es') + primero.slice(1);
 }
 
 /** "¡Hola de nuevo, Laura! 👋" — sin nombre, solo "¡Hola de nuevo! 👋". */
+/** Quien ya venía conversando y vuelve a saludar: la presentación y de qué puede preguntar. */
+export function saludoEnConversacion(nombre?: string): string {
+  const primero = primerNombre(nombre);
+  return `¡Hola${primero ? `, ${primero}` : ''}! 👋 ${PRESENTACION}\n\n` +
+    `Puedes preguntarme sobre:\n${TEMAS}\n\n¿En qué te ayudo?`;
+}
+
 export function saludoCortoRegreso(nombre?: string): string {
   const primero = primerNombre(nombre);
   return primero ? `¡Hola de nuevo, ${primero}! 👋` : '¡Hola de nuevo! 👋';
@@ -450,11 +479,25 @@ const PALABRAS_DE_SALUDO = new Set([
   'que', 'tal', 'como', 'estas', 'esta', 'tooli', 'info', 'informacion', 'por', 'favor', 'porfa', 'porfavor', 'gracias',
 ]);
 
-/** Un saludo suelto (también "Hola Tooli" o "Hola, info por favor"): el bot se presenta y pregunta. */
+/** Saludos con un error de tipeo: "Hols", "ola", "hoal", "wenas". */
+const TIPEOS_SALUDO: Readonly<Record<string, string>> = {
+  ola: 'hola', hla: 'hola', hol: 'hola', hols: 'hola', holz: 'hola', holq: 'hola', hoal: 'hola', hloa: 'hola',
+  jola: 'hola', hpla: 'hola', hoka: 'hola', olis: 'holi', holis: 'holi', wenas: 'buenas', buenaz: 'buenas',
+  bunas: 'buenas', buemas: 'buenas', ey: 'hey',
+};
+
+/** "holaaa" → "hola", "buenasss" → "buenas", "Hols" → "hola". */
+function palabraDeSaludo(palabra: string): string {
+  const sinRepetir = palabra.replace(/(\p{L})\1{2,}/gu, '$1').replace(/([aeios])\1+$/u, '$1');
+  return TIPEOS_SALUDO[sinRepetir] ?? sinRepetir;
+}
+
+/** Un saludo suelto (también "Hola Tooli", "Hols" o "Hola, info por favor"): el bot se presenta y pregunta. */
 export function esSaludo(texto: string): boolean {
   const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (n === '' || SALUDOS.has(n)) return true;
-  const palabras = n.split(' ');
+  const palabras = n.split(' ').map(palabraDeSaludo);
+  if (SALUDOS.has(palabras.join(' '))) return true;
   return palabras.length <= 6 && /^(hola|holi|hello|hi|hey|buenas|buenos|buen|saludos)$/.test(palabras[0])
     && palabras.every((p) => PALABRAS_DE_SALUDO.has(p));
 }

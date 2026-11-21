@@ -27,8 +27,9 @@ import {
 import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
 import { registrarNoReconocido } from '../services/noReconocidoService';
+import { registrarIncidencia } from '../services/incidenciasService';
 import { CONFIRMACION_BAJA } from './campanaReco';
-import { enviarFlyerPrograma } from './fotosPrograma';
+import { enviarFlyerPrograma, esperarFlyers } from './fotosPrograma';
 import { pieFlyer } from './recomendacionView';
 import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
@@ -44,7 +45,7 @@ import {
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
-  parseSugerencia, saludoCortoRegreso, saludoRegreso, separarSugerencias, sinPregrado, siguientePregunta,
+  parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
 } from './conversacionView';
 
@@ -58,6 +59,7 @@ async function recordarPerfil(from: string, data: SessionData): Promise<void> {
     else if (data.datos === 'no') await guardarPerfil(from, {});
   } catch (err) {
     console.error('[conversacion] no se pudo guardar el perfil:', describeExternalError(err));
+    await registrarIncidencia('datos', 'No se pudo guardar el perfil de una persona (Redis)', err);
   }
 }
 
@@ -166,6 +168,18 @@ async function ofrecerRetomar(from: string, perfil: SessionData, carrera: string
     description: saludoRegreso(perfil.nombre, carrera, perfil.nivelListo === '1' ? perfil.nivel : undefined),
     footer: PIE,
     buttons: [...(PREGUNTAS.regreso.botones ?? [])],
+  });
+}
+
+/** Un saludo a mitad de conversación: la presentación con preguntas para tocar. */
+async function saludarEnConversacion(from: string, data: SessionData): Promise<void> {
+  await setSession(from, { step: 'menu', data: { ...data, pendiente: '' } });
+  await messaging.sendButtons({
+    to: from,
+    title: '',
+    description: saludoEnConversacion(data.nombre),
+    footer: PIE_SUGERENCIAS,
+    buttons: botonesSugeridos(SUGERENCIAS_SALUDO, 'posgrados'),
   });
 }
 
@@ -311,6 +325,7 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
       filaCrm = fila ? String(fila) : '';
     } catch (err) {
       console.error('[conversacion] no se pudo guardar en el CRM:', describeExternalError(err));
+      await registrarIncidencia('crm', 'No se pudo guardar en la hoja del CRM a alguien que autorizó sus datos', err);
     }
   }
   const alEmpezar = data.registro === 'datos';
@@ -324,6 +339,7 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
     await setEtiquetas(from, [...new Set([...ficha.etiquetas, 'acepta-informacion', 'bot-conversacion'])], AUTOR_BOT);
   } catch (err) {
     console.error('[conversacion] no se pudo anotar en la ficha:', describeExternalError(err));
+    await registrarIncidencia('crm', 'No se pudo anotar la autorización en la ficha del CRM', err);
   }
   await messaging.sendText({ to: from, text: alEmpezar ? datosAceptados(nombre) : infoAceptada(nombre) });
   return seguirTrasAutorizar(from, { ...data, datos: 'si', info: 'si', nombre, filaCrm });
@@ -421,12 +437,15 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
     respuesta = separada.texto || ai.answer;
     sugerencias = separada.sugerencias;
     necesitaAsesor = separada.asesor;
+    // Lo que la IA no encontró en la información oficial: para completar el catálogo.
+    if (separada.sinDato) await registrarNoReconocido('ia_sin_dato', texto);
     consultado = programaDeLaConsulta(ai.programaConsultado);
     if (ai.usedTool) await track('ai_used_tool', { area });
     await track('ai_resolved', { area });
   } catch (err) {
     console.error('[conversacion] IA:', err instanceof AIUnavailableError ? err.reason : 'error');
     await track('ai_failed', { area, reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
+    await registrarIncidencia('ia', `La IA no respondió en la conversación (${err instanceof AIUnavailableError ? err.reason : 'error'}); se ofreció un asesor`);
     await guardarSesion(from, { ...conPerfil, pendiente: 'ofrecer' });
     await messaging.sendButtons({
       to: from, title: TITULO, description: IA_NO_DISPONIBLE, footer: PIE,
@@ -439,6 +458,7 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   const vistas = (conPerfil.fotosVistas ?? '').split(',').filter(Boolean);
   if (consultado && !vistas.includes(consultado.id)) {
     if (await enviarFlyerPrograma(from, consultado, pieFlyer(consultado))) vistas.push(consultado.id);
+    await esperarFlyers(from);
   }
 
   const botones = botonesSugeridos(sugerencias, area, texto);
@@ -525,6 +545,7 @@ export async function responderPreguntaSuelta(from: string, data: SessionData, t
     const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS);
     const separada = separarSugerencias(ai.answer);
     await track('ai_resolved', { area: 'posgrados' });
+    if (separada.sinDato) await registrarNoReconocido('ia_sin_dato', texto);
     await messaging.sendText({ to: from, text: `${separada.texto || ai.answer}\n\n${sigue}` });
     if (separada.asesor) {
       await track('conv_asesor_sugerido');
@@ -532,6 +553,7 @@ export async function responderPreguntaSuelta(from: string, data: SessionData, t
     }
   } catch (err) {
     await track('ai_failed', { area: 'posgrados', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
+    await registrarIncidencia('ia', `La IA no respondió una pregunta en un paso de lista (${err instanceof AIUnavailableError ? err.reason : 'error'})`);
     await messaging.sendText({ to: from, text: `${IA_NO_DISPONIBLE}\n\n${sigue}` });
   }
 }
@@ -558,11 +580,16 @@ async function atenderSinPregunta(from: string, data: SessionData, texto: string
   }
   if (esQueja(texto)) {
     await track('conv_asesor_sugerido');
+    await registrarNoReconocido('queja', texto);
     await guardarSesion(from, { ...data, asesorOfrecido: '1' });
     await messaging.sendButtons({ to: from, title: TITULO, description: QUEJA, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
     return true;
   }
-  if (esConfusion(texto)) { await ofrecerOpciones(pendiente ? TE_EXPLICO : ''); return true; }
+  if (esConfusion(texto)) {
+    await registrarNoReconocido('confusion', `${texto} · ${pendiente ? `al preguntar «${PREGUNTAS[pendiente]?.texto.slice(0, 50) ?? pendiente}»` : 'sin pregunta pendiente'}`);
+    await ofrecerOpciones(pendiente ? TE_EXPLICO : '');
+    return true;
+  }
   // "0" o "volver" en la conversación: no hay un paso atrás; se repite la pregunta o se ofrecen opciones.
   if (parseGlobalCommand(texto) === 'volver') { await ofrecerOpciones(pendiente ? 'Listo 👍' : ''); return true; }
   if (esRuido(texto)) { await ofrecerOpciones(pendiente ? SEGUIMOS : ''); return true; }
@@ -585,6 +612,7 @@ export async function atenderSinPreguntaEnLista(from: string, data: SessionData,
   }
   if (esQueja(texto)) {
     await track('conv_asesor_sugerido');
+    await registrarNoReconocido('queja', texto);
     await messaging.sendButtons({ to: from, title: TITULO, description: QUEJA, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
     return true;
   }
@@ -630,6 +658,8 @@ export async function abrirPreguntasEnConversacion(from: string, data: SessionDa
 export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   // Sin sesión (pasó más de una hora) se parte de lo que se recuerda de la última vez.
+  // Sin sesión es una conversación nueva (primera vez o más de una hora después).
+  if (!session) await track('conv_inicio');
   const perfil = session ? null : await perfilGuardado(from);
   const data: SessionData = { ...(session?.data ?? perfil ?? {}) };
   const saludo = session ? undefined : perfil ? saludoCortoRegreso(perfil.nombre) : SALUDO_CORTO;
@@ -719,8 +749,11 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
       delete conocido.sinPregrado;
       return sendMenu(from, conocido);
     }
+    // Ya venía conversando: se presenta otra vez y recuerda de qué puede preguntar, sin la IA.
+    return saludarEnConversacion(from, data);
   }
   if (text === '__image__') {
+    await registrarNoReconocido('imagen', 'una imagen');
     await messaging.sendText({ to: from, text: 'Por ahora no puedo ver imágenes 🙏 Escríbeme o mándame un audio 🎤' });
     return;
   }

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
   cabeConBotones, datoPersonal, datosAceptados, detectarPerfil, esAgradecimiento, esBaja, esConfusion, esEspera, esQueja, esRuido, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
-  limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
+  limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso,
+  SALUDO_CONVERSACION, SALUDO_CORTO, SUGERENCIAS_SALUDO,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
 
@@ -281,6 +282,10 @@ describe('conversación: cuándo entra el asesor', () => {
     assert.equal(r.asesor, true);
     assert.equal(separarSugerencias('Texto\n**Asesor:** Sí.').asesor, true);
     assert.equal(separarSugerencias('Texto\nASESOR: no').asesor, false);
+    const sin = separarSugerencias('No tengo ese dato.\nSIN_DATO: sí\nSUGERENCIAS: ¿Hay becas? | ¿Es virtual?');
+    assert.equal(sin.sinDato, true);
+    assert.equal(sin.texto, 'No tengo ese dato.');
+    assert.equal(separarSugerencias('Texto').sinDato, false);
     assert.equal(separarSugerencias('Solo texto').asesor, false);
   });
 
@@ -289,6 +294,30 @@ describe('conversación: cuándo entra el asesor', () => {
       assert.ok([...b.displayText].length <= 20, b.displayText);
       assert.equal(parseBoton(b.id), b.id);
     }
+  });
+});
+
+describe('conversación: bienvenida de Tooli Posgrados', () => {
+  it('se presenta como Tooli Posgrados y dice de qué se le puede preguntar', () => {
+    assert.match(SALUDO_CONVERSACION, /Soy \*Tooli Posgrados\*, tu asistente/);
+    assert.match(SALUDO_CONVERSACION, /Puedes preguntarme sobre:/);
+    for (const tema of ['maestrías', 'Costos', 'financiación', 'Horarios', 'Requisitos']) assert.ok(SALUDO_CONVERSACION.includes(tema), tema);
+    assert.match(SALUDO_CORTO, /Tooli Posgrados\*, tu asistente/);
+  });
+
+  it('quien ya venía conversando y saluda recibe la presentación con su nombre', () => {
+    const texto = saludoEnConversacion('ana maría pérez');
+    assert.match(texto, /^¡Hola, Ana! 👋 Soy \*Tooli Posgrados\*, tu asistente/);
+    assert.match(texto, /Puedes preguntarme sobre:/);
+    assert.match(saludoEnConversacion(), /^¡Hola! 👋/);
+    const botones = botonesSugeridos(SUGERENCIAS_SALUDO, 'posgrados');
+    assert.deepEqual(botones.map((b) => b.displayText).slice(0, 2), ['¿Qué programas hay?', '¿Cuánto cuesta?']);
+    assert.equal(botones.length, 3);
+  });
+
+  it('reconoce saludos con errores de tipeo o letras de más', () => {
+    for (const t of ['Hols', 'ola', 'holaaa', 'Holaa!', 'hoal', 'wenas', 'Buenasss tardes', 'holis', 'Hols buenas']) assert.equal(esSaludo(t), true, t);
+    for (const t of ['hora', 'sola', 'hols quiero el MBA', 'cola']) assert.equal(esSaludo(t), false, t);
   });
 });
 

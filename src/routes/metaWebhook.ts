@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { parseMetaCloudWebhookResult } from '../webhooks/metaCloudParser';
+import { estadosDeEnvio, parseMetaCloudWebhookResult } from '../webhooks/metaCloudParser';
+import { avisarEstado } from '../services/entregasMeta';
 import { enqueueInbound } from '../services/inboundInbox';
 import { describeExternalError } from '../services/logSafe';
 import { config } from '../config';
@@ -23,6 +24,8 @@ metaWebhookRouter.get('/', (req: Request, res: Response) => {
 metaWebhookRouter.post('/', requireMetaSignature, async (req: Request, res: Response) => {
   const parsed = parseMetaCloudWebhookResult(req.body);
   const inbound = parsed.mensajes;
+  // Lo que espera a que salga un flyer sigue apenas Meta lo confirma.
+  for (const { id, estado } of estadosDeEnvio(req.body)) avisarEstado(id, estado);
   try {
     let accepted = 0;
     for (const message of inbound) {

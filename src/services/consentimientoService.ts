@@ -48,5 +48,8 @@ export async function registrarDecision(telefono: string, datos: Decision): Prom
     await redis.set(CLAVE(telefono), registro(datos));
   } catch (err) {
     console.error('[consentimiento] no se pudo guardar:', describeExternalError(err));
+    // Se carga aquí para no crear una dependencia circular al arrancar.
+    const { registrarIncidencia } = await import('./incidenciasService');
+    await registrarIncidencia('datos', 'No se pudo guardar la constancia de autorización de datos (Redis)', err);
   }
 }

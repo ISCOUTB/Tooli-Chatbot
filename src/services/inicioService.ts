@@ -172,9 +172,11 @@ function sumaMetricas(metricas: Record<string, string>, claves: string[]): numbe
 
 export function metricasDelDia(metricas: Record<string, string>): MetricasDia {
   return {
-    interaccionesBot: sumaMetricas(metricas, ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado']),
+    // Flujo conversacional: conversaciones nuevas y preguntas; "menu_shown" cuenta el menú anterior.
+    interaccionesBot: sumaMetricas(metricas, ['conv_inicio', 'ai_request', 'menu_shown']),
     derivadosAsesor: numeroMetrica(metricas, 'agent_handoff'),
-    prospectosNuevos: numeroMetrica(metricas, 'prospecto_completado'),
+    // Quien autorizó sus datos queda en el CRM; "prospecto_completado" es del flujo anterior.
+    prospectosNuevos: sumaMetricas(metricas, ['datos_acepta', 'prospecto_completado']),
     preguntasIa: numeroMetrica(metricas, 'ai_request'),
   };
 }

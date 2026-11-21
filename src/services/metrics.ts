@@ -37,6 +37,8 @@ export type MetricEvent =
   | 'reco_util_no'
   | 'conv_asesor_sugerido'
   | 'no_reconocido'
+  | 'incidencia'
+  | 'conv_inicio'
   | 'conv_sugerencia'
   | 'duplicate_message'
   // Posgrados
@@ -136,6 +138,11 @@ export async function track(event: MetricEvent, props: MetricProps = {}): Promis
     }
     if (props.plataforma) {
       pipe.hincrby(`metrics:${day}`, `${event}:plataforma:${props.plataforma}`, 1);
+    }
+    // Tipo de error y paso de lo no entendido: el panel los cuenta por separado.
+    for (const clave of ['tipo', 'paso'] as const) {
+      const valor = String(props[clave] ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40);
+      if (valor) pipe.hincrby(`metrics:${day}`, `${event}:${clave}:${valor}`, 1);
     }
     await pipe.exec();
   } catch (err) {

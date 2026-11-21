@@ -129,6 +129,24 @@ export function parseMetaCloudWebhookResult(body: unknown): MetaCloudParseResult
   return output;
 }
 
+const EstadoSchema = z.object({ id: z.string(), status: z.string() }).passthrough();
+
+/** Las confirmaciones de envío del webhook (`sent`, `delivered`, `read`, `failed`) por id de mensaje. */
+export function estadosDeEnvio(body: unknown): { id: string; estado: string }[] {
+  const result = MetaWebhookSchema.safeParse(body);
+  if (!result.success) return [];
+  const estados: { id: string; estado: string }[] = [];
+  for (const entry of result.data.entry) {
+    for (const change of entry.changes) {
+      for (const raw of change.value.statuses ?? []) {
+        const parsed = EstadoSchema.safeParse(raw);
+        if (parsed.success) estados.push({ id: parsed.data.id, estado: parsed.data.status });
+      }
+    }
+  }
+  return estados;
+}
+
 /** Parsea todos los mensajes válidos incluidos en el webhook. */
 export function parseMetaCloudWebhooks(body: unknown): InboundMessage[] {
   return parseMetaCloudWebhookResult(body).mensajes;

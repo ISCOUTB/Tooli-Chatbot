@@ -185,6 +185,8 @@ export async function processInboundInbox(
     } catch (err) {
       const reason = describeExternalError(err);
       console.error('[inbound] handler requiere revisión:', describeId(item.id), reason);
+      const { registrarIncidencia } = await import('./incidenciasService');
+      await registrarIncidencia('mensaje', `Un mensaje no se pudo procesar y quedó para revisión (${reason})`);
       await finishInbound(item, 'revision', `Fallo del handler; ${reason}. Revisar efectos externos antes de reintentar.`);
     } finally {
       clearInterval(heartbeat);

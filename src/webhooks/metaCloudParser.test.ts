@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMetaCloudWebhookResult, parseMetaCloudWebhooks } from './metaCloudParser';
+import { estadosDeEnvio, parseMetaCloudWebhookResult, parseMetaCloudWebhooks } from './metaCloudParser';
 
 function value(extra: Record<string, unknown>) {
   return {
@@ -88,5 +88,21 @@ describe('parseMetaCloudWebhooks', () => {
   it('acepta un webhook que solo contiene estados', () => {
     const result = parseMetaCloudWebhookResult(value({ statuses: [{ id: 'a' }] }));
     assert.deepEqual(result, { mensajes: [], estados: 1, sinTelefono: 0, descartados: [] });
+  });
+});
+
+describe('estadosDeEnvio', () => {
+  it('saca el id y el estado de cada confirmación', () => {
+    const body = value({ statuses: [
+      { id: 'wamid.A', status: 'sent', timestamp: '1', recipient_id: '573001112233' },
+      { id: 'wamid.B', status: 'delivered' },
+      { status: 'sent' },
+    ] });
+    assert.deepEqual(estadosDeEnvio(body), [{ id: 'wamid.A', estado: 'sent' }, { id: 'wamid.B', estado: 'delivered' }]);
+  });
+
+  it('un webhook sin estados o inválido no da nada', () => {
+    assert.deepEqual(estadosDeEnvio(webhook({ type: 'text', text: { body: 'hola' } })), []);
+    assert.deepEqual(estadosDeEnvio({ nada: true }), []);
   });
 });

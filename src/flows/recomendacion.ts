@@ -19,6 +19,7 @@ import { upsertContactoHubspot } from '../services/hubspotService';
 import { registrarDecision } from '../services/consentimientoService';
 import { completarPerfil, conLoRecordado } from '../services/perfilService';
 import { registrarNoReconocido } from '../services/noReconocidoService';
+import { registrarIncidencia } from '../services/incidenciasService';
 import { limpiarNombre } from './conversacionView';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
@@ -26,7 +27,7 @@ import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
 import { conectarConAsesorPosgrado } from './prospecto';
 import { handleChattingWithAI } from './aiChat';
-import { enviarFlyerPrograma, fotosDisponibles } from './fotosPrograma';
+import { enviarFlyerPrograma, esperarFlyers, fotosDisponibles } from './fotosPrograma';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
   BOTONES_CONSENTIMIENTO,
@@ -524,6 +525,8 @@ export async function mostrarResultados(from: string, data: SessionData, mas = f
         await messaging.sendText({ to: from, text: piePrograma(r, desde + i) });
       }
     }
+    // "¿Qué quieres hacer?" siempre de último, después del último flyer.
+    await esperarFlyers(from);
     await enviarAcciones(from, nuevaData, cuerpoListaConFotos(resultado, ctx, { mas }), preguntarUtil);
   } else {
     await messaging.sendText({ to: from, text: formatearResultados(resultado, ctx, { mas }) });
@@ -630,6 +633,7 @@ async function mostrarFicha(from: string, data: SessionData, id: string): Promis
   }
   // El flyer con lo esencial; lo demás lo pregunta con un botón o escribiendo.
   if (!await enviarFlyerPrograma(from, programa, pieFlyer(programa))) await messaging.sendText({ to: from, text: pieFicha(programa) });
+  await esperarFlyers(from);
   await enviarBotonesFicha(from);
 }
 
@@ -856,6 +860,7 @@ async function anotarEnCrm(from: string, data: SessionData): Promise<void> {
     await setEtiquetas(from, [...ficha.etiquetas, ...etiquetasCrmRecomendacion(data)], AUTOR_BOT);
   } catch (err) {
     console.error('[reco] no se pudo anotar en el CRM:', describeExternalError(err));
+    await registrarIncidencia('crm', 'No se pudo anotar la recomendación en la ficha del CRM', err);
   }
 }
 
@@ -879,6 +884,7 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
     else await guardarRegistroProspecto(registro);
   } catch (err) {
     console.error('[reco] no se pudo guardar el lead en Sheets:', describeExternalError(err));
+    await registrarIncidencia('crm', 'No se pudo guardar en la hoja del CRM a alguien que pidió asesor', err);
   }
   await anotarEnCrm(from, data);
 

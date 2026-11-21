@@ -3,6 +3,7 @@ import { getOrCreateContact, createConversation } from '../services/chatwootServ
 import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
 import { config } from '../config';
 import { track } from '../services/metrics';
+import { registrarIncidencia } from '../services/incidenciasService';
 import { FlowContext, messaging, sendMenu, sendMenuPosgrado } from './shared';
 import { parseGlobalCommand } from './commands';
 import { resumenOrientacion } from './programasCatalog';
@@ -161,6 +162,7 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
       priority: 'medium',
     });
 
+    await track('agent_handoff', { area: 'posgrados' });
     await setSession(from, {
       step: 'with_agent',
       data: {
@@ -178,8 +180,9 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
         ? `✅ *Listo, ${nombre}!*\n\nTu solicitud quedó registrada. Un asesor de Posgrados te responderá en el próximo horario de atención: *${await textoProximaAtencion()}*.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`
         : `✅ *Listo, ${nombre}!*\n\nUn asesor de Posgrados te responderá en breve.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`,
     });
-  } catch {
+  } catch (err) {
     console.error('[prospecto] no se pudo crear conversación Chatwoot');
+    await registrarIncidencia('asesor', 'No se pudo abrir la conversación con el asesor en Chatwoot: la persona recibió los contactos directos', err);
     await setSession(from, { step: 'menu', data: {} });
     await messaging.sendText({
       to: from,

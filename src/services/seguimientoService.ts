@@ -11,6 +11,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { describeExternalError } from './logSafe';
+import { registrarIncidencia } from './incidenciasService';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 
@@ -90,6 +91,7 @@ export async function procesarSeguimientos(enviar: EnviarSeguimiento, ahora = Da
       else await redis.del(ENVIADO(telefono));
     } catch (err) {
       console.error('[seguimiento] no se pudo enviar:', describeExternalError(err));
+      await registrarIncidencia('seguimiento', 'No se pudo enviar un seguimiento a una conversación a medias', err);
     }
   }
   return enviados;

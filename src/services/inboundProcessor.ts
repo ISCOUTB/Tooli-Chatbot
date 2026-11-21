@@ -10,6 +10,8 @@ import { describeExternalError, maskPhone } from './logSafe';
 import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
 import { cancelarSeguimiento } from './seguimientoService';
+import { registrarIncidencia } from './incidenciasService';
+import { registrarNoReconocido } from './noReconocidoService';
 import { iniciarRecomendacion } from '../flows/recomendacion';
 import { atenderAsistencia } from '../flows/asistencia';
 import { AudioError, mensajeAudioFallido, mensajeEntendido, transcribirAudioDeMeta } from './transcripcionAudio';
@@ -67,6 +69,7 @@ async function atenderAudio(from: string, inbound: InboundMessage): Promise<stri
     const motivo = err instanceof AudioError ? err.motivo : 'transcripcion';
     await track('audio_fallido');
     console.warn('[inbound] audio sin transcribir:', motivo, maskPhone(from));
+    await registrarIncidencia('audio', `Un audio no se pudo transcribir (${motivo})`);
     await recordActivity(from, 'in', '🎤 Envió un audio (no se pudo transcribir)');
     if (conAsesor) {
       await handleMessage(from, '🎤 Envió un audio que el bot no pudo transcribir');
@@ -142,6 +145,7 @@ export async function processInboundMessage(
       });
       return 'handled';
     }
+    await registrarNoReconocido('adjunto', describeUnsupportedMedia(inbound.mediaType));
     await messaging.sendText({
       to: from,
       text: 'Por ahora solo puedo leer mensajes de texto 🙏 Escríbeme lo que necesitas.',

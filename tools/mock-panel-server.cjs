@@ -114,15 +114,15 @@ const RECORDATORIOS = [
   { id: 'r2', telefono: '573009876543', mensaje: 'Vence tu pago de matrícula', scheduledAt: hoy - 864e5, estado: 'enviado', createdBy: 'admin' },
   { id: 'r3', telefono: '573021110022', mensaje: 'Invitación al evento', scheduledAt: hoy - 2 * 864e5, estado: 'fallido', error: 'Fuera de la ventana de 24h', createdBy: 'ana' },
 ];
+// Eventos del flujo conversacional de posgrados (el menú anterior ya no está en producción).
 const METRICAS_HOY = {
-  menu_shown: 143, ai_request: 11, agent_handoff: 6, registro_completado: 12,
-  turno_consultado: 31, recibo_descargado: 18, prospecto_completado: 9,
-  notas_consultadas: 22, academico_menu_shown: 27,
+  conv_inicio: 38, menu_shown: 12, ai_request: 41, agent_handoff: 6, datos_acepta: 27, datos_rechaza: 4,
+  reco_inicio: 19, reco_resultados: 17, reco_ficha: 9, reco_asesor: 6, reco_lead_completado: 4,
+  reco_util_si: 7, reco_util_no: 2, no_reconocido: 5, incidencia: 2,
 };
 // Ayer completo, para que Inicio muestre cada cifra de hoy con su referencia.
 const METRICAS_AYER = {
-  menu_shown: 131, ai_request: 15, agent_handoff: 4, registro_completado: 10,
-  turno_consultado: 25, recibo_descargado: 16, prospecto_completado: 7,
+  conv_inicio: 33, menu_shown: 10, ai_request: 36, agent_handoff: 4, datos_acepta: 22, datos_rechaza: 3,
 };
 const SALUD_MOCK = {
   status: 'degraded',
@@ -241,10 +241,15 @@ app.get('/api/tools/metrics/range', (req, res) => {
   const out = {};
   for (let i = 0; i < days; i++) {
     const fecha = new Date(hoy - (days - 1 - i) * 864e5).toISOString().slice(0, 10);
-    out[fecha] = { menu_shown: 90 + i * 11, registro_completado: 4 + (i % 5), turno_consultado: 12 + i,
-      recibo_descargado: 6 + (i % 4), notas_consultadas: 9 + i * 2, prospecto_completado: 3 + (i % 3),
-      academico_menu_shown: 7 + i, menu_pregrado_shown: 20 + i * 3, datos_acepta: 5 + i, no_reconocido: 2 + (i % 3),
-      reco_util_si: 3 + (i % 2), conv_sugerencia: 8 + i };
+    const noEntendio = { carrera: 1 + (i % 2), ia_sin_dato: i % 3, confusion: i % 2, imagen: i % 4 === 0 ? 1 : 0 };
+    const errores = { crm: i % 3 === 0 ? 1 : 0, flyer: i % 5 === 0 ? 1 : 0, ia: i % 4 === 1 ? 1 : 0 };
+    out[fecha] = { conv_inicio: 24 + i * 3, menu_shown: 8 + (i % 4), ai_request: 30 + i * 2, agent_handoff: 3 + (i % 3),
+      datos_acepta: 18 + i * 2, datos_rechaza: 2 + (i % 3), reco_inicio: 12 + i, reco_resultados: 11 + i, reco_ficha: 6 + (i % 4),
+      reco_asesor: 3 + (i % 3), reco_lead_completado: 2 + (i % 2), reco_util_si: 3 + (i % 2), reco_util_no: i % 2,
+      conv_sugerencia: 8 + i, conv_regreso: 2 + (i % 2), conv_asesor_sugerido: 1 + (i % 2), audio_transcrito: 2 + (i % 3),
+      no_reconocido: Object.values(noEntendio).reduce((a, b) => a + b, 0), incidencia: Object.values(errores).reduce((a, b) => a + b, 0) };
+    for (const [paso, n] of Object.entries(noEntendio)) if (n) out[fecha][`no_reconocido:paso:${paso}`] = n;
+    for (const [tipo, n] of Object.entries(errores)) if (n) out[fecha][`incidencia:tipo:${tipo}`] = n;
   }
   j(res, { days: out });
 });
@@ -253,6 +258,14 @@ app.get('/api/tools/metrics/no-reconocidos', (_q, res) => j(res, { textos: [
   { paso: 'nivel', texto: 'la que sea más barata', fecha: new Date(hace(300)).toISOString() },
   { paso: 'resultados', texto: 'mmm', fecha: new Date(hace(1500)).toISOString() },
   { paso: 'carrera', texto: 'tecnico profesional en [número]', fecha: new Date(hace(3000)).toISOString() },
+  { paso: 'ia_sin_dato', texto: '¿la maestría en logística tiene doble titulación?', fecha: new Date(hace(90)).toISOString() },
+  { paso: 'confusion', texto: 'no entiendo · al preguntar «¿Qué nivel de posgrado te interesa?»', fecha: new Date(hace(600)).toISOString() },
+  { paso: 'imagen', texto: 'una imagen', fecha: new Date(hace(2000)).toISOString() },
+] }));
+app.get('/api/tools/metrics/incidencias', (_q, res) => j(res, { incidencias: [
+  { tipo: 'crm', detalle: 'No se pudo guardar el prospecto en la hoja de registros · Google Sheets respondió 503', fecha: new Date(hace(45)).toISOString() },
+  { tipo: 'flyer', detalle: 'No se pudo enviar el flyer de Maestría en Ciberseguridad; salió en texto', fecha: new Date(hace(400)).toISOString() },
+  { tipo: 'ia', detalle: 'La IA no respondió en la conversación (timeout); se ofreció un asesor', fecha: new Date(hace(1800)).toISOString() },
 ] }));
 
 // ── Atención: conversaciones con asesor (en producción viven en Chatwoot) ──
@@ -497,7 +510,9 @@ app.get('/api/tools/inicio', (_q, res) => {
   });
   const reminders = admin ? RECORDATORIOS : RECORDATORIOS.filter(r => r.createdBy === username);
   const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
-  const sumaInteracciones = (m) => ['menu_shown', 'ai_request', 'turno_consultado', 'recibo_descargado'].reduce((total, clave) => total + (m[clave] ?? 0), 0);
+  // Igual que inicioService.metricasDelDia: conversaciones nuevas, preguntas a la IA y menús.
+  const sumaInteracciones = (m) => ['conv_inicio', 'ai_request', 'menu_shown'].reduce((total, clave) => total + (m[clave] ?? 0), 0);
+  const prospectos = (m) => (m.datos_acepta ?? 0) + (m.prospecto_completado ?? 0);
   const interacciones = sumaInteracciones(METRICAS_HOY);
   // Misma forma que armaría inicioService con listarConversaciones('open').
   const resumenConv = (c) => {
@@ -520,8 +535,8 @@ app.get('/api/tools/inicio', (_q, res) => {
     rol: admin ? 'admin' : 'asesor', generadoEn: Date.now(), atencion,
     seguimiento: process.env.MOCK_INICIO_ERROR ? { estado: 'error', mios: { nuevo: 0, contactado: 0, interesado: 0, inscrito: 0, descartado: 0 }, sinAsignar: 0 } : { estado: 'ok', mios, sinAsignar: seguimientoSinAsignar, estancados, diasSinMovimiento: DIAS_SIN_MOVIMIENTO },
     recordatorios: { estado: 'ok', fallidos: reminders.filter(r => r.estado === 'fallido').length, programadosHoy: reminders.filter(r => r.estado === 'programado' && r.scheduledAt >= inicio.getTime() && r.scheduledAt < inicio.getTime() + 864e5).length },
-    hoy: { estado: 'ok', interaccionesBot: interacciones, derivadosAsesor: METRICAS_HOY.agent_handoff, prospectosNuevos: METRICAS_HOY.prospecto_completado, preguntasIa: METRICAS_HOY.ai_request,
-      ayer: { interaccionesBot: sumaInteracciones(METRICAS_AYER), derivadosAsesor: METRICAS_AYER.agent_handoff, prospectosNuevos: METRICAS_AYER.prospecto_completado, preguntasIa: METRICAS_AYER.ai_request } },
+    hoy: { estado: 'ok', interaccionesBot: interacciones, derivadosAsesor: METRICAS_HOY.agent_handoff, prospectosNuevos: prospectos(METRICAS_HOY), preguntasIa: METRICAS_HOY.ai_request,
+      ayer: { interaccionesBot: sumaInteracciones(METRICAS_AYER), derivadosAsesor: METRICAS_AYER.agent_handoff, prospectosNuevos: prospectos(METRICAS_AYER), preguntasIa: METRICAS_AYER.ai_request } },
     servicios: { estado: 'ok', afectados },
   });
 });

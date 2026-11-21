@@ -16,18 +16,27 @@ function resumirPosgrado(series) {
   const dateKeys = Object.keys(s).sort();
   const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
   const sumAll = (ev) => dateKeys.reduce((a, d) => a + numv(s[d], ev), 0);
-  const prospectos = sumAll('prospecto_completado');
-  const prospInicio = sumAll('prospecto_iniciado');
-  const registros = sumAll('registro_completado');
-  const regInicio = sumAll('registro_iniciado');
-  const especs = sumAll('programas_especializaciones');
-  const maestrias = sumAll('programas_maestrias');
-  const doctorados = sumAll('programas_doctorados');
+  const pct = (a, b) => (b > 0 ? Math.round(a / b * 100) : null);
+  const conversaciones = sumAll('conv_inicio');
+  const autorizaron = sumAll('datos_acepta');
+  const noAutorizaron = sumAll('datos_rechaza');
+  const pidieronAyuda = sumAll('reco_inicio');
+  const vieronReco = sumAll('reco_resultados');
+  const fichas = sumAll('reco_ficha');
+  const pidieronAsesor = sumAll('reco_asesor');
+  const leads = sumAll('reco_lead_completado');
+  const utilSi = sumAll('reco_util_si');
+  const utilNo = sumAll('reco_util_no');
   return {
-    dateKeys,
-    prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados,
-    conv: prospInicio > 0 ? Math.round(prospectos / prospInicio * 100) : null,
-    regConv: regInicio > 0 ? Math.round(registros / regInicio * 100) : null,
+    dateKeys, conversaciones, autorizaron, noAutorizaron, pidieronAyuda, vieronReco, fichas, pidieronAsesor, leads, utilSi, utilNo,
+    pctAutorizo: pct(autorizaron, autorizaron + noAutorizaron),
+    pctUtil: pct(utilSi, utilSi + utilNo),
+    // Del primer mensaje al asesor: cuántos llegan a cada paso.
+    pasos: [
+      ['Conversaciones', conversaciones], ['Autorizaron datos', autorizaron], ['Pidieron ayuda para elegir', pidieronAyuda],
+      ['Vieron recomendaciones', vieronReco], ['Abrieron una ficha', fichas], ['Pidieron asesor', pidieronAsesor],
+      ['Dejaron sus datos al asesor', leads],
+    ],
   };
 }
 
@@ -43,7 +52,7 @@ async function renderPosgrados(main) {
   destroyPgCharts();
   main.innerHTML = `
     <div class="page-header">
-      <div><h1>${icon('funnel', 26)} Embudo de posgrados</h1><div class="subtitle">Métricas de prospectos, registros y programas consultados</div></div>
+      <div><h1>${icon('funnel', 26)} Embudo de posgrados</h1><div class="subtitle">Del primer mensaje al asesor: cuántas personas avanzan en cada paso del flujo conversacional</div></div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <a class="btn btn-secondary" href="${escapeHtml(sesion.urls.chatwoot)}/app/accounts/1/label/posgrado-prospecto" target="_blank" rel="noopener">${emoji('💬')} Ver prospectos</a>
         <div id="pgRangeWrap"></div>
@@ -88,45 +97,32 @@ async function renderPosgrados(main) {
       if (!r.ok) throw new Error('metricas_no_disponibles');
       const { days: series } = await r.json();
       if (!content.isConnected || loadId !== pgLoadId) return;
-      const { dateKeys, prospectos, prospInicio, registros, regInicio, especs, maestrias, doctorados, conv, regConv } = resumirPosgrado(series ?? {});
+      const r0 = resumirPosgrado(series ?? {});
+      const { dateKeys, conversaciones, autorizaron, vieronReco, pidieronAsesor, leads, utilSi, utilNo, pctAutorizo, pctUtil, pasos } = r0;
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
       const daily  = (ev) => dateKeys.map(d => numv(series[d], ev));
       const fmtDay = d => d.slice(5);
-      const convTexto = conv === null ? 'conversión sin datos de inicio' : `${conv}% conversión`;
-      const regConvTexto = regConv === null ? 'conversión sin datos de inicio' : `${regConv}% conversión`;
-      const hayProgramas = especs + maestrias + doctorados > 0;
+      const hayUtil = utilSi + utilNo > 0;
+      const textoAutorizo = pctAutorizo === null ? '' : ` (${pctAutorizo}%)`;
+      const textoUtil = pctUtil === null ? 'Todavía nadie calificó las recomendaciones.' : `Al ${pctUtil}% le sirvió la recomendación (${utilSi + utilNo} respuestas).`;
 
       content.innerHTML = `
         <div class="card op-contexto" style="margin-bottom:16px;">
-          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${escapeHtml(prospectos)} prospecto${prospectos === 1 ? '' : 's'} completado${prospectos === 1 ? '' : 's'} (${escapeHtml(convTexto)}) y ${escapeHtml(registros)} registro${registros === 1 ? '' : 's'} completado${registros === 1 ? '' : 's'} (${escapeHtml(regConvTexto)}). El detalle por persona está en el CRM y en el evento.</div>
+          <div class="op-contexto-texto">En estos ${escapeHtml(String(days))} días: ${escapeHtml(conversaciones)} conversaciones nuevas, ${escapeHtml(autorizaron)} autorizaron sus datos${escapeHtml(textoAutorizo)}, ${escapeHtml(vieronReco)} vieron recomendaciones y ${escapeHtml(pidieronAsesor)} pidieron un asesor. ${escapeHtml(textoUtil)} El detalle por persona está en el CRM.</div>
           <div class="op-contexto-acciones">
             <button type="button" class="btn btn-secondary" id="pgVerCrm">Ver CRM</button>
             <button type="button" class="btn btn-secondary" id="pgVerEvento">Ver evento</button>
           </div>
         </div>
         <div class="stats-grid" style="margin-bottom:20px;">
-          <div class="stat-card">
-            <div class="label">Prospectos</div>
-            <div class="value">${escapeHtml(prospectos)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(convTexto)} · ${escapeHtml(prospInicio)} iniciados</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Registros BD</div>
-            <div class="value">${escapeHtml(registros)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(regConvTexto)} · ${escapeHtml(regInicio)} iniciados</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Especializaciones</div>
-            <div class="value">${escapeHtml(especs)}</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Maestrías</div>
-            <div class="value">${escapeHtml(maestrias)}</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Doctorados</div>
-            <div class="value">${escapeHtml(doctorados)}</div>
-          </div>
+          <div class="stat-card"><div class="label">Conversaciones nuevas</div><div class="value">${escapeHtml(conversaciones)}</div></div>
+          <div class="stat-card"><div class="label">Autorizaron sus datos</div><div class="value">${escapeHtml(autorizaron)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(pctAutorizo === null ? 'sin respuestas' : `${pctAutorizo}% de quienes respondieron`)}</div></div>
+          <div class="stat-card"><div class="label">Vieron recomendaciones</div><div class="value">${escapeHtml(vieronReco)}</div></div>
+          <div class="stat-card"><div class="label">Pidieron asesor</div><div class="value">${escapeHtml(pidieronAsesor)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(leads)} dejaron nombre y correo</div></div>
+          <div class="stat-card"><div class="label">Le sirvió la recomendación</div><div class="value">${escapeHtml(pctUtil === null ? '—' : `${pctUtil}%`)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(utilSi)} 👍 · ${escapeHtml(utilNo)} 👎</div></div>
         </div>
 
         <div class="card" style="margin-bottom:16px;">
@@ -136,12 +132,12 @@ async function renderPosgrados(main) {
 
         <div class="posgrados-split" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
-            <h2 class="card-title">Programas consultados</h2>
-            <div id="pgChartProgramasWrap" style="position:relative;height:200px;">${hayProgramas ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Sin consultas de programas en este rango.</div>'}</div>
+            <h2 class="card-title">Embudo: del primer mensaje al asesor</h2>
+            <div id="pgChartFunnelWrap" style="position:relative;height:260px;"><canvas id="pgChartFunnel"></canvas></div>
           </div>
           <div class="card">
-            <h2 class="card-title">Embudo prospectos</h2>
-            <div id="pgChartFunnelWrap" style="position:relative;height:200px;"><canvas id="pgChartFunnel"></canvas></div>
+            <h2 class="card-title">¿Le sirvió la recomendación?</h2>
+            <div id="pgChartProgramasWrap" style="position:relative;height:260px;">${hayUtil ? '<canvas id="pgChartProgramas"></canvas>' : '<div class="widget-empty" style="height:100%;display:grid;place-items:center;text-align:center;">Todavía nadie calificó las recomendaciones en este rango.</div>'}</div>
           </div>
         </div>
       `;
@@ -158,47 +154,44 @@ async function renderPosgrados(main) {
       };
 
       const cargarGraficas = async () => {
-        const wraps = [content.querySelector('#pgChartDailyWrap'), content.querySelector('#pgChartFunnelWrap'), ...(hayProgramas ? [content.querySelector('#pgChartProgramasWrap')] : [])].filter(Boolean);
+        const wraps = [content.querySelector('#pgChartDailyWrap'), content.querySelector('#pgChartFunnelWrap'), ...(hayUtil ? [content.querySelector('#pgChartProgramasWrap')] : [])].filter(Boolean);
         destroyPgCharts();
         content.querySelector('#pgChartDailyWrap').innerHTML = '<canvas id="pgChartDaily"></canvas>';
         content.querySelector('#pgChartFunnelWrap').innerHTML = '<canvas id="pgChartFunnel"></canvas>';
-        if (hayProgramas) content.querySelector('#pgChartProgramasWrap').innerHTML = '<canvas id="pgChartProgramas"></canvas>';
+        if (hayUtil) content.querySelector('#pgChartProgramasWrap').innerHTML = '<canvas id="pgChartProgramas"></canvas>';
         wraps.forEach(wrap => marcarCargando(wrap, true));
         try {
           await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
           if (!content.isConnected || loadId !== pgLoadId) return;
           pgCharts.push(new Chart(document.getElementById('pgChartDaily'), {
-        type: 'line',
-        data: {
-          labels: dateKeys.map(fmtDay),
-          datasets: [
-            { label: 'Prosp. iniciados',  data: daily('prospecto_iniciado'),   borderColor: '#8fb3ec', backgroundColor: '#8fb3ec22', tension: 0.3, fill: true },
-            { label: 'Prosp. completados',data: daily('prospecto_completado'), borderColor: '#2f6fd6', backgroundColor: '#2f6fd622', tension: 0.3, fill: true },
-            { label: 'Registros BD',      data: daily('registro_completado'),  borderColor: '#003087', backgroundColor: '#00308722', tension: 0.3, fill: true },
-          ],
-        },
-        options: base,
+            type: 'line',
+            data: {
+              labels: dateKeys.map(fmtDay),
+              datasets: [
+                { label: 'Conversaciones', data: daily('conv_inicio'), borderColor: '#8fb3ec', backgroundColor: '#8fb3ec22', tension: 0.3, fill: true },
+                { label: 'Vieron recomendaciones', data: daily('reco_resultados'), borderColor: '#2f6fd6', backgroundColor: '#2f6fd622', tension: 0.3, fill: true },
+                { label: 'Pidieron asesor', data: daily('reco_asesor'), borderColor: '#003087', backgroundColor: '#00308722', tension: 0.3, fill: true },
+              ],
+            },
+            options: base,
           }));
 
-          if (hayProgramas) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
-        type: 'doughnut',
-        data: {
-          labels: ['Especializaciones', 'Maestrías', 'Doctorados'],
-          datasets: [{ data: [especs, maestrias, doctorados], backgroundColor: ['#8fb3ec', '#2f6fd6', '#003087'] }],
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } },
+          if (hayUtil) pgCharts.push(new Chart(document.getElementById('pgChartProgramas'), {
+            type: 'doughnut',
+            data: {
+              labels: ['👍 Le sirvió', '👎 No mucho'],
+              datasets: [{ data: [utilSi, utilNo], backgroundColor: ['#2f6fd6', '#b45309'] }],
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#64748b' } } } },
           }));
 
           pgCharts.push(new Chart(document.getElementById('pgChartFunnel'), {
-        type: 'bar',
-        data: {
-          labels: ['Prosp. iniciados', 'Prosp. completados', 'Reg. iniciados', 'Reg. completados'],
-          datasets: [{
-            data: [prospInicio, prospectos, regInicio, registros],
-            backgroundColor: ['#8fb3ec', '#2f6fd6', '#003087', '#15803d'],
-          }],
-        },
-        options: { ...base, plugins: { legend: { display: false } } },
+            type: 'bar',
+            data: {
+              labels: pasos.map(([nombre]) => nombre),
+              datasets: [{ data: pasos.map(([, valor]) => valor), backgroundColor: ['#c7d8f5', '#a9c3ee', '#8fb3ec', '#5f93e2', '#2f6fd6', '#1a4fb4', '#003087'] }],
+            },
+            options: { ...base, indexAxis: 'y', plugins: { legend: { display: false } } },
           }));
         } catch (err) {
           console.error(err);

@@ -137,4 +137,10 @@ describe('metricasDelDia y claveDiaAnterior', () => {
     });
     assert.equal(claveDiaAnterior(Date.UTC(2026, 10, 14, 3, 0)), '2026-11-13');
   });
+
+  it('cuenta el flujo conversacional: conversaciones nuevas, preguntas y quien autorizó sus datos', () => {
+    assert.deepEqual(metricasDelDia({ conv_inicio: '7', ai_request: '5', datos_acepta: '4', agent_handoff: '1' }), {
+      interaccionesBot: 12, derivadosAsesor: 1, prospectosNuevos: 4, preguntasIa: 5,
+    });
+  });
 });
