@@ -49,7 +49,7 @@ import {
 } from './recomendacionView';
 import { urlFotoPermitida } from '../services/fotoProgramaService';
 import { BOTONES_TRAS_NO_UTIL, BOTONES_TRAS_UTIL, FILAS_UTIL, asesorConCorreoConocido, numeroFueraDeRango } from './recomendacionView';
-import { expandirCarrera, interpretarPregrado } from './recomendacionPregrado';
+import { corregirTipeo, distanciaEdicion, expandirCarrera, interpretarPregrado } from './recomendacionPregrado';
 
 /**
  * Vista del flujo de recomendación: que todo quepa en las listas y botones
@@ -409,5 +409,48 @@ describe('recomendación: lo que encontraron las 100 simulaciones', () => {
     assert.match(numeroFueraDeRango(1), /escribe \*1\*/);
     assert.match(numeroFueraDeRango(3), /del \*1\* al \*3\*/);
     assert.match(asesorConCorreoConocido('ana@correo.com'), /ana@correo\.com/);
+  });
+});
+
+describe('carrera: errores de tipeo e ingenierías sueltas', () => {
+  it('mide errores contando dos letras invertidas como uno', () => {
+    assert.equal(distanciaEdicion('indsutrial', 'industrial', 2), 1);
+    assert.equal(distanciaEdicion('sicologia', 'psicologia', 2), 1);
+    assert.equal(distanciaEdicion('medicina', 'arquitectura', 2), 3);
+  });
+
+  it('corrige las palabras de carreras y deja las demás', () => {
+    assert.equal(corregirTipeo('ingieneria indsutrial'), 'ingenieria industrial');
+    assert.equal(corregirTipeo('hola mucho gusto'), 'hola mucho gusto');
+  });
+
+  it('reconoce carreras con errores y la ingeniería sin la palabra', () => {
+    const casos: [string, string][] = [
+      ['ingenieria indsutrial', 'ingenieria-industrial'], ['admnistracion de empresas', 'administracion-de-empresas'],
+      ['sicologia', 'psicologia'], ['derech', 'derecho'], ['ingieneria civil', 'ingenieria-civil'], ['arquitetura', 'arquitectura'],
+      ['industrial', 'ingenieria-industrial'], ['civil', 'ingenieria-civil'], ['mecatronica', 'ingenieria-mecatronica'],
+    ];
+    for (const [texto, id] of casos) {
+      const r = interpretarPregrado(texto);
+      assert.ok(r && r.tipo === 'utb' && r.pregradoId === id, `${texto} → ${JSON.stringify(r)}`);
+    }
+    // "Química" sola puede ser la ciencia: va por áreas, no a la ingeniería.
+    assert.deepEqual(interpretarPregrado('quimica'), { tipo: 'familia', familiaId: 'ciencias_basicas' });
+    assert.equal(interpretarPregrado('mucho gusto'), null);
+    assert.equal(interpretarPregrado('hola'), null);
+  });
+});
+
+describe('carrera: como se presenta la gente', () => {
+  it('quita "soy", "estudié", "me gradué de" y corrige oficios mal escritos', () => {
+    const casos: [string, string][] = [
+      ['soy ingeniero civil', 'ingenieria-civil'], ['soy ingenieo civil', 'ingenieria-civil'], ['estudié derecho', 'derecho'],
+      ['Aboggado', 'derecho'], ['admo de empresas', 'administracion-de-empresas'], ['economissta', 'economia'],
+      ['me gradué de economía', 'economia'],
+    ];
+    for (const [texto, id] of casos) {
+      const r = interpretarPregrado(texto);
+      assert.ok(r && r.tipo === 'utb' && r.pregradoId === id, `${texto} → ${JSON.stringify(r)}`);
+    }
   });
 });

@@ -18,6 +18,8 @@ import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
 import { registrarDecision } from '../services/consentimientoService';
 import { completarPerfil, conLoRecordado } from '../services/perfilService';
+import { registrarNoReconocido } from '../services/noReconocidoService';
+import { limpiarNombre } from './conversacionView';
 import { describeExternalError } from '../services/logSafe';
 import { FlowContext, messaging, salirAlMenuRaiz, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
@@ -146,7 +148,9 @@ export async function enviarSinCoincidencia(to: string, texto: string = SIN_COIN
   });
 }
 
-async function noReconocido(to: string, pista: string): Promise<void> {
+/** Responde que no entendió y lo deja medido (con el texto) para mejorar el bot. */
+async function noReconocido(to: string, pista: string, paso: string, texto: string): Promise<void> {
+  await registrarNoReconocido(paso, texto);
   await messaging.sendText({ to, text: `No reconocí esa opción 🤔\n\n${pista}` });
 }
 
@@ -243,7 +247,7 @@ export async function handleRecoRelacion(ctx: FlowContext): Promise<void> {
       await iniciarRecomendacion(from);
       return;
     }
-    await noReconocido(from, 'Elige una opción de la lista 👇');
+    await noReconocido(from, 'Elige una opción de la lista 👇', 'relacion', text);
     await track('menu_shown');
     await sendMenu(from);
     return;
@@ -292,7 +296,7 @@ export async function handleRecoPregradoGrupo(ctx: FlowContext): Promise<void> {
 
   const eleccion = parseGrupo(text);
   if (!eleccion) {
-    await noReconocido(from, 'Elige la escuela de tu pregrado o escribe su nombre 👇');
+    await noReconocido(from, 'Elige la escuela de tu pregrado o escribe su nombre 👇', 'pregrado_grupo', text);
     await enviarGrupos(from);
     return;
   }
@@ -318,7 +322,7 @@ export async function handleRecoPregrado(ctx: FlowContext): Promise<void> {
   const grupo = getGrupo(data.grupo ?? '');
   const pregradoId = parsePregrado(text, grupo);
   if (!pregradoId) {
-    await noReconocido(from, 'Elige tu pregrado de la lista o escribe su nombre 👇');
+    await noReconocido(from, 'Elige tu pregrado de la lista o escribe su nombre 👇', 'pregrado', text);
     if (grupo) await enviarPregrados(from, grupo);
     else await volverAGrupos(from, data);
     return;
@@ -335,6 +339,7 @@ async function interpretarEscrito(from: string, data: SessionData, texto: string
   const pregunta = interpretado && textoConfirmacion(interpretado);
   if (!interpretado || !pregunta) {
     await track('reco_externo_sin_coincidencia');
+    await registrarNoReconocido('carrera', pregradoTexto);
     await setSession(from, { step: 'reco_sin_coincidencia', data: { relacion: data.relacion ?? 'externo', pregradoTexto } });
     await enviarSinCoincidencia(from);
     return;
@@ -460,7 +465,7 @@ export async function handleRecoNivel(ctx: FlowContext): Promise<void> {
 
   const nivel = parseNivel(text);
   if (nivel === null) {
-    await noReconocido(from, 'Elige un nivel de la lista 👇');
+    await noReconocido(from, 'Elige un nivel de la lista 👇', 'nivel', text);
     await enviarNivel(from);
     return;
   }
@@ -589,7 +594,7 @@ export async function handleRecoResultados(ctx: FlowContext): Promise<void> {
   // Una frase o una pregunta ("¿cuál es más barata?", "algo de salud mental") va a la IA.
   if (esTextoLibre(text)) return responderConIaDesdeResultados(from, data, text);
 
-  await noReconocido(from, 'Elige una opción de la lista o escribe el número de un programa 👇');
+  await noReconocido(from, 'Elige una opción de la lista o escribe el número de un programa 👇', 'resultados', text);
   await enviarAcciones(from, data);
 }
 
@@ -606,7 +611,7 @@ export async function handleRecoFichaElegir(ctx: FlowContext): Promise<void> {
   const mostrados = idsMostrados(data.recomendados);
   const id = programaPorNumero(text, mostrados);
   if (!id) {
-    await noReconocido(from, 'Elige el programa de la lista 👇');
+    await noReconocido(from, 'Elige el programa de la lista 👇', 'ficha_elegir', text);
     await enviarLista(from, '📄 Ver un programa', '¿Cuál programa quieres ver en detalle?', 'Programas', filasElegirPrograma(mostrados));
     return;
   }
@@ -655,7 +660,7 @@ export async function handleRecoFicha(ctx: FlowContext): Promise<void> {
     return responderConIaDesdeResultados(from, data, text);
   }
 
-  await noReconocido(from, 'Elige una opción de la lista 👇');
+  await noReconocido(from, 'Elige una opción de la lista 👇', 'ficha', text);
   await enviarLista(from, '¿Qué quieres hacer?', 'Elige una opción para continuar', 'Opciones', FILAS_TRAS_FICHA);
 }
 
@@ -805,9 +810,10 @@ export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
       : () => volverALaConversacion(from, data, 'Listo 👍 Puedes seguir preguntándome lo que quieras.');
   if (await comandos(from, text, atras)) return;
 
-  const nombre = text.trim().replace(/\s+/g, ' ').slice(0, 80);
-  if (nombre.length < 3) {
-    await messaging.sendText({ to: from, text: 'Por favor escribe tu nombre completo (mínimo 3 caracteres) ✍️' });
+  // Solo un nombre: "jajaja", "un momento" o "soy de Barranquilla" no se registran.
+  const nombre = limpiarNombre(text);
+  if (!nombre) {
+    await messaging.sendText({ to: from, text: 'Escríbeme tu nombre completo, por ejemplo: *Laura Gómez* ✍️' });
     return;
   }
   await setSession(from, { step: 'reco_correo', data: { ...data, nombre } });

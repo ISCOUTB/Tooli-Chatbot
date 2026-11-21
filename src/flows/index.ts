@@ -20,7 +20,7 @@ import {
   pedirConsentimiento,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
-import { agradecer, atenderBaja, handleConversacion, responderPreguntaSuelta } from './conversacion';
+import { agradecer, atenderBaja, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta } from './conversacion';
 import { esAgradecimiento, esBaja, esPedidoAsesor, pareceUnaPregunta, parseBoton, parseSugerencia } from './conversacionView';
 import { parseUtil } from './recomendacionView';
 import type { Session } from '../services/session';
@@ -119,6 +119,11 @@ const PASOS_DE_OPCION: ReadonlySet<string> = new Set([
 ]);
 /** Pasos del flujo de recomendación que esperan un texto (carrera, nombre, correo). */
 const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo']);
+const DATO_QUE_FALTA: Record<string, string> = {
+  reco_pregrado_externo: '✍️ Cuando quieras, escríbeme tu carrera.',
+  reco_nombre: '✍️ Cuando quieras, escríbeme tu nombre completo para que el asesor te contacte.',
+  reco_correo: '📧 Cuando quieras, escríbeme tu correo para que el asesor te contacte.',
+};
 /** En recomendaciones y ficha, el texto libre ya lo responde la IA en la conversación. */
 const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_ficha']);
 
@@ -142,11 +147,17 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     await handleConversacion({ from, text, session: { step: 'menu', data: { ...data, pendiente: '' } } });
     return true;
   }
-  if (!PASOS_DE_OPCION.has(step)) return false;
+  // Mientras pide la carrera, el nombre o el correo, una pregunta se responde y después se recuerda el dato.
+  if (PASOS_DE_TEXTO.has(step)) {
+    if (!pareceUnaPregunta(text)) return false;
+    await responderPreguntaSuelta(from, data, text, DATO_QUE_FALTA[step]);
+    return true;
+  }
   if (esPedidoAsesor(text) && step !== 'reco_consentimiento') {
     await pedirConsentimiento(from, data);
     return true;
   }
+  if (await atenderSinPreguntaEnLista(from, data, text)) return true;
   if (esAgradecimiento(text)) {
     if (/me sirvi/i.test(text) && data.utilPreguntada === '1') await atenderUtil(from, 'si', data, step);
     else await agradecer(from);

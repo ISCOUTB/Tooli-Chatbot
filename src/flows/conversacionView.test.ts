@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, BOTONES_TECNICO, DATOS_RECHAZADOS, PREFIJO_SUGERENCIA, PREGUNTAS, SUGERENCIAS_RESPALDO, botonesSugeridos,
-  cabeConBotones, datosAceptados, detectarPerfil, esAgradecimiento, esBaja, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
+  cabeConBotones, datoPersonal, datosAceptados, detectarPerfil, esAgradecimiento, esBaja, esConfusion, esEspera, esQueja, esRuido, esPedidoAsesor, esSaludo, infoAceptada, interpretarRespuestaEscrita,
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoRegreso,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
 } from './conversacionView';
@@ -322,5 +322,52 @@ describe('conversación: lo que encontraron las 100 simulaciones', () => {
     assert.equal(pareceUnaPregunta('quiero el plan de estudios completo de la maestría'), true);
     assert.equal(pareceUnaPregunta('Ingeniería Industrial'), false);
     assert.equal(pareceUnaPregunta('quiero asesor'), false);
+  });
+});
+
+describe('conversación: respuestas como se escriben en WhatsApp', () => {
+  it('"dale", "ok", "sii", "de una" son sí; "nel", "nooo", "no gracias" son no', () => {
+    for (const t of ['dale', 'ok', 'sii', 'de una', 'bueno', 'listo']) assert.deepEqual(interpretarRespuestaEscrita('info', t), { boton: 'conv_info_si' }, t);
+    for (const t of ['nel', 'nooo', 'no gracias', 'para nada']) assert.deepEqual(interpretarRespuestaEscrita('info', t), { boton: 'conv_info_no' }, t);
+    assert.equal(interpretarRespuestaEscrita('info', 'bueno pero ¿cuánto cuesta el MBA?'), null);
+  });
+
+  it('el nivel escrito elige ese nivel, salvo que nombre dos', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'una maestría'), { boton: 'conv_mae' });
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'especializacion'), { boton: 'conv_esp' });
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'doctorado'), { boton: 'conv_doc' });
+    assert.equal(interpretarRespuestaEscrita('nivel', 'maestría o especialización'), null);
+  });
+});
+
+describe('conversación: lo que encontraron las 500 simulaciones', () => {
+  it('solo registra nombres: ni ruido, ni frases, ni datos sueltos', () => {
+    for (const [t, esperado] of [['Laura Gómez', 'Laura Gómez'], ['me llamo Andrés', 'Andrés'], ['Hola, soy Camilo Ortiz', 'Camilo Ortiz'],
+      ['María de la Hoz', 'María de la Hoz'], ['kelly', 'kelly']] as const) assert.equal(limpiarNombre(t), esperado, t);
+    for (const t of ['jajaja', 'un momento', 'soy de Barranquilla', 'tengo 32 años', 'mi correo es a@b.co', 'estoy en Cartagena', 'qué?', 'ok', 'mmm']) {
+      assert.equal(limpiarNombre(t), null, t);
+    }
+  });
+
+  it('distingue ruido, espera, confusión y quejas', () => {
+    for (const t of ['mmm', 'jajaja', '😂', '?', '...', 'ey', 'k']) assert.equal(esRuido(t), true, t);
+    for (const t of ['👍', 'Hola?', 'maestría', 'gracias']) assert.equal(esRuido(t), false, t);
+    assert.equal(esEspera('un momento'), true);
+    assert.equal(esConfusion('no entiendo'), true);
+    assert.equal(esConfusion('¿qué?'), true);
+    assert.equal(esQueja('esto no sirve'), true);
+    assert.equal(esQueja('¿sirve para trabajar en el exterior?'), false);
+  });
+
+  it('reconoce datos personales sueltos para no mandarlos a la IA', () => {
+    assert.deepEqual(datoPersonal('mi correo es laura.gomez@gmail.com'), { tipo: 'correo', valor: 'laura.gomez@gmail.com' });
+    assert.deepEqual(datoPersonal('+57 300 123 4567'), { tipo: 'telefono' });
+    assert.deepEqual(datoPersonal('cc 1.143.256.789'), { tipo: 'documento' });
+    assert.equal(datoPersonal('maestría 2027'), null);
+    assert.equal(datoPersonal('tengo 32 años'), null);
+  });
+
+  it('«la más corta» es la especialización', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('nivel', 'la más corta'), { boton: 'conv_esp' });
   });
 });

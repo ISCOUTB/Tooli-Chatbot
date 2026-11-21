@@ -21,9 +21,12 @@ import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaServic
 import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { guardarRegistroProspecto } from '../services/registroService';
-import { conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento } from '../services/perfilService';
+import {
+  completarPerfil, conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento,
+} from '../services/perfilService';
 import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
+import { registrarNoReconocido } from '../services/noReconocidoService';
 import { CONFIRMACION_BAJA } from './campanaReco';
 import { enviarFlyerPrograma } from './fotosPrograma';
 import { pieFlyer } from './recomendacionView';
@@ -34,7 +37,9 @@ import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado'
 import { parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
-  BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, CON_GUSTO, OFRECER_ASESOR, SIGUE_ARRIBA, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
+  BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, CON_GUSTO, OFRECER_ASESOR, SIGUE_ARRIBA,
+  CORREO_SIN_AUTORIZACION, DOCUMENTO_NO, ESPERO, QUEJA, SEGUIMOS, SIN_PREGUNTA_PENDIENTE, TELEFONO_YA, TE_EXPLICO,
+  correoAnotado, datoPersonal, esConfusion, esEspera, esQueja, esRuido, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
@@ -265,7 +270,7 @@ async function negarDatos(from: string): Promise<void> {
 async function pedirAutorizacion(from: string, data: SessionData, texto: string): Promise<void> {
   const t = texto.trim();
   const esPregunta = !!t && !esSaludo(t) && !parseBoton(t) && !parseSugerencia(t) && !parseGlobalCommand(t) &&
-    !t.startsWith('__');
+    !t.startsWith('__') && !esRuido(t) && !esEspera(t) && !esConfusion(t) && !datoPersonal(t);
   const inicial = esPregunta ? t.slice(0, 500) : '';
   await messaging.sendText({ to: from, text: inicial ? SALUDO_CON_PREGUNTA : SALUDO_CONVERSACION });
   return preguntar(from, { ...data, preguntaInicial: inicial }, 'datos');
@@ -346,6 +351,7 @@ async function atenderPregrado(from: string, data: SessionData, texto: string): 
   if (!interpretado) {
     // Las mismas salidas del flujo de recomendación: la lista, un área o escribirla de nuevo.
     await track('reco_externo_sin_coincidencia');
+    await registrarNoReconocido('carrera', pregradoTexto);
     await setSession(from, { step: 'reco_sin_coincidencia', data: { relacion: data.relacion || 'externo', pregradoTexto } });
     await enviarSinCoincidencia(from, NO_RECONOCI_PREGRADO);
     return;
@@ -513,21 +519,86 @@ function lugar(data: SessionData): SessionData {
  * responde con el contexto que haya y la persona sigue con la lista de arriba.
  * Si hace falta una persona, se ofrece el asesor.
  */
-export async function responderPreguntaSuelta(from: string, data: SessionData, texto: string): Promise<void> {
+export async function responderPreguntaSuelta(from: string, data: SessionData, texto: string, sigue = SIGUE_ARRIBA): Promise<void> {
   await track('ai_request', { area: 'posgrados' });
   try {
     const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS);
     const separada = separarSugerencias(ai.answer);
     await track('ai_resolved', { area: 'posgrados' });
-    await messaging.sendText({ to: from, text: `${separada.texto || ai.answer}\n\n${SIGUE_ARRIBA}` });
+    await messaging.sendText({ to: from, text: `${separada.texto || ai.answer}\n\n${sigue}` });
     if (separada.asesor) {
       await track('conv_asesor_sugerido');
       await messaging.sendButtons({ to: from, title: TITULO, description: OFRECER_ASESOR, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
     }
   } catch (err) {
     await track('ai_failed', { area: 'posgrados', reason: err instanceof AIUnavailableError ? err.reason : 'unknown' });
-    await messaging.sendText({ to: from, text: `${IA_NO_DISPONIBLE}\n\n${SIGUE_ARRIBA}` });
+    await messaging.sendText({ to: from, text: `${IA_NO_DISPONIBLE}\n\n${sigue}` });
   }
+}
+
+/**
+ * Mensajes sin una pregunta que responder: "espera", ruido ("mmm", "😂"),
+ * confusión ("no entiendo"), quejas y datos personales sueltos. Ninguno va a la
+ * IA (los datos personales nunca); se repite la pregunta pendiente o se ofrece
+ * qué hacer. Devuelve si lo atendió.
+ */
+async function atenderSinPregunta(from: string, data: SessionData, texto: string, pendiente: Pendiente | ''): Promise<boolean> {
+  const area = data.sinPregrado === '1' ? 'admisiones' : 'posgrados';
+  const ofrecerOpciones = async (prefijo: string, conDatos: SessionData = data) => {
+    if (pendiente) return preguntar(from, conDatos, pendiente, prefijo);
+    await guardarSesion(from, conDatos);
+    await messaging.sendButtons({
+      to: from, title: '', description: `${prefijo}\n\n${SIN_PREGUNTA_PENDIENTE}`.trim(), footer: PIE_SUGERENCIAS,
+      buttons: botonesSugeridos([], area),
+    });
+  };
+  if (esEspera(texto)) {
+    await messaging.sendText({ to: from, text: ESPERO });
+    return true;
+  }
+  if (esQueja(texto)) {
+    await track('conv_asesor_sugerido');
+    await guardarSesion(from, { ...data, asesorOfrecido: '1' });
+    await messaging.sendButtons({ to: from, title: TITULO, description: QUEJA, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
+    return true;
+  }
+  if (esConfusion(texto)) { await ofrecerOpciones(pendiente ? TE_EXPLICO : ''); return true; }
+  // "0" o "volver" en la conversación: no hay un paso atrás; se repite la pregunta o se ofrecen opciones.
+  if (parseGlobalCommand(texto) === 'volver') { await ofrecerOpciones(pendiente ? 'Listo 👍' : ''); return true; }
+  if (esRuido(texto)) { await ofrecerOpciones(pendiente ? SEGUIMOS : ''); return true; }
+  const dato = datoPersonal(texto);
+  if (!dato) return false;
+  if (dato.tipo === 'correo') {
+    if (data.datos === 'si') await ofrecerOpciones(correoAnotado(dato.valor), { ...data, correo: dato.valor });
+    else await ofrecerOpciones(CORREO_SIN_AUTORIZACION);
+    return true;
+  }
+  await ofrecerOpciones(dato.tipo === 'telefono' ? TELEFONO_YA : DOCUMENTO_NO);
+  return true;
+}
+
+/** En un paso de lista (flujo de recomendación): lo mismo, sin perder la lista de arriba. */
+export async function atenderSinPreguntaEnLista(from: string, data: SessionData, texto: string): Promise<boolean> {
+  if (esEspera(texto)) {
+    await messaging.sendText({ to: from, text: ESPERO });
+    return true;
+  }
+  if (esQueja(texto)) {
+    await track('conv_asesor_sugerido');
+    await messaging.sendButtons({ to: from, title: TITULO, description: QUEJA, footer: PIE, buttons: [...BOTONES_OFRECER_ASESOR] });
+    return true;
+  }
+  const dato = datoPersonal(texto);
+  const aviso = esConfusion(texto) ? 'Perdón si no fui claro 🙏'
+    : esRuido(texto) ? SEGUIMOS
+      : dato?.tipo === 'telefono' ? TELEFONO_YA : dato?.tipo === 'documento' ? DOCUMENTO_NO
+        : dato?.tipo === 'correo' ? (data.datos === 'si' ? correoAnotado(dato.valor) : CORREO_SIN_AUTORIZACION) : null;
+  if (!aviso) return false;
+  if (dato?.tipo === 'correo' && data.datos === 'si') {
+    await completarPerfil(from, { correo: dato.valor, datos: 'si' }).catch(() => undefined);
+  }
+  await messaging.sendText({ to: from, text: `${aviso}\n\n👆 Elige una opción de arriba o escríbeme tu pregunta.` });
+  return true;
 }
 
 /** Un "gracias" o "👍" en un paso de lista: se agradece sin tomarlo como opción inválida. */
@@ -615,6 +686,8 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   if (pendiente && session && esSaludo(text) && pendiente !== 'datos') {
     return preguntar(from, data, pendiente, saludoCortoRegreso(data.nombre));
   }
+  // Ruido, espera, confusión, quejas y datos sueltos: no son nombre ni carrera, ni van a la IA.
+  if (await atenderSinPregunta(from, data, text, pendiente)) return;
 
   if (pendiente === 'nombre_info' && !pareceUnaPregunta(text)) {
     const nombre = limpiarNombre(text);

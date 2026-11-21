@@ -5,7 +5,7 @@ export type FlowArea = 'pregrado' | 'posgrado';
 export type AiArea = 'ti' | 'admisiones' | 'posgrados';
 export type SessionData = Record<string, string>;
 
-const MENU_ALIASES: ReadonlySet<string> = new Set(['menu']);
+const MENU_ALIASES: ReadonlySet<string> = new Set(['menu', 'inicio', 'menu principal', 'empezar de nuevo', 'reiniciar', 'comenzar']);
 const VOLVER_ALIASES: ReadonlySet<string> = new Set(['volver', 'atras', '0']);
 const SALIR_ALIASES: ReadonlySet<string> = new Set(['salir']);
 

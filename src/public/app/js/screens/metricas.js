@@ -45,6 +45,22 @@ const EVENT_META = {
   academico_correo:          { label: 'Correo institucional',   icon: '✉️', color: '#2f6fd6' },
   academico_becas:           { label: 'Becas y apoyo financiero', icon: '🎁', color: '#2f6fd6' },
   academico_derechos:        { label: 'Costos y derechos',      icon: '💳', color: '#2f6fd6' },
+  // Flujo conversacional de posgrados
+  datos_acepta:              { label: 'Autorizó sus datos',     icon: '🔒', color: '#2f6fd6' },
+  datos_rechaza:             { label: 'No autorizó sus datos',  icon: '🔒', color: '#64748b' },
+  conv_sugerencia:           { label: 'Tocó una pregunta sugerida', icon: '💬', color: '#2f6fd6' },
+  conv_regreso:              { label: 'Volvió y retomó',        icon: '👋', color: '#2f6fd6' },
+  conv_seguimiento:          { label: 'Seguimientos enviados',  icon: '⏰', color: '#2f6fd6' },
+  conv_asesor_sugerido:      { label: 'La IA ofreció asesor',   icon: '🙋', color: '#2f6fd6' },
+  reco_util_si:              { label: 'Le sirvió la recomendación', icon: '👍', color: '#2f6fd6' },
+  reco_util_no:              { label: 'No le sirvió la recomendación', icon: '👎', color: '#b45309' },
+  no_reconocido:             { label: 'No entendió una respuesta', icon: '❓', color: '#b45309' },
+  audio_transcrito:          { label: 'Audios entendidos',      icon: '🎤', color: '#2f6fd6' },
+  audio_fallido:             { label: 'Audios sin entender',    icon: '🎤', color: '#c5221f' },
+};
+const PASO_NO_RECONOCIDO = {
+  carrera: 'Carrera', relacion: 'Relación con la UTB', pregrado_grupo: 'Escuela del pregrado', pregrado: 'Pregrado',
+  nivel: 'Nivel', resultados: 'Recomendaciones', ficha_elegir: 'Elegir programa', ficha: 'Ficha del programa',
 };
 function eventMeta(key) {
   return EVENT_META[key] ?? { label: key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), icon: '📊', color: '#2f6fd6' };
@@ -86,10 +102,15 @@ async function renderMetricas(main) {
     destroyMetricsCharts();
     marcarCargando(content, true);
     try {
-      const r = await api(`/api/tools/metrics/range?days=${metDays}`);
+      const [r, rNo] = await Promise.all([
+        api(`/api/tools/metrics/range?days=${metDays}`),
+        api('/api/tools/metrics/no-reconocidos').catch(() => null),
+      ]);
       if (!content.isConnected || seq !== loadSeq || !r) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { days } = await r.json();
+      // Lo que el bot no entendió: si falla, la pantalla sigue sin esta tarjeta.
+      const noReconocidos = rNo?.ok ? ((await rNo.json()).textos ?? []) : [];
       if (!content.isConnected || seq !== loadSeq) return;
       const dateKeys = Object.keys(days).sort();
       const numv = (obj, k) => parseInt(obj?.[k] ?? '0') || 0;
@@ -136,6 +157,21 @@ async function renderMetricas(main) {
               `;
             }).join('')}
           </div>
+        </div>
+
+        <div class="widget-card" style="margin-top:16px;">
+          <div class="widget-card-head"><h2>❓ Lo que el bot no entendió</h2></div>
+          ${noReconocidos.length === 0
+            ? `<p style="color:var(--text-muted);text-align:center;padding:20px 0;">Nada en los últimos 30 días.</p>`
+            : `<div style="padding:4px 20px 16px;">
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que escribieron y el bot no reconoció, para enseñárselo. Sin teléfonos; números largos y correos van tapados.</p>
+                ${noReconocidos.slice(0, 30).map((x) => `
+                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                    <span style="flex:none;font-size:12px;color:var(--text-muted);min-width:140px;">${escapeHtml(PASO_NO_RECONOCIDO[x.paso] ?? x.paso)}</span>
+                    <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                    <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(new Date(x.fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }))}</span>
+                  </div>`).join('')}
+              </div>`}
         </div>
 
         <p style="margin-top:16px;font-size:13px;color:var(--text-muted);">

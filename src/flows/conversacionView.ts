@@ -298,13 +298,92 @@ export function infoAceptada(nombre: string): string {
   return `¡Listo, ${primero}! Te escribiremos cuando haya novedades de posgrados 📬\n\n_Si cambias de opinión, escribe *BAJA*._`;
 }
 
-export const PEDIR_NOMBRE_VALIDO = 'Escríbeme tu nombre, por favor (al menos 3 letras) ✍️';
+export const PEDIR_NOMBRE_VALIDO = 'Para registrarte, escríbeme solo tu nombre, por ejemplo: *Laura Gómez* ✍️';
 
 /** Nombre escrito a mano: espacios normalizados, sin emojis ni números sueltos. */
+/** Palabras que no pueden ser (o empezar) un nombre: ruido, verbos y palabras de la conversación. */
+const NO_ES_NOMBRE = new Set([
+  'hola', 'ok', 'okay', 'si', 'no', 'gracias', 'espera', 'momento', 'un', 'una', 'que', 'como', 'soy', 'tengo', 'estoy',
+  'trabajo', 'vivo', 'mi', 'me', 'mis', 'el', 'en', 'es', 'de', 'del', 'la', 'los', 'las', 'y', 'a', 'con', 'por', 'para',
+  'correo', 'numero', 'cedula', 'cc', 'info', 'informacion', 'maestria', 'especializacion', 'doctorado', 'posgrado',
+  'posgrados', 'asesor', 'carrera', 'quiero', 'necesito', 'cuanto', 'cuando', 'donde', 'porque', 'pero', 'bueno', 'listo',
+  'dale', 'entiendo', 'claro', 'anos', 'ano', 'buenas', 'buenos', 'dias', 'tardes', 'noches', 'nombre', 'llamo', 'ah', 'eh',
+  'mmm', 'ya', 'vuelvo', 'jaja', 'jajaja', 'jeje', 'lol', 'xd', 'k', 'q', 'aja', 'volver', 'atras', 'menu', 'inicio', 'salir',
+]);
+const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'san', 'da', 'do']);
+
+/**
+ * El nombre que escribió, o null si no parece un nombre: "jajaja", "un momento",
+ * "soy de Barranquilla" o "tengo 32 años" no se registran. De "me llamo Laura"
+ * o "soy Laura Gómez" se toma solo el nombre.
+ */
 export function limpiarNombre(texto: string): string | null {
-  const limpio = (texto ?? '').replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-  return limpio.replace(/[^\p{L}]/gu, '').length >= 3 ? limpio : null;
+  let t = (texto ?? '').trim();
+  const presentado = /^(?:hola[,!.\s]+)?(?:me llamo|mi nombre es|soy|yo soy)\s+(.+)$/i.exec(t);
+  if (presentado) t = presentado[1];
+  if (/[@\d]/.test(t)) return null;
+  const limpio = t.replace(/[^\p{L}\s'.-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const palabras = limpio.split(' ').filter(Boolean);
+  if (!palabras.length || palabras.length > 5 || limpio.replace(/[^\p{L}]/gu, '').length < 3) return null;
+  const norm = palabras.map((w) => normalize(w).replace(/[^a-z]/g, ''));
+  if (norm.some((w) => /^(ja|je|ji|jo|js)+j?$|^m{2,}$|^a+h*$|^x+d+$/.test(w))) return null;
+  if (NO_ES_NOMBRE.has(norm[0]) || PARTICULAS.has(norm[0])) return null;
+  if (norm.some((w) => NO_ES_NOMBRE.has(w) && !PARTICULAS.has(w))) return null;
+  return limpio;
 }
+
+/** "mmm", "jajaja", "😂", "?", "...", "ey": sin contenido para responder. */
+export function esRuido(texto: string): boolean {
+  const t = (texto ?? '').trim();
+  if (!t) return false;
+  if (/^[\p{P}\s]+$/u.test(t)) return true;
+  if (/^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(t) && !/[👍👌🙏🙌✅❤]/u.test(t)) return true;
+  const n = normalize(t).replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^((ja|je|ji|jo|js)+j?|m{2,}|a+h+|aja|ey+|eh+|k|q|x+d+|hmm+|uff+|ah ok|ok\?)$/.test(n) || /^[a-z]$/.test(n);
+}
+
+/** "espera", "un momento", "ya vuelvo": se le espera. */
+export function esEspera(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^(espera|esperame|espere|un momento|un momentico|dame un momento|ya vuelvo|ahorita|ahora te digo|dejame ver|deja ver)$/.test(n);
+}
+
+/** "no entiendo", "¿qué?", "cómo así": se le explica de otra forma. */
+export function esConfusion(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^(no entiendo|no te entiendo|no entendi|que|que cosa|como asi|como|explicame|no se que poner|que pongo|que hago)$/.test(n);
+}
+
+/** "esto no sirve", "no me ayudas": se pide perdón y se ofrece una persona. */
+export function esQueja(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^(esto |este bot |el bot )?(no sirve|no sirves|no funciona|no me ayuda|no me ayudas|no me entiendes|no me entiende|no me sirve)( para nada)?$/.test(n)
+    || /^(pesimo|que malo|malo|horrible|inutil|que mal servicio|mal servicio)$/.test(n);
+}
+
+/** Un dato personal suelto: no se manda a la IA. */
+export function datoPersonal(texto: string): { tipo: 'correo'; valor: string } | { tipo: 'telefono' | 'documento' } | null {
+  const t = (texto ?? '').trim();
+  const correo = /[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/i.exec(t);
+  if (correo) return { tipo: 'correo', valor: correo[0].toLowerCase().replace(/[.,;]+$/, '') };
+  const digitos = t.replace(/[^\d]/g, '');
+  if (/\b(cc|c\.c|cedula|cédula|documento|ti|tarjeta de identidad)\b/i.test(t) && digitos.length >= 6) return { tipo: 'documento' };
+  if (/^\+?[\d\s().-]+$/.test(t) && /^(57)?3\d{9}$/.test(digitos)) return { tipo: 'telefono' };
+  if (/^\+?[\d\s.-]+$/.test(t) && digitos.length >= 6) return { tipo: 'documento' };
+  return null;
+}
+
+export const ESPERO = 'Claro, aquí te espero 🙂';
+export const SEGUIMOS = '¿Seguimos? 🙂';
+export const TE_EXPLICO = 'Perdón si no fui claro 🙏 Te lo pregunto de otra forma:';
+export const SIN_PREGUNTA_PENDIENTE = '¿En qué te ayudo? 🙂 Pregúntame por programas, costos, horarios o becas, o toca una opción 👇';
+export const QUEJA = 'Perdón 🙏 Quiero ayudarte. ¿Te paso con un asesor de Posgrados?';
+export const TELEFONO_YA = 'Ya tengo tu número de WhatsApp 👍 No hace falta que lo escribas.';
+export const DOCUMENTO_NO = 'No necesito tu documento 🙏 Por seguridad, mejor no lo compartas por aquí.';
+export function correoAnotado(correo: string): string {
+  return `📧 Anoté tu correo: *${correo}* ✅ Un asesor lo usará si pides que te contacten.`;
+}
+export const CORREO_SIN_AUTORIZACION = '📧 Gracias. Por ahora no guardo correos; si quieres que un asesor te contacte, escribe *asesor*.';
 
 /** "BAJA", "no quiero recibir más mensajes": revoca la autorización (Ley 1581). */
 export function esBaja(texto: string): boolean {
@@ -415,7 +494,7 @@ export function esPedidoAsesor(texto: string): boolean {
 /** Una pregunta va a la IA aunque el bot esté esperando la carrera. */
 export function pareceUnaPregunta(texto: string): boolean {
   const n = normalize(texto ?? '');
-  return n.includes('?') || /^(que|cual|cuales|cuanto|cuanta|cuantos|como|cuando|donde|hay|tienen|tiene|me puedes|puedo|quiero saber|necesito saber|informacion)\b/.test(n)
+  return n.includes('?') || /^(que|cual|cuales|cuanto|cuanta|cuantos|como|cuando|donde|hay|tienen|tiene|me puedes|puedo|quiero saber|necesito saber|informacion|info)\b/.test(n) && n.split(' ').length >= 2
     // Pedidos ("quiero el plan de estudios", "me interesa saber…") también van a la IA.
     || /^(quiero|necesito|me interesa|me gustaria|quisiera|podrias|puedes|dime|cuentame|explicame|muestrame)\b/.test(n) && n.split(' ').length >= 4;
 }
@@ -430,8 +509,9 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
   if ((texto ?? '').includes('?') && n.split(' ').length > 3) return null;
   // Un "sí"/"no" corto equivale al botón; una frase larga es una pregunta para la IA.
   const corto = n.split(' ').length <= 4;
-  const si = corto && /^(si|sip|claro|correcto|asi es|exacto|obvio|por supuesto)( .*)?$/.test(n);
-  const no = corto && /^(no|nop|nunca|todavia no|aun no)( .*)?$/.test(n);
+  // También como se contesta en WhatsApp: "dale", "ok", "sii", "de una", "nel", "para nada".
+  const si = corto && /^(si+|sip|simon|claro|correcto|asi es|exacto|obvio|por supuesto|dale|ok|okay|oki|vale|bueno|listo|de una|afirmativo|perfecto|me parece bien|acepto|autorizo)( .*)?$/.test(n);
+  const no = corto && /^(no+|nop|nones|nel|nah|nunca|negativo|para nada|todavia no|aun no)( .*)?$/.test(n);
   switch (pendiente) {
     case 'datos':
       if (no || /\bno (acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_no' };
@@ -451,9 +531,16 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
       if (/egresad|gradu|termine|ya sali|ya me/.test(n)) return { boton: 'conv_egresado' };
       if (/estudi|curso|aun|todavia|semestre/.test(n)) return { boton: 'conv_estudiante' };
       return null;
-    case 'nivel':
+    case 'nivel': {
       if (/no se|aun no|todavia no|cualquier|todos|todas|no estoy segur/.test(n)) return { nivel: '' };
-      return null;
+      // "La más corta" o "la más rápida" es la especialización (un año).
+      if (/\b(mas corta|mas corto|mas rapida|mas rapido|menos tiempo|la corta)\b/.test(n)) return { boton: 'conv_esp' };
+      // El nivel escrito ("una maestría", "especialización"): solo si nombra uno.
+      const niveles = [
+        /especializ/.test(n) && 'conv_esp', /maestr|magister|master|\bmba\b/.test(n) && 'conv_mae', /doctor|\bphd\b/.test(n) && 'conv_doc',
+      ].filter(Boolean) as BotonId[];
+      return niveles.length === 1 && n.split(' ').length <= 5 ? { boton: niveles[0] } : null;
+    }
     case 'info':
       if (si) return { boton: 'conv_info_si' };
       if (no) return { boton: 'conv_info_no' };

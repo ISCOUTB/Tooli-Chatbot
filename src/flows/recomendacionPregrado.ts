@@ -14,6 +14,7 @@
  */
 import {
   NivelPrograma,
+  PROGRAMAS_UTB,
   ProgramaUtb,
   buscarPrograma,
   esVirtual,
@@ -266,7 +267,10 @@ export type PregradoInterpretado =
  * ("ingeniero químico", "contadora", "economista"). Se lleva al nombre formal.
  */
 export function expandirCarrera(texto: string): string {
-  let t = ` ${(texto ?? '').toLowerCase()} `;
+  // "soy ingeniero civil", "estudié derecho", "me gradué de economía": solo la carrera.
+  let t = ` ${(texto ?? '').toLowerCase().trim()
+    .replace(/^(yo )?(soy|estudie|estudié|estudio|me gradue|me gradué|egresad[oa]|graduad[oa])( (de|en|como))?\s+/, '')
+    .replace(/^(la carrera de|carrera de|de|en)\s+/, '')} `;
   const cambios: readonly (readonly [RegExp, string])[] = [
     [/\bing\.?\s+/g, 'ingeniería '],
     [/\bingenier[oa]s?\b/g, 'ingeniería'],
@@ -287,7 +291,89 @@ export function expandirCarrera(texto: string): string {
   return t.replace(/\s+/g, ' ').trim();
 }
 
+// ── Errores de tipeo ────────────────────────────────────────────────────────
+
+/** Palabras con que se nombran las carreras: los pregrados de la UTB y las de uso común. */
+const PALABRAS_CARRERA = [
+  'ingenieria', 'administracion', 'psicologia', 'medicina', 'enfermeria', 'odontologia', 'derecho', 'contaduria', 'economia',
+  'arquitectura', 'licenciatura', 'comunicacion', 'periodismo', 'biologia', 'quimica', 'fisica', 'matematicas', 'estadistica',
+  'sistemas', 'industrial', 'mecatronica', 'electronica', 'electrica', 'mecanica', 'ambiental', 'biomedica', 'naval', 'civil',
+  'finanzas', 'negocios', 'internacionales', 'mercadeo', 'marketing', 'publicidad', 'diseno', 'turismo', 'hoteleria',
+  'gastronomia', 'trabajo', 'social', 'sociologia', 'antropologia', 'historia', 'filosofia', 'literatura', 'idiomas', 'lenguas',
+  'pedagogia', 'educacion', 'nutricion', 'fisioterapia', 'bacteriologia', 'optometria', 'fonoaudiologia', 'veterinaria',
+  'geologia', 'telecomunicaciones', 'software', 'informatica', 'computacion', 'logistica', 'produccion', 'ciencia', 'ciencias',
+  'politica', 'relaciones', 'datos', 'contabilidad', 'empresas', 'publica', 'quimica', 'petroleos', 'minas', 'agroindustrial',
+  // Oficios y abreviaturas: se corrigen y después se llevan a la carrera.
+  'abogado', 'abogada', 'contador', 'contadora', 'economista', 'psicologo', 'psicologa', 'comunicador', 'comunicadora',
+  'administrador', 'administradora', 'ingeniero', 'ingeniera', 'arquitecto', 'arquitecta', 'licenciado', 'licenciada',
+  'admon', 'admin',
+];
+
+let vocabulario: ReadonlySet<string> | null = null;
+function vocabularioCarreras(): ReadonlySet<string> {
+  if (vocabulario) return vocabulario;
+  const palabras = new Set(PALABRAS_CARRERA);
+  for (const p of PROGRAMAS_UTB) if (p.nivel === 'pregrado') for (const w of normalizar(p.nombre).split(' ')) if (w.length >= 4) palabras.add(w);
+  vocabulario = palabras;
+  return vocabulario;
+}
+
+/** Distancia de edición con transposición (dos letras invertidas cuentan como un error). */
+export function distanciaEdicion(a: string, b: string, tope: number): number {
+  if (Math.abs(a.length - b.length) > tope) return tope + 1;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let minFila = Infinity;
+    for (let j = 1; j <= b.length; j++) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + costo);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      minFila = Math.min(minFila, d[i][j]);
+    }
+    if (minFila > tope) return tope + 1;
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * Corrige palabras mal escritas contra las de las carreras ("indsutrial" →
+ * "industrial", "sicologia" → "psicologia"): una letra de diferencia en palabras
+ * cortas, dos en las largas. Las palabras de 3 letras o menos no se tocan.
+ */
+export function corregirTipeo(texto: string): string {
+  const voc = vocabularioCarreras();
+  return normalizar(texto).split(' ').map((w) => {
+    if (w.length < 4 || voc.has(w)) return w;
+    const tope = w.length >= 8 ? 2 : 1;
+    let mejor = w;
+    let menor = tope + 1;
+    for (const v of voc) {
+      const d = distanciaEdicion(w, v, tope);
+      if (d < menor) { menor = d; mejor = v; }
+    }
+    return menor <= tope ? mejor : w;
+  }).join(' ');
+}
+
+/** Ingenierías de la UTB por su nombre sin "Ingeniería" ("civil" → Ingeniería Civil). */
+function ingenieriaPorNombre(n: string): string | null {
+  // "Química" sola puede ser la ciencia, no la ingeniería: esa se decide por áreas.
+  if (n === 'quimica') return null;
+  const candidatas = PROGRAMAS_UTB.filter((p) => p.nivel === 'pregrado' && /^Ingenier/i.test(p.nombre)
+    && normalizar(p.nombre.replace(/^Ingenier[ií]a\s+(de\s+|en\s+)?/i, '')) === n);
+  return candidatas.length === 1 ? candidatas[0].id : null;
+}
+
 export function interpretarPregrado(textoOriginal: string): PregradoInterpretado | null {
+  const directo = interpretarSinCorregir(textoOriginal);
+  if (directo) return directo;
+  // Segundo intento con los errores de tipeo corregidos.
+  const corregido = corregirTipeo(expandirCarrera(textoOriginal));
+  return corregido !== normalizar(expandirCarrera(textoOriginal)) ? interpretarSinCorregir(corregido) : null;
+}
+
+function interpretarSinCorregir(textoOriginal: string): PregradoInterpretado | null {
   const texto = expandirCarrera(textoOriginal);
   const n = normalizar(texto);
   if (!n) return null;
@@ -303,6 +389,8 @@ export function interpretarPregrado(textoOriginal: string): PregradoInterpretado
     (p) => mencionaIngenieria || !/^Ingenier/i.test(p.nombre),
   );
   if (utb.length === 1) return { tipo: 'utb', pregradoId: utb[0].id };
+  const ingenieria = ingenieriaPorNombre(n);
+  if (ingenieria) return { tipo: 'utb', pregradoId: ingenieria };
 
   for (const [patron, pregradoId] of SINONIMOS_UTB) {
     if (patron.test(n)) return { tipo: 'utb', pregradoId };

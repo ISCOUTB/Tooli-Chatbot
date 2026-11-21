@@ -243,10 +243,17 @@ app.get('/api/tools/metrics/range', (req, res) => {
     const fecha = new Date(hoy - (days - 1 - i) * 864e5).toISOString().slice(0, 10);
     out[fecha] = { menu_shown: 90 + i * 11, registro_completado: 4 + (i % 5), turno_consultado: 12 + i,
       recibo_descargado: 6 + (i % 4), notas_consultadas: 9 + i * 2, prospecto_completado: 3 + (i % 3),
-      academico_menu_shown: 7 + i, menu_pregrado_shown: 20 + i * 3 };
+      academico_menu_shown: 7 + i, menu_pregrado_shown: 20 + i * 3, datos_acepta: 5 + i, no_reconocido: 2 + (i % 3),
+      reco_util_si: 3 + (i % 2), conv_sugerencia: 8 + i };
   }
   j(res, { days: out });
 });
+app.get('/api/tools/metrics/no-reconocidos', (_q, res) => j(res, { textos: [
+  { paso: 'carrera', texto: 'ciencias nauticas', fecha: new Date(hace(35)).toISOString() },
+  { paso: 'nivel', texto: 'la que sea más barata', fecha: new Date(hace(300)).toISOString() },
+  { paso: 'resultados', texto: 'mmm', fecha: new Date(hace(1500)).toISOString() },
+  { paso: 'carrera', texto: 'tecnico profesional en [número]', fecha: new Date(hace(3000)).toISOString() },
+] }));
 
 // ── Atención: conversaciones con asesor (en producción viven en Chatwoot) ──
 // MOCK_ATENCION_OFF=1 simula un servidor sin Chatwoot configurado.
