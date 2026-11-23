@@ -34,6 +34,12 @@ export interface TransferOptions {
   limiteSeg?: number;
   /** Estado que llevarán los eventos de la pata saliente (para atarla a la llamada original). */
   estadoPata?: string;
+  /**
+   * Cuánto timbra el asesor antes de dar la transferencia por fallida (`timeout_secs`, 5-600; Telnyx usa 30 por
+   * defecto). Más corto que el buzón de voz del celular: si el buzón contesta primero, Telnyx manda `call.answered` y
+   * quien llama queda hablándole al buzón (revisión 23-nov).
+   */
+  timbreSeg?: number;
 }
 
 export interface ProviderCredentials {

@@ -129,8 +129,12 @@ export function conEfectos(deps: DepsTurno, marcar: () => void): DepsTurno {
 
 /** Prefijo del `client_state` de la pata saliente de una transferencia: lleva el id de la llamada original. */
 export const ESTADO_PATA = 'tooli-pata:';
-/** Lo que Telnyx deja timbrar al asesor antes de dar la transferencia por fallida (timeout_secs por defecto). */
-const TIMBRE_TRANSFER_MS = 30_000;
+/**
+ * Lo que se deja timbrar al asesor antes de dar la transferencia por fallida (`timeout_secs`). 20 s y no los 30 de
+ * Telnyx: el buzón de voz de muchos celulares contesta hacia los 20-25 s y Telnyx lo tomaría como «el asesor contestó».
+ */
+export const TIMBRE_TRANSFER_SEG = 20;
+const TIMBRE_TRANSFER_MS = TIMBRE_TRANSFER_SEG * 1000;
 
 export const TEXTO_NO_CONTESTO_CON_NUMERO =
   'No pude comunicarte con un asesor: no contestó. Dejé tu número para que un asesor te devuelva la llamada en horario de atención. ¿Te ayudo con algo más?';
@@ -253,7 +257,7 @@ export function crearManejador(d: DepsManejador) {
     cancelarLocal(l.id);
     await d.almacen.vigilar(l.id, plazoDuro(t));
     await cmd('transcription_stop', (c) => d.proveedor.stopListening(c, l.proveedorCallId, `${cmdBase}-nolisten`));
-    const ok = await cmd('transfer', (c) => d.proveedor.transfer(c, l.proveedorCallId, desvio, `${cmdBase}-transfer`, { limiteSeg, estadoPata: `${ESTADO_PATA}${l.id}` }));
+    const ok = await cmd('transfer', (c) => d.proveedor.transfer(c, l.proveedorCallId, desvio, `${cmdBase}-transfer`, { limiteSeg, estadoPata: `${ESTADO_PATA}${l.id}`, timbreSeg: TIMBRE_TRANSFER_SEG }));
     if (!ok) {
       await retomar(l.id, a, `${cmdBase}-retoma`);
       return { handled: true, note: 'la transferencia falló: retoma' };

@@ -93,6 +93,7 @@ export function transferBody(to: string, commandId: string, opts: TransferOption
     command_id: commandId,
     ...(opts.limiteSeg ? { time_limit_secs: Math.max(30, Math.min(14_400, Math.round(opts.limiteSeg))) } : {}),
     ...(opts.estadoPata ? { target_leg_client_state: Buffer.from(opts.estadoPata, 'utf8').toString('base64') } : {}),
+    ...(opts.timbreSeg ? { timeout_secs: Math.max(5, Math.min(600, Math.round(opts.timbreSeg))) } : {}),
   };
 }
 

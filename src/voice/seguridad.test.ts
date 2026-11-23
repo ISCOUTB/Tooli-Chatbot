@@ -670,6 +670,9 @@ describe('punto 9 y 16: después de transferir, el bot deja de atender; si el as
     const { parseTelnyxEvent, transferBody } = await import('./proveedor/telnyx');
     const b = transferBody('+573001112233', 'cmd-1', { limiteSeg: 1800, estadoPata: 'tooli-pata:abc' });
     assert.equal(b.time_limit_secs, 1800);
+    assert.equal(b.timeout_secs, undefined, 'sin timbreSeg, el de Telnyx');
+    assert.equal(transferBody('+573001112233', 'cmd-1', { timbreSeg: 20 }).timeout_secs, 20);
+    assert.equal(transferBody('+573001112233', 'cmd-1', { timbreSeg: 1 }).timeout_secs, 5, 'mínimo de Telnyx');
     assert.equal(Buffer.from(String(b.target_leg_client_state), 'base64').toString('utf8'), 'tooli-pata:abc');
     const e = parseTelnyxEvent(JSON.stringify({ data: { id: 'x', event_type: 'call.hangup', payload: { call_control_id: 'b', client_state: Buffer.from('tooli-pata:abc').toString('base64') } } }));
     assert.equal(e?.clientState, 'tooli-pata:abc');
