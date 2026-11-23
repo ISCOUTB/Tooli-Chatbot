@@ -344,6 +344,24 @@ describe('cambiar el nombre en cualquier momento', { skip: SIN_MOCKS }, () => {
     assert.notEqual(datos().pendiente, 'nombre_nuevo');
   });
 
+  for (const cancelar of ['olvídalo', 'mejor no', 'no', 'cancelar', 'déjalo así']) {
+    it(`«${cancelar}» al pedir el nombre nuevo sale del paso y conserva el nombre`, async () => {
+      await empezar('Pedro');
+      await escribir('quiero cambiar mi nombre');
+      const r = await escribir(cancelar);
+      assert.equal(datos().nombre, 'Pedro', JSON.stringify(r));
+      assert.notEqual(datos().pendiente, 'nombre_nuevo', JSON.stringify(r));
+      assert.ok(!r.some((t) => /escríbeme solo tu nombre/i.test(t)), `no insiste: ${JSON.stringify(r)}`);
+      assert.ok(r.some((t) => /Pedro/.test(t)), `dice con qué nombre sigue: ${JSON.stringify(r)}`);
+      assert.match(ultimo(r), /posgrado en mente/i, 'sigue con lo que estaba pendiente');
+      assert.equal(notas.filter((n) => /Cambió su nombre/.test(n.texto)).length, 0);
+      assert.equal(filasActualizadas.length, 0);
+      // Lo siguiente ya no es el nombre.
+      await escribir('no');
+      assert.equal(datos().nombre, 'Pedro');
+    });
+  }
+
   it('sin autorización de datos no se anota nada en el CRM', async () => {
     await escribir('hola');
     await escribir('no');

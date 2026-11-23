@@ -6,7 +6,7 @@ import {
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso,
   SALUDO_CONVERSACION, SALUDO_CORTO, SUGERENCIAS_SALUDO,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
-  buscaNivel, cambioDeNombre, carreraEnLaFrase, datosDeLaFrase, esCorreccion, nombraUnPosgrado, soloCuentaDatos,
+  buscaNivel, cambioDeNombre, carreraEnLaFrase, datosDeLaFrase, esCancelar, esCorreccion, nombraUnPosgrado, soloCuentaDatos,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -542,6 +542,14 @@ describe('conversación: cambiar el nombre', () => {
       'me llamo jajaja', 'soy ingeniera', 'estudio derecho', '__image__']) {
       assert.equal(cambioDeNombre(t), null, t);
     }
+  });
+
+  it('«olvídalo», «mejor no» o «cancelar» nunca son un nombre', () => {
+    for (const t of ['olvídalo', 'olvidalo', 'mejor no', 'no', 'cancelar', 'cancela', 'déjalo así', 'dejalo', 'así está bien', 'ya no', 'no importa']) {
+      assert.equal(limpiarNombre(t), null, t);
+      assert.ok(esCancelar(t), t);
+    }
+    for (const t of ['Laura', 'Mejía', 'Nora', 'Dejanira']) assert.ok(!esCancelar(t), t);
   });
 
   it('«estudio derecho» o «soy ingeniero» no se registran como nombre', () => {

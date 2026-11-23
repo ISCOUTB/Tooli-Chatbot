@@ -336,6 +336,20 @@ export function infoAceptada(nombre: string): string {
 }
 
 export const PEDIR_NOMBRE_VALIDO = 'Para registrarte, escríbeme solo tu nombre, por ejemplo: *Laura Gómez* ✍️';
+export const PEDIR_NOMBRE_NUEVO_VALIDO =
+  'Escríbeme solo tu nombre, por ejemplo: *Laura Gómez* ✍️\n\n_Si prefieres dejarlo como está, escribe *cancelar*._';
+
+/** "Olvídalo", "mejor no", "no", "cancelar", "déjalo así": no quiere cambiar el nombre. */
+export function esCancelar(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^(?:no+|nop|nel|nah|ya no|mejor no|no gracias|no quiero|no importa|nada|ninguno|olvida(?:lo)?|olvidate|olvidelo|cancela(?:r|lo|do)?|(?:mejor )?(?:deja(?:lo)?|dejemoslo)(?: asi| como esta| asi esta bien)?|asi esta bien|esta bien asi|asi (?:mejor|bien)|no lo cambies|no cambies nada)(?: gracias| porfa| por favor)?$/.test(n);
+}
+
+/** Canceló el cambio de nombre: se queda con el que tenía. */
+export function nombreSeQueda(nombre?: string): string {
+  const primero = primerNombre(nombre);
+  return primero ? `Listo 👍 Sigues como *${primero}*.` : 'Listo 👍 No cambio nada.';
+}
 
 /** Nombre escrito a mano: espacios normalizados, sin emojis ni números sueltos. */
 /** Palabras que no pueden ser (o empezar) un nombre: ruido, verbos y palabras de la conversación. */
@@ -349,6 +363,9 @@ const NO_ES_NOMBRE = new Set([
   // "No soy egresado, soy estudiante" o "me llamó la atención": no son un nombre.
   'estudiante', 'egresado', 'egresada', 'graduado', 'graduada', 'ingeniero', 'ingeniera', 'profesional', 'bachiller',
   'atencion', 'interes', 'mucho', 'estudio', 'estudie', 'estudiando',
+  // "Olvídalo", "déjalo así", "cancelar": no quiere cambiar el nombre, no se llama así.
+  'olvidalo', 'olvida', 'olvidate', 'olvidelo', 'cancelar', 'cancela', 'cancelalo', 'cancelado', 'dejalo', 'deja', 'dejemoslo',
+  'mejor', 'asi', 'nada', 'ninguno', 'importa',
 ]);
 const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'san', 'da', 'do']);
 

@@ -44,7 +44,7 @@ import {
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, cambioDeNombre, carreraAnotada, datosAceptados, datosDeLaFrase,
-  nombraUnPosgrado, nombreCambiado, soloCuentaDatos, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
+  esCancelar, nombraUnPosgrado, nombreCambiado, nombreSeQueda, PEDIR_NOMBRE_NUEVO_VALIDO, soloCuentaDatos, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
   parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, IMAGEN_NO, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
@@ -828,6 +828,10 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   // Pidió cambiar el nombre y se le preguntó cuál: lo escrito es el nombre nuevo.
   if (pendiente === 'nombre_nuevo') {
     const antes = (data.pendienteAntes ?? '') as Pendiente | '';
+    // "Olvídalo", "mejor no", "cancelar" o "0": sale del paso con el nombre que tenía.
+    if (esCancelar(text) || parseGlobalCommand(text) === 'volver') {
+      return seguirTrasNombre(from, { ...data, pendiente: antes, pendienteAntes: '' }, nombreSeQueda(data.nombre));
+    }
     const dicho = cambioDeNombre(text);
     const nombre = dicho && 'nombre' in dicho ? dicho.nombre : pareceUnaPregunta(text) ? null : limpiarNombre(text);
     if (nombre) {
@@ -836,7 +840,7 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
       return;
     }
     if (!pareceUnaPregunta(text)) {
-      await messaging.sendText({ to: from, text: PEDIR_NOMBRE_VALIDO });
+      await messaging.sendText({ to: from, text: PEDIR_NOMBRE_NUEVO_VALIDO });
       return;
     }
     // Una pregunta en vez del nombre: se responde y se sigue con lo de antes.
