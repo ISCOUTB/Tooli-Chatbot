@@ -13,7 +13,7 @@ import { renombrarUsuarioEnMacros } from './atencionMacrosService';
 import { renombrarUsuarioEnRecordatorios } from './reminderService';
 import { renombrarUsuarioEnBroadcasts } from './broadcastJobService';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 export type UserRole = 'admin' | 'asesor';
 

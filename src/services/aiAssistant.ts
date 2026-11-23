@@ -11,7 +11,7 @@ import { corregirRespuestaIa } from './verificarRespuestaIa';
 import { MAX_HISTORIAL, recortarHistorial } from './historialIa';
 
 const openai = config.openai.apiKey ? new OpenAI({ apiKey: config.openai.apiKey }) : null;
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 export class AIUnavailableError extends Error {
   constructor(public readonly reason: 'not_configured' | 'api_error' | 'timeout', public readonly cause?: unknown) {

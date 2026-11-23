@@ -3,7 +3,7 @@ import type { InboundMessage } from '../adapters/messaging/IMessagingAdapter';
 import { config } from '../config';
 import { isBsuid } from './whatsappId';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 const PROFILE_TTL_SECONDS = 365 * 24 * 60 * 60;
 
 export interface WhatsAppContactProfile {

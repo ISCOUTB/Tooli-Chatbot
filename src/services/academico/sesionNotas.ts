@@ -11,7 +11,7 @@ import type { AlmacenSesionNotas, SesionGuardada } from './proveedores/notasBann
  * al desvincular.
  */
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 const llave = (telefono: string) => `notas-sesion:${telefono}`;
 const contexto = (telefono: string) => `notas-sesion:${telefono}`;
 

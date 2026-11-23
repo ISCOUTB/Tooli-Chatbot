@@ -2,7 +2,7 @@ import Redis from 'ioredis';
 import { config } from '../config';
 import { recordEvent } from './promMetrics';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const COUNTER_TTL = 60 * 60 * 24 * 90;
 

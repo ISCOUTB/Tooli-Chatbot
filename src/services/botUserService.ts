@@ -3,7 +3,7 @@ import { config } from '../config';
 import { sanitizeActivityText } from './activityPrivacy';
 import { getWhatsAppContactProfile } from './whatsappContactService';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 export interface BotUserInfo {
   phone: string;

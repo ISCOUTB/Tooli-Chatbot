@@ -37,7 +37,7 @@ import {
 import { describeError } from './logSafe';
 import { isBsuid } from './whatsappId';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const QUEUE_KEY = 'reminders:queue';
 const PROCESSING_KEY = 'reminders:processing';

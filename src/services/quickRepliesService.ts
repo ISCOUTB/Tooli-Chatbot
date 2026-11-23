@@ -21,7 +21,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const KEY = 'quick_replies';
 const MAX_RESPUESTAS = 60;

@@ -25,7 +25,7 @@ import {
 // correo verificado. Turno/recibo por código siguen deshabilitados por defecto.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const OTP_TTL = 600;                       // 10 minutos
 const IDENTITY_TTL = 120 * 24 * 60 * 60;   // ~120 días → re-verificar cada semestre
