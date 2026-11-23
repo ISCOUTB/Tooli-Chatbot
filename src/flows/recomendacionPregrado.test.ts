@@ -6,7 +6,9 @@ import {
   ListasRecomendacion,
   TABLA_PREGRADO,
   TIPOS,
+  carreraMencionada,
   interpretarPregrado,
+  programasAfines,
   motivo,
   recomendar,
 } from './recomendacionPregrado';
@@ -187,5 +189,103 @@ describe('recomendar', () => {
     assert.deepEqual(recomendar({}).recomendaciones, []);
     assert.deepEqual(recomendar({ pregradoId: 'medicina' }).recomendaciones, []);
     assert.deepEqual(recomendar({ familiaId: 'no-existe' }).recomendaciones, []);
+  });
+});
+
+/**
+ * Mirada de asesor sobre la tabla: lo que se recomienda en cada nivel, con la
+ * lista completa ("Más opciones" incluida), tiene que ser de la misma área.
+ */
+describe('afinidad de lo recomendado', () => {
+  const NIVELES = ['especializacion', 'maestria', 'doctorado'] as const;
+  const todo = (pregradoId: string, nivel: (typeof NIVELES)[number]) => {
+    const r = recomendar({ pregradoId }, { nivel });
+    return [...r.recomendaciones, ...r.resto].map((x) => x.programa);
+  };
+  const TECNICAS = Object.keys(TABLA_PREGRADO).filter((id) => /^ingenieria-/.test(id) || id === 'ciencia-de-datos');
+  // Gestión Territorial y Derecho Urbano sí es de ingeniería civil y arquitectura.
+  const AJENO_A_LO_TECNICO = /Negocios Internacionales|Maestría en Derecho|Derecho (Comercial|del Trabajo)|Derechos Humanos|Educaci|Psicosocial|Patrimonio|Contabilidad|Tributaria|Talento|Mercadeo/;
+
+  it('a Ingeniería de Sistemas nunca le sale Negocios Internacionales, y sí Software', () => {
+    for (const nivel of NIVELES) {
+      const nombres = todo('ingenieria-de-sistemas-y-computacion', nivel).map((p) => p.nombre);
+      assert.ok(!nombres.some((n) => /Negocios Internacionales/.test(n)), `${nivel}: ${nombres.join('; ')}`);
+    }
+    const especializaciones = recomendar({ pregradoId: 'ingenieria-de-sistemas-y-computacion' }, { nivel: 'especializacion' });
+    assert.equal(especializaciones.recomendaciones[0].programa.id, 'virtual-ingenieria-de-software');
+  });
+
+  it('a las ingenierías y a Ciencia de Datos no les salen programas de negocios, leyes, educación o salud', () => {
+    for (const pregradoId of TECNICAS) {
+      for (const nivel of NIVELES) {
+        const ajenos = todo(pregradoId, nivel).filter((p) => AJENO_A_LO_TECNICO.test(p.nombre)
+          || (pregradoId !== 'ingenieria-biomedica' && /Salud/.test(p.nombre) && !/Seguridad y Salud/.test(p.nombre)));
+        assert.deepEqual(ajenos.map((p) => p.nombre), [], `${pregradoId} / ${nivel}`);
+      }
+    }
+  });
+
+  it('a Derecho, Psicología y Comunicación no les salen programas de ingeniería', () => {
+    for (const pregradoId of ['derecho', 'psicologia', 'comunicacion-social']) {
+      for (const nivel of NIVELES) {
+        const ajenos = todo(pregradoId, nivel).filter((p) =>
+          /Software|Ciberseguridad|Estructural|Geotecnia|Automatizaci|Industria 4|Mantenimiento|Telecomunicaciones|Ingenier/.test(p.nombre));
+        assert.deepEqual(ajenos.map((p) => p.nombre), [], `${pregradoId} / ${nivel}`);
+      }
+    }
+  });
+
+  it('pedida una maestría, cada pregrado UTB tiene al menos dos maestrías propias (sin soltar el nivel), salvo Diseño', () => {
+    for (const pregradoId of Object.keys(TABLA_PREGRADO).filter((id) => id !== 'diseno')) {
+      const r = recomendar({ pregradoId }, { nivel: 'maestria' });
+      assert.equal(r.relajado, null, `${pregradoId} tuvo que soltar el nivel`);
+    }
+  });
+
+  it('pedido un doctorado, cada pregrado UTB tiene al menos uno propio, salvo Diseño', () => {
+    for (const pregradoId of Object.keys(TABLA_PREGRADO).filter((id) => id !== 'diseno')) {
+      assert.equal(recomendar({ pregradoId }, { nivel: 'doctorado' }).relajado, null, pregradoId);
+    }
+  });
+});
+
+describe('programasAfines', () => {
+  it('reúne los tres niveles de la tabla del pregrado o de la familia', () => {
+    const sistemas = programasAfines({ pregradoId: 'ingenieria-de-sistemas-y-computacion' }).map((p) => p.id);
+    assert.ok(sistemas.includes('virtual-ingenieria-de-software'));
+    assert.ok(sistemas.includes('maestria-en-ciberseguridad'));
+    assert.ok(sistemas.includes('doctorado-en-ingenieria'));
+    assert.ok(!sistemas.includes('especializacion-en-gestion-de-negocios-internacionales'));
+    assert.ok(programasAfines({ familiaId: 'salud' }).some((p) => p.id === 'virtual-gerencia-servicios-salud'));
+  });
+
+  it('sin perfil conocido no hay afines', () => {
+    assert.deepEqual(programasAfines({}), []);
+    assert.deepEqual(programasAfines({ pregradoId: 'medicina' }), []);
+  });
+});
+
+describe('carreraMencionada', () => {
+  it('lee la carrera cuando la persona la declara en su pregunta', () => {
+    const sistemas = { tipo: 'utb', pregradoId: 'ingenieria-de-sistemas-y-computacion' };
+    assert.deepEqual(carreraMencionada('Soy estudiante de Ingeniería de Sistemas de la UTB, ¿qué especializaciones me recomiendan?'), sistemas);
+    assert.deepEqual(carreraMencionada('soy ingeniero de sistemas y quiero una especialización'), sistemas);
+    assert.deepEqual(carreraMencionada('Hola, estudio sistemas en la UTB. Qué especializaciones hay?'), sistemas);
+    assert.deepEqual(carreraMencionada('estudio derecho en la utb'), { tipo: 'utb', pregradoId: 'derecho' });
+    assert.deepEqual(carreraMencionada('Soy egresado de administración de empresas, busco una maestría'), { tipo: 'utb', pregradoId: 'administracion-de-empresas' });
+  });
+
+  it('no confunde el posgrado que busca con su carrera', () => {
+    for (const texto of [
+      'Hola, quiero información de especializaciones',
+      'quiero una especialización en finanzas',
+      '¿Cuánto cuesta la maestría en negocios internacionales?',
+      'soy egresada de la UTB',
+      'estudio en la utb',
+      'soy de Cartagena',
+      '',
+    ]) {
+      assert.equal(carreraMencionada(texto), null, texto);
+    }
   });
 });
