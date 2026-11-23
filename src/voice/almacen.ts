@@ -197,8 +197,9 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       return clon(nueva);
     },
     async ajustarUso(dia, mes, delta) {
-      usoDia.set(dia, Math.max(0, (usoDia.get(dia) ?? 0) + delta));
-      usoMes.set(mes, Math.max(0, (usoMes.get(mes) ?? 0) + delta));
+      // Como el Lua: un día o mes que ya no existe (venció) no se revive al ajustar.
+      if (usoDia.has(dia)) usoDia.set(dia, Math.max(0, (usoDia.get(dia) ?? 0) + delta));
+      if (usoMes.has(mes)) usoMes.set(mes, Math.max(0, (usoMes.get(mes) ?? 0) + delta));
     },
     async agregarLinea(id, linea) {
       const prev = lineas.get(id) ?? [];

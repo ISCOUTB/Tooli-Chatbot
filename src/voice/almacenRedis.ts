@@ -58,6 +58,12 @@ redis.call('SET', KEYS[4], json)
 redis.call('PEXPIREAT', KEYS[4], ARGV[7])
 redis.call('SET', KEYS[3], ARGV[5], 'EX', 172800)
 redis.call('ZADD', KEYS[5], ARGV[8], ARGV[5])
+-- El índice no crece sin fin (punto 15): fuera lo que ya pasó la retención, nunca más de 20000 y vence solo si no
+-- entran llamadas en todo el plazo de retención.
+redis.call('ZREMRANGEBYSCORE', KEYS[5], '-inf', '(' .. string.format('%.0f', tonumber(ARGV[8]) - tonumber(ARGV[12])))
+local total = redis.call('ZCARD', KEYS[5])
+if total > 20000 then redis.call('ZREMRANGEBYRANK', KEYS[5], 0, total - 20001) end
+redis.call('PEXPIRE', KEYS[5], ARGV[12])
 -- Tope duro (punto 8): la llamada queda vigilada desde que se reserva, en el mismo paso.
 if ARGV[10] == '1' then
   redis.call('ZADD', KEYS[6], string.format('%.0f', tonumber(ARGV[8]) + permitido * 60000 + tonumber(ARGV[9])), ARGV[5])
@@ -75,10 +81,14 @@ redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
 return 1
 `;
 
-const AJUSTAR_SCRIPT = `
+// Un día o un mes que ya venció no se revive sin TTL (punto 15): INCRBY sobre una llave que no existe la crearía para
+// siempre. INCRBY conserva el TTL de la que sí existe.
+export const AJUSTAR_SCRIPT = `
 for i = 1, 2 do
-  local n = redis.call('INCRBY', KEYS[i], ARGV[1])
-  if n < 0 then redis.call('SET', KEYS[i], 0, 'KEEPTTL') end
+  if redis.call('EXISTS', KEYS[i]) == 1 then
+    local n = redis.call('INCRBY', KEYS[i], ARGV[1])
+    if n < 0 then redis.call('SET', KEYS[i], 0, 'KEEPTTL') end
+  end
 end
 return 1
 `;
@@ -129,6 +139,7 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
         String(topes.maxMinutosLlamada), String(topes.topeMinutosDia), String(topes.topeMinutosMes), simulada || soloRegistro ? '1' : '0',
         base.id, serializar(base), String(base.expira), String(ahora.getTime()),
         String(MARGEN_TOPE_MS + ESPERA_CONTESTAR_MS), soloRegistro ? '0' : '1', String(topes.maxLlamadasNumeroDia),
+        String(topes.retencionDias * 86_400_000),
       )) as [number, string];
       if (r[0] !== 1) return { ok: false, motivo: r[1] === 'duplicada' || r[1] === 'tope_numero' ? r[1] : 'sin_cupo' };
       return { ok: true, llamada: { ...base, minutosPermitidos: Number(r[1]) } };

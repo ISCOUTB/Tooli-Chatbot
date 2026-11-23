@@ -733,3 +733,27 @@ describe('punto 14: costo de la transferencia y tope por número', () => {
     assert.equal(sin.cmds.find((c) => c.accion === 'transfer')?.limiteSeg, 30 * 60);
   });
 });
+
+describe('punto 15: llaves y memoria que no crecen sin fin', () => {
+  it('el simulador suelta la agenda de una llamada que terminó por cualquier camino (no solo con «colgar»)', async () => {
+    const { crearSimulador } = await import('./simulador');
+    const sim = crearSimulador({ almacen: almacenMemoria(), ajustes: async () => AJUSTES_DEFECTO, ia: null, secreto: 's' });
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await sim.iniciar();
+      assert.ok(r.ok);
+      if (r.ok) { ids.push(r.llamadaId!); await sim.decir(r.llamadaId!, 'quiero un asesor'); }
+    }
+    await sim.decir(ids[0], 'chao');
+    await sim.silencio(ids[1]);
+    await sim.silencio(ids[1]);
+    assert.equal(sim._agendas.size, 1, 'solo queda la de la llamada que sigue abierta');
+  });
+
+  it('el uso en memoria no revive un día que ya no existe al ajustar', async () => {
+    const a = almacenMemoria();
+    await a.ajustarUso('2031-01-01', '2031-01', -5);
+    await a.ajustarUso('2031-01-01', '2031-01', 3);
+    assert.deepEqual(await a.uso(new Date('2031-01-01T15:00:00Z')), { dia: 0, mes: 0 });
+  });
+});
