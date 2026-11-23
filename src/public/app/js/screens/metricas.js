@@ -205,7 +205,7 @@ async function renderMetricas(main) {
       const enRango = (x) => (x.fecha ?? '').slice(0, 10) >= desde;
 
       content.innerHTML = `
-        <div class="stats-grid stagger-in" style="margin-bottom:16px;">
+        <div class="stats-grid met-stats stagger-in" style="margin-bottom:16px;">
           <div class="stat-card"><div class="label">Conversaciones nuevas</div><div class="value">${escapeHtml(totals.conv_inicio ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Autorizaron sus datos</div><div class="value">${escapeHtml(totals.datos_acepta ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Preguntas a la IA</div><div class="value">${escapeHtml(totals.ai_request ?? 0)}</div></div>
@@ -290,14 +290,19 @@ async function renderMetricas(main) {
       `;
 
       const topKeys = rows.slice(0, 4).map(([k]) => k);
-      const ticks = { color: '#94a3b8' };
+      // Ejes en el gris de texto del panel: #94a3b8 daba 2,6:1 sobre blanco.
+      const ticks = { color: '#64748b' };
       const grid = { color: '#e2e8f0' };
+      // La gráfica es un dibujo: un lector de pantalla oye qué series muestra y de qué días.
+      const descripcionGrafica = topKeys.length && dateKeys.length
+        ? `Tendencia diaria del ${fechaCorta(`${dateKeys[0]}T12:00:00`)} al ${fechaCorta(`${dateKeys[dateKeys.length - 1]}T12:00:00`)}: ${topKeys.map(k => eventMeta(k).label).join(', ')}.`
+        : 'Tendencia diaria: sin actividad en este rango.';
       const cargarGrafica = async () => {
         const wrap = content.querySelector('#metChartDailyWrap');
         if (!wrap) return;
         marcarCargando(wrap, true);
         destroyMetricsCharts();
-        wrap.innerHTML = '<canvas id="metChartDaily"></canvas>';
+        wrap.innerHTML = `<canvas id="metChartDaily" role="img" aria-label="${escapeHtml(descripcionGrafica)}"></canvas>`;
         try {
           await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
           if (!content.isConnected || seq !== loadSeq) return;

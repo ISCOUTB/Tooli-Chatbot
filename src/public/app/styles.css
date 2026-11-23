@@ -3188,3 +3188,11 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
   .ag-acciones .btn:not(#agNueva):not(#agRefrescar) { padding-left: 10px; padding-right: 10px; font-size: 13px; }
   #agDisponibilidad .icon-svg { display: none; }
 }
+/* Métricas */
+#metRangeWrap .segmented button { min-height: 44px; }
+@media (max-width: 640px) {
+  .met-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .met-stats .stat-card { padding: 14px; }
+  .met-stats .stat-card .label { font-size: 11px; overflow-wrap: anywhere; }
+  .met-stats .stat-card .value { font-size: 24px; }
+}
