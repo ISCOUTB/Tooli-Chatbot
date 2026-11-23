@@ -35,7 +35,7 @@ import type { ButtonOption } from '../adapters/messaging/IMessagingAdapter';
 import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPregrado } from './shared';
 import { SessionData, parseGlobalCommand } from './commands';
 import { FAMILIAS_EXTERNAS, interpretarPregrado } from './recomendacionPregrado';
-import { contextoConversacion, parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
+import { contextoConversacion, flyerEncajaConLaPersona, parseRelacion, programaInteresLead, resumenRecomendacion } from './recomendacionView';
 import { enviarGrupos, enviarSinCoincidencia, mostrarResultados, pedirConsentimiento } from './recomendacion';
 import {
   BOTON_ASESOR, BOTONES_OFRECER_ASESOR, BOTONES_SIN_PREGRADO, CON_GUSTO, OFRECER_ASESOR, SIGUE_ARRIBA,
@@ -604,7 +604,7 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
   let necesitaAsesor = false;
   let consultado: ProgramaUtb | null = null;
   try {
-    const contexto = area === 'posgrados' ? contextoConversacion(conPerfil, anterior.length > 0) : undefined;
+    const contexto = area === 'posgrados' ? contextoConversacion(conPerfil, anterior.length > 0, texto) : undefined;
     const ai = await preguntarAI(area, texto.trim(), anterior, contexto, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
     if (ai.reutilizada) await track('ai_reutilizada', { area });
     if (ai.corregida) await track('ia_corregida', { area });
@@ -615,6 +615,8 @@ async function responderConIa(from: string, data: SessionData, texto: string, sa
     // Lo que la IA no encontró en la información oficial: para completar el catálogo.
     if (separada.sinDato) await registrarNoReconocido('ia_sin_dato', texto);
     consultado = programaDeLaConsulta(ai.programaConsultado);
+    // Un programa de otra área que la persona no nombró no lleva flyer (ni queda como su interés).
+    if (consultado && !flyerEncajaConLaPersona(consultado, conPerfil, texto)) consultado = null;
     if (ai.usedTool) await track('ai_used_tool', { area });
     await track('ai_resolved', { area });
   } catch (err) {
@@ -717,7 +719,7 @@ function lugar(data: SessionData): SessionData {
 export async function responderPreguntaSuelta(from: string, data: SessionData, texto: string, sigue = SIGUE_ARRIBA): Promise<void> {
   await track('ai_request', { area: 'posgrados' });
   try {
-    const ai = await preguntarAI('posgrados', texto.trim(), [], resumenRecomendacion(data) ?? undefined, INSTRUCCION_SUGERENCIAS, { frecuentes: true });
+    const ai = await preguntarAI('posgrados', texto.trim(), [], contextoConversacion(data, false, texto), INSTRUCCION_SUGERENCIAS, { frecuentes: true });
     if (ai.reutilizada) await track('ai_reutilizada', { area: 'posgrados' });
     if (ai.corregida) await track('ia_corregida', { area: 'posgrados' });
     const separada = separarSugerencias(ai.answer);

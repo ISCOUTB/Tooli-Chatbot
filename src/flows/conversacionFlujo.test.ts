@@ -46,6 +46,10 @@ const decisiones = new Map<string, 'si' | 'no'>();
 const notas: Array<{ tel: string; texto: string }> = [];
 const filasActualizadas: Array<{ fila: number; nombre: string }> = [];
 const preguntasIa: string[] = [];
+const contextosIa: Array<string | undefined> = [];
+const flyers: string[] = [];
+/** El programa que la IA dice haber consultado en la próxima respuesta. */
+let consultaIa: string | undefined;
 
 let handleMessage: typeof import('./index').handleMessage;
 
@@ -107,12 +111,20 @@ before(async () => {
   mock.module('../services/incidenciasService', { namedExports: { ...incid, registrarIncidencia: async () => {} } });
   mock.module('../services/aiAssistant', { namedExports: {
     ...ia,
-    preguntarAI: async (_area: string, pregunta: string) => {
+    preguntarAI: async (_area: string, pregunta: string, _historial: unknown, contexto?: string) => {
       preguntasIa.push(pregunta);
-      return { answer: 'Respuesta de la IA.\nSUGERENCIAS: ¿Hay becas? | ¿Cuándo inician?', usedTool: false };
+      contextosIa.push(contexto);
+      return {
+        answer: 'Respuesta de la IA.\nSUGERENCIAS: ¿Hay becas? | ¿Cuándo inician?', usedTool: !!consultaIa,
+        ...(consultaIa ? { programaConsultado: consultaIa } : {}),
+      };
     },
   } });
-  mock.module('./fotosPrograma', { namedExports: { ...fotos, enviarFlyerPrograma: async () => false, esperarFlyers: async () => {} } });
+  mock.module('./fotosPrograma', { namedExports: {
+    ...fotos,
+    enviarFlyerPrograma: async (_t: string, p: { id: string }) => { flyers.push(p.id); return true; },
+    esperarFlyers: async () => {},
+  } });
 
   const shared = await import('./shared');
   const registrar = (tipo: Enviado['tipo']) => async (msg: Record<string, unknown>) => {
@@ -128,6 +140,7 @@ before(async () => {
 beforeEach(() => {
   enviados.length = 0; sesiones.clear(); perfiles.clear(); decisiones.clear();
   notas.length = 0; filasActualizadas.length = 0; preguntasIa.length = 0;
+  contextosIa.length = 0; flyers.length = 0; consultaIa = undefined;
 });
 
 const TEL = '573005550101';
@@ -450,4 +463,44 @@ describe('cambiar el nombre también en los pasos de recomendación y de contact
       assert.equal(notas.filter((n) => /Cambió su nombre/.test(n.texto)).length, 0);
     });
   }
+});
+
+describe('el flyer solo va si encaja con la persona', { skip: SIN_MOCKS }, () => {
+  /** Egresado de Sistemas de la UTB que ya está conversando. */
+  async function deSistemas(): Promise<void> {
+    await empezar('Pedro');
+    await escribir('no, soy egresado de ingeniería de sistemas de la UTB');
+    await escribir('maestría');
+  }
+
+  it('la IA consulta un programa de otra área que la persona no nombró: no va el flyer', async () => {
+    await deSistemas();
+    consultaIa = 'Especialización en Gestión de Negocios Internacionales';
+    await escribir('¿qué especializaciones me recomiendas?');
+    assert.deepEqual(flyers, []);
+    assert.notEqual(datos().programaInteres, 'especializacion-en-gestion-de-negocios-internacionales');
+  });
+
+  it('si la persona lo nombró, el flyer sí va aunque sea de otra área', async () => {
+    await deSistemas();
+    consultaIa = 'Especialización en Gestión de Negocios Internacionales';
+    await escribir('¿cuánto cuesta la especialización en gestión de negocios internacionales?');
+    assert.deepEqual(flyers, ['especializacion-en-gestion-de-negocios-internacionales']);
+  });
+
+  it('un programa afín a su carrera sí lleva el flyer', async () => {
+    await deSistemas();
+    consultaIa = 'Maestría en Ciberseguridad';
+    await escribir('¿qué maestrías me recomiendas?');
+    assert.deepEqual(flyers, ['maestria-en-ciberseguridad']);
+  });
+
+  it('una pregunta suelta en un paso de lista lleva a la IA los posgrados afines', async () => {
+    await deSistemas();
+    await escribir('quiero hablar con un asesor');
+    assert.equal(sesiones.get(TEL)?.step, 'reco_contacto');
+    contextosIa.length = 0;
+    await escribir('¿qué maestrías me recomiendas para mi carrera?');
+    assert.match(contextosIa[0] ?? '', /afines/i, String(contextosIa[0]));
+  });
 });
