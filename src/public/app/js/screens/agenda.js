@@ -5,11 +5,12 @@ import {
   opcionInicialFranja, OTRA_HORA, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 } from '../core/agenda.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
-import { colorTextoLegible } from '../core/format.js';
+import { colorTextoLegible, formatTelefono } from '../core/format.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { buildSegmented } from '../ui/controls.js';
+import { abrirDialogo } from '../ui/dialog.js';
 import { ActionSheet } from '../ui/sheet.js';
 
 /* ============= AGENDA DE ASESORES =============
@@ -55,7 +56,7 @@ async function renderAgenda(main) {
     <div class="page-header">
       <div><h1>${icon('calendar', 26)} Agenda</h1><div class="subtitle">Citas con asesores, por WhatsApp o llamada · hora de Bogotá</div></div>
       <div class="ag-acciones">
-        <button type="button" class="btn btn-secondary" id="agRefrescar" aria-label="Actualizar"><span class="refresh-icon">${icon('refresh', 16)}</span></button>
+        <button type="button" class="btn btn-secondary" id="agRefrescar" aria-label="Actualizar" title="Actualizar"><span class="refresh-icon">${icon('refresh', 16)}</span></button>
         <button type="button" class="btn btn-secondary" id="agDisponibilidad">${icon('clock', 16)} Mi disponibilidad</button>
         ${esAdmin() ? `<button type="button" class="btn btn-secondary" id="agAjustes">Ajustes</button>` : ''}
         <button type="button" class="btn btn-primary" id="agNueva">${icon('plus', 16)} Nueva cita</button>
@@ -83,7 +84,14 @@ async function renderAgenda(main) {
   $('#agSiguiente').addEventListener('click', () => mover(1));
   $('#agHoy').addEventListener('click', () => { estado.fecha = hoyBogota(); cargar(); });
   $('#agAsesor').addEventListener('change', (e) => { estado.asesor = e.target.value; cargar(); });
-  $('#agRefrescar').addEventListener('click', () => { $('#agRefrescar .refresh-icon')?.classList.add('spin-once'); cargar(); });
+  $('#agRefrescar').addEventListener('click', () => {
+    const giro = $('#agRefrescar .refresh-icon');
+    // Sin quitar la clase, la vuelta solo se veía el primer toque.
+    giro?.classList.remove('spin-once');
+    void giro?.offsetWidth;
+    giro?.classList.add('spin-once');
+    cargar();
+  });
   $('#agNueva').addEventListener('click', () => abrirDialogoCita({ modo: 'crear' }));
   $('#agDisponibilidad').addEventListener('click', () => abrirDisponibilidad());
   $('#agAjustes')?.addEventListener('click', () => abrirAjustes());
@@ -145,17 +153,19 @@ async function cargar() {
 
 /* ───────────────────────────── Pintado ───────────────────────────── */
 
-function filaCita(c, { conAsesor }) {
+function filaCita(c, { conAsesor, sinMarcar }) {
   const meta = ESTADOS_CITA[c.estado] ?? ESTADOS_CITA.confirmada;
   const persona = escapeHtml(nombreDeCita(c));
+  // El aviso de arriba dice cuántas citas pasaron sin marcar; la fila dice cuáles.
+  const pendiente = sinMarcar?.has(c.id);
   return `
-    <button type="button" class="ag-cita ag-${escapeHtml(c.estado)}" data-cita="${escapeHtml(c.id)}">
+    <button type="button" class="ag-cita ag-${escapeHtml(c.estado)}${pendiente ? ' ag-por-marcar' : ''}" data-cita="${escapeHtml(c.id)}">
       <span class="ag-hora">${escapeHtml(horaCorta(c.inicio))}<small>${escapeHtml(horaCorta(c.fin))}</small></span>
       <span class="ag-cuerpo">
         <strong>${persona}</strong>
-        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor || c.sinAsesor ? ` · ${escapeHtml(asesorDeCita(c))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
+        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor || c.sinAsesor ? ` · ${escapeHtml(asesorDeCita(c))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span class="ag-sin-rec" title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
       </span>
-      ${insignia(meta.label, meta.color)}
+      ${pendiente ? insignia('Por marcar', '#b45309') : insignia(meta.label, meta.color)}
     </button>`;
 }
 
@@ -177,9 +187,10 @@ function pintar() {
   const hoy = hoyBogota();
 
   const pendientes = porMarcar(estado.citas);
+  const sinMarcar = new Set(pendientes.map(c => c.id));
   const huerfanas = estado.sinAsesor?.total ?? 0;
   $('#agAviso').innerHTML = (pendientes.length
-    ? `<div class="alert alert-warning" role="status">${pendientes.length === 1 ? 'Hay 1 cita que ya pasó y todavía no está marcada como atendida o sin asistencia.' : `Hay ${pendientes.length} citas que ya pasaron y todavía no están marcadas como atendidas o sin asistencia.`}</div>`
+    ? `<div class="alert alert-warning" role="status">${pendientes.length === 1 ? 'Hay 1 cita que ya empezó y todavía no dice si la persona asistió.' : `Hay ${pendientes.length} citas que ya empezaron y todavía no dicen si la persona asistió.`} Tócala${pendientes.length === 1 ? '' : 's'} (dicen «Por marcar») para marcarla${pendientes.length === 1 ? '' : 's'}.</div>`
     : '') + (huerfanas
     ? `<div class="alert alert-warning" role="status">${huerfanas === 1 ? 'Hay 1 cita futura de un asesor que ya no está en el panel.' : `Hay ${huerfanas} citas futuras de asesores que ya no están en el panel.`} La persona la sigue teniendo: muévela a otro asesor o cancélala. ${estado.sinAsesor.primera ? `<button type="button" class="btn btn-secondary" id="agVerSinAsesor">Ver la primera</button>` : ''}</div>`
     : '');
@@ -196,14 +207,14 @@ function pintar() {
     const futuras = estado.franjas.filter(f => fechaDeIso(f.inicio) === dias[0]);
     const linea = lineaDelDia(delDia, futuras);
     cont.innerHTML = linea.length
-      ? `<div class="card ag-lista stagger-in">${linea.map(i => i.tipo === 'cita' ? filaCita(i.cita, { conAsesor }) : filaLibre(i.franja)).join('')}</div>`
+      ? `<div class="card ag-lista stagger-in">${linea.map(i => i.tipo === 'cita' ? filaCita(i.cita, { conAsesor, sinMarcar }) : filaLibre(i.franja)).join('')}</div>`
       : `<div class="empty-state"><div class="empty-state-icon">${icon('calendar', 42)}</div><div class="empty-state-title">Sin citas este día</div><div class="empty-state-sub">${estado.asesor === 'todos' ? 'Elige un asesor para ver también sus horarios libres.' : 'Este asesor no tiene horarios libres este día. Revisa su disponibilidad.'}</div></div>`;
   } else {
     cont.innerHTML = `<div class="ag-semana stagger-in">${dias.map(d => {
       const lista = grupos[d] ?? [];
       return `<section class="card ag-dia${d === hoy ? ' ag-hoy-col' : ''}">
         <h3>${escapeHtml(etiquetaDia(d))}${lista.length ? ` <span class="ag-cuenta">${lista.length}</span>` : ''}</h3>
-        ${lista.length ? lista.map(c => filaCita(c, { conAsesor })).join('') : '<p class="ag-vacio">Sin citas</p>'}
+        ${lista.length ? lista.map(c => filaCita(c, { conAsesor, sinMarcar })).join('') : '<p class="ag-vacio">Sin citas</p>'}
       </section>`;
     }).join('')}</div>`;
   }
@@ -225,7 +236,8 @@ const nombreCanal = (c) => CANALES[c] ?? String(c ?? '—');
 function detalleCita(c) {
   const meta = ESTADOS_CITA[c.estado] ?? ESTADOS_CITA.confirmada;
   const filas = [
-    ['phone', 'WhatsApp', c.telefono ? `+${c.telefono}` : c.telefonoMasc],
+    // «+57 300 123 4567», como en Atención y Llamadas.
+    ['phone', 'WhatsApp', c.telefono ? formatTelefono(c.telefono) : c.telefonoMasc],
     ['user', 'Persona', String(c.nombre ?? '').trim() || 'Sin nombre'],
     ['users', 'Asesor', asesorDeCita(c)],
     ['tag', 'Área', AREAS[c.area] ?? c.area],
@@ -236,7 +248,7 @@ function detalleCita(c) {
   el.className = 'ag-detalle';
   el.innerHTML = `
     <div class="ag-detalle-cabecera">
-      <div><strong>${escapeHtml(nombreDeCita(c))}</strong><span>${escapeHtml(etiquetaDiaLarga(fechaDeIso(c.inicio)))} · ${escapeHtml(horaCorta(c.inicio))} – ${escapeHtml(horaCorta(c.fin))}</span></div>
+      <div><strong>${escapeHtml(nombreDeCita(c))}</strong><span>${escapeHtml(etiquetaDiaLarga(fechaDeIso(c.inicio)))} · <span class="ag-sin-corte">${escapeHtml(horaCorta(c.inicio))} – ${escapeHtml(horaCorta(c.fin))}</span></span></div>
       ${insignia(meta.label, meta.color)}
     </div>
     <dl class="perfil-datos">${filas.map(([i, k, v]) => `<div>${icon(i, 16)}<dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
@@ -264,9 +276,14 @@ function abrirCita(c) {
 }
 
 function confirmarCancelacion(c) {
+  // La confirmación dice de quién y cuándo es la cita: «¿Cancelar esta cita?»
+  // a secas no deja ver si se tocó la correcta. La hoja lleva su cabecera en
+  // una tarjeta (ag-confirmar): suelta sobre el fondo borroso se leía mal.
   ActionSheet.open({
-    title: '¿Cancelar esta cita?',
-    subtitle: 'La hora queda libre y se le avisa a la persona por WhatsApp si es posible.',
+    title: `¿Cancelar la cita de ${nombreDeCita(c)}?`,
+    // horaCorta termina en «a. m.»: no se le pone otro punto.
+    subtitle: `${etiquetaDiaLarga(fechaDeIso(c.inicio)).replace(/^./, l => l.toUpperCase())} · ${horaCorta(c.inicio)} La hora queda libre y se le avisa a la persona por WhatsApp si es posible.`,
+    clase: 'ag-confirmar',
     groups: [
       [{ label: 'Cancelar cita', icon: icon('trash', 17), destructive: true, onClick: async () => {
         haptic([20, 30, 20]);
@@ -292,49 +309,36 @@ async function cambiarEstado(c, nuevo) {
 function avisarResultado(base, aviso) {
   if (!aviso) { toast(base); return; }
   if (aviso.enviado) { toast(`${base} · se avisó por WhatsApp`); return; }
-  toast(`${base}. No se pudo avisar por WhatsApp: ${aviso.motivo ?? 'sin ventana de 24 h'}`, 6000);
+  toast(`${base}. No se pudo avisar por WhatsApp: ${aviso.motivo ?? 'pasaron más de 24 horas desde su último mensaje; avísale por otro medio.'}`, 6000);
 }
 
 /* ───────────────────────────── Modales ───────────────────────────── */
 
+/* Los formularios de la agenda usan el diálogo común del panel (ui/dialog):
+   foco atrapado con Tab, foco inicial en el primer campo, Escape, cerrar al
+   cambiar de pantalla y el foco de vuelta a quien lo abrió. Antes tenían un
+   modal propio en el que Tab se escapaba a la página de atrás. */
 function abrirModal({ titulo, ayuda, cuerpo, etiquetaGuardar = 'Guardar', ancho = '' }) {
-  const focoPrevio = document.activeElement;
-  const overlay = document.createElement('div');
-  overlay.className = 'password-dialog-backdrop';
-  overlay.innerHTML = `
-    <div class="password-dialog ag-modal ${ancho}" role="dialog" aria-modal="true" aria-labelledby="agModalTitulo">
-      <button type="button" class="password-dialog-close" aria-label="Cerrar">${icon('x', 18)}</button>
-      <h2 id="agModalTitulo">${escapeHtml(titulo)}</h2>
-      ${ayuda ? `<p class="password-dialog-help">${escapeHtml(ayuda)}</p>` : ''}
+  const dialogo = abrirDialogo({
+    titulo, ayuda,
+    cuerpo: `
       <form novalidate>
         <div class="ag-modal-cuerpo">${cuerpo}</div>
         <div class="password-dialog-message" role="alert" aria-live="polite"></div>
         <div class="password-dialog-actions">
-          <button type="button" class="btn btn-ghost" data-ag-cancelar>Cancelar</button>
+          <button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button>
           <button type="submit" class="btn btn-primary" data-ag-guardar>${escapeHtml(etiquetaGuardar)}</button>
         </div>
-      </form>
-    </div>`;
-  document.body.appendChild(overlay);
-  const form = overlay.querySelector('form');
-  const mensaje = overlay.querySelector('.password-dialog-message');
-  const guardar = overlay.querySelector('[data-ag-guardar]');
-  let cerrado = false;
-  const cerrar = () => {
-    if (cerrado) return;
-    cerrado = true;
-    document.removeEventListener('keydown', onKey);
-    overlay.remove();
-    if (focoPrevio?.isConnected) focoPrevio.focus({ preventScroll: true });
-  };
-  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); cerrar(); } };
-  document.addEventListener('keydown', onKey);
-  overlay.querySelector('.password-dialog-close').addEventListener('click', cerrar);
-  overlay.querySelector('[data-ag-cancelar]').addEventListener('click', cerrar);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrar(); });
-  requestAnimationFrame(() => overlay.classList.add('open'));
+      </form>`,
+  });
+  dialogo.el.classList.add('ag-modal');
+  if (ancho) dialogo.el.classList.add(ancho);
+  const overlay = dialogo.el.parentElement;
+  const form = dialogo.el.querySelector('form');
+  const mensaje = dialogo.el.querySelector('.password-dialog-message');
+  const guardar = dialogo.el.querySelector('[data-ag-guardar]');
   return {
-    overlay, form, cerrar,
+    overlay, form, cerrar: dialogo.cerrar,
     error: (t) => { mensaje.classList.remove('success'); mensaje.textContent = t; },
     ocupado: (v) => { guardar.disabled = v; guardar.classList.toggle('is-loading', v); },
   };
@@ -499,8 +503,8 @@ async function abrirDisponibilidad() {
         <div class="ag-dia-fila" data-dia="${d}">
           <strong>${escapeHtml(DIAS_LARGOS[d][0].toUpperCase() + DIAS_LARGOS[d].slice(1))}</strong>
           <div class="ag-tramos">
-            ${form.dias[d].map((t, i) => `<div class="ag-tramo"><input class="rem-input" type="time" value="${escapeHtml(t.desde)}" data-t="${i}" data-c="desde" aria-label="Desde"><span>a</span><input class="rem-input" type="time" value="${escapeHtml(t.hasta)}" data-t="${i}" data-c="hasta" aria-label="Hasta"><small>${citasPorTramo(t, Number(form.duracionMin), Number(form.pausaMin) || 0)} citas</small><button type="button" class="btn btn-ghost" data-quitar-tramo="${i}" aria-label="Quitar tramo">${icon('x', 14)}</button></div>`).join('') || '<span class="ag-vacio">No atiende</span>'}
-            <button type="button" class="btn btn-ghost crm-mini-btn" data-agregar-tramo>+ tramo</button>
+            ${form.dias[d].map((t, i) => `<div class="ag-tramo"><input class="rem-input" type="time" value="${escapeHtml(t.desde)}" data-t="${i}" data-c="desde" aria-label="${escapeHtml(DIAS_LARGOS[d])}: desde"><span>a</span><input class="rem-input" type="time" value="${escapeHtml(t.hasta)}" data-t="${i}" data-c="hasta" aria-label="${escapeHtml(DIAS_LARGOS[d])}: hasta"><small>${citasPorTramo(t, Number(form.duracionMin), Number(form.pausaMin) || 0)} citas</small><button type="button" class="btn btn-ghost ag-quitar" data-quitar-tramo="${i}" aria-label="Quitar el tramo de ${escapeHtml(t.desde)} a ${escapeHtml(t.hasta)} del ${escapeHtml(DIAS_LARGOS[d])}" title="Quitar tramo">${icon('x', 14)}</button></div>`).join('') || '<span class="ag-vacio">No atiende</span>'}
+            <button type="button" class="btn btn-ghost crm-mini-btn ag-agregar" data-agregar-tramo aria-label="Agregar un tramo el ${escapeHtml(DIAS_LARGOS[d])}">${icon('plus', 14)} Agregar tramo</button>
           </div>
         </div>`).join('')}
       <h3 class="ag-sub">Días libres y vacaciones</h3>
@@ -512,10 +516,10 @@ async function abrirDisponibilidad() {
             <input class="rem-input" type="time" value="${escapeHtml(e.horaDesde ?? '')}" data-c="horaDesde" aria-label="Desde la hora (opcional)">
             <input class="rem-input" type="time" value="${escapeHtml(e.horaHasta ?? '')}" data-c="horaHasta" aria-label="Hasta la hora (opcional)">
             <input class="rem-input" type="text" maxlength="120" placeholder="Motivo" value="${escapeHtml(e.motivo ?? '')}" data-c="motivo" aria-label="Motivo">
-            <button type="button" class="btn btn-ghost" data-quitar-ex="${i}" aria-label="Quitar excepción">${icon('x', 14)}</button>
+            <button type="button" class="btn btn-ghost ag-quitar" data-quitar-ex="${i}" aria-label="Quitar este día libre" title="Quitar">${icon('x', 14)}</button>
           </div>`).join('') || '<span class="ag-vacio">Sin días libres programados</span>'}
       </div>
-      <button type="button" class="btn btn-ghost crm-mini-btn" id="agAgregarEx">+ Día libre o vacaciones</button>
+      <button type="button" class="btn btn-ghost crm-mini-btn ag-agregar" id="agAgregarEx">${icon('plus', 14)} Día libre o vacaciones</button>
       <p class="field-help">Sin horas, la excepción bloquea los días completos. Con horas, solo ese rango en cada día.</p>`;
 
     raiz.querySelector('#agActivo').addEventListener('change', (e) => { form.activo = e.target.checked; });
@@ -525,35 +529,53 @@ async function abrirDisponibilidad() {
       b.classList.toggle('activo', form.areas.includes(a));
       b.setAttribute('aria-pressed', String(form.areas.includes(a)));
     }));
-    raiz.querySelector('#agDur').addEventListener('input', (e) => { form.duracionMin = e.target.value; });
-    raiz.querySelector('#agDur').addEventListener('change', pintarForm);
-    raiz.querySelector('#agPausa').addEventListener('input', (e) => { form.pausaMin = e.target.value; });
-    raiz.querySelector('#agPausa').addEventListener('change', pintarForm);
+    /* Cambiar una hora, la duración o la pausa solo recalcula «N citas» en su
+       sitio. Antes se repintaba todo el formulario y el foco se perdía: con
+       teclado, después de cada hora había que volver a recorrerlo desde arriba. */
+    const actualizarCuentas = () => {
+      raiz.querySelectorAll('.ag-dia-fila').forEach(fila => {
+        const d = Number(fila.dataset.dia);
+        fila.querySelectorAll('.ag-tramo').forEach((tramo, i) => {
+          const t = form.dias[d][i];
+          const cuenta = tramo.querySelector('small');
+          if (t && cuenta) cuenta.textContent = `${citasPorTramo(t, Number(form.duracionMin), Number(form.pausaMin) || 0)} citas`;
+          const quitar = tramo.querySelector('[data-quitar-tramo]');
+          if (t && quitar) quitar.setAttribute('aria-label', `Quitar el tramo de ${t.desde} a ${t.hasta} del ${DIAS_LARGOS[d]}`);
+        });
+      });
+    };
+    // Lo que cambia la lista (agregar o quitar) sí repinta, y el foco va a donde sigue el trabajo.
+    const repintarYEnfocar = (selector) => {
+      pintarForm();
+      raiz.querySelector(selector)?.focus({ preventScroll: false });
+    };
+    raiz.querySelector('#agDur').addEventListener('input', (e) => { form.duracionMin = e.target.value; actualizarCuentas(); });
+    raiz.querySelector('#agPausa').addEventListener('input', (e) => { form.pausaMin = e.target.value; actualizarCuentas(); });
     raiz.querySelectorAll('.ag-dia-fila').forEach(fila => {
       const d = Number(fila.dataset.dia);
       fila.querySelectorAll('input[data-t]').forEach(inp => inp.addEventListener('change', () => {
         form.dias[d][Number(inp.dataset.t)][inp.dataset.c] = inp.value;
-        pintarForm();
+        actualizarCuentas();
       }));
       fila.querySelectorAll('[data-quitar-tramo]').forEach(b => b.addEventListener('click', () => {
         form.dias[d].splice(Number(b.dataset.quitarTramo), 1);
-        pintarForm();
+        repintarYEnfocar(`[data-dia="${d}"] [data-agregar-tramo]`);
       }));
       fila.querySelector('[data-agregar-tramo]').addEventListener('click', () => {
         const ultimo = form.dias[d][form.dias[d].length - 1];
         form.dias[d].push(ultimo ? { desde: ultimo.hasta < '17:00' ? '14:00' : '17:00', hasta: ultimo.hasta < '17:00' ? '17:00' : '18:00' } : { desde: '09:00', hasta: '12:00' });
-        pintarForm();
+        repintarYEnfocar(`[data-dia="${d}"] input[data-t="${form.dias[d].length - 1}"][data-c="desde"]`);
       });
     });
     raiz.querySelectorAll('.ag-excepcion').forEach(fila => {
       const i = Number(fila.dataset.ex);
       fila.querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => { form.excepciones[i][inp.dataset.c] = inp.value; }));
-      fila.querySelector('[data-quitar-ex]').addEventListener('click', () => { form.excepciones.splice(i, 1); pintarForm(); });
+      fila.querySelector('[data-quitar-ex]').addEventListener('click', () => { form.excepciones.splice(i, 1); repintarYEnfocar('#agAgregarEx'); });
     });
     raiz.querySelector('#agAgregarEx').addEventListener('click', () => {
       const hoy = hoyBogota();
       form.excepciones.push({ desde: hoy, hasta: hoy, motivo: '' });
-      pintarForm();
+      repintarYEnfocar(`[data-ex="${form.excepciones.length - 1}"] input[data-c="desde"]`);
     });
   }
 

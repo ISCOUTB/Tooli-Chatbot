@@ -3156,3 +3156,35 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 
 /* La leyenda flota para que el borde del grupo pase por encima y no la atraviese. */
 .voz-grupo legend + * { clear: both; }
+/* Agenda: 44 px también en escritorio dentro de los formularios. */
+.ag-modal .segmented button, .ag-chips .atn-dia, .ag-agregar,
+.ag-modal input:not([type="checkbox"]), .ag-modal select, .ag-modal .rem-input:not(textarea),
+.ag-tramo .rem-input, .ag-excepcion .rem-input { min-height: 44px; }
+.ag-quitar { min-width: 44px; min-height: 44px; padding: 0; display: inline-grid; place-items: center; color: var(--text-muted); }
+.ag-quitar:hover { color: var(--danger); background: rgba(197, 34, 31, .06); }
+.ag-agregar { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font-size: 13px; }
+.ag-sin-corte { white-space: nowrap; }
+.ag-sin-rec { white-space: nowrap; }
+/* Las que ya empezaron y no dicen si la persona asistió. */
+.ag-cita.ag-por-marcar { border-color: rgba(180, 83, 9, .4); box-shadow: inset 3px 0 0 #b45309; }
+.ag-cita.ag-por-marcar:hover { box-shadow: inset 3px 0 0 #b45309, var(--shadow-md); }
+/* Confirmar la cancelación: la pregunta en una tarjeta, no suelta sobre el fondo borroso. */
+.ag-confirmar .sheet-header { background: var(--surface); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 8px; box-shadow: var(--shadow-float); }
+.ag-confirmar .sheet-title { font-size: 15px; font-weight: 700; }
+.ag-confirmar .sheet-subtitle { font-size: 13px; margin-top: 4px; line-height: 1.45; }
+@media (max-width: 640px) {
+  /* Nueva cita arriba y a lo ancho; Actualizar queda como botón cuadrado. */
+  .ag-acciones #agNueva { order: -1; flex: 1 1 100%; }
+  .ag-acciones #agRefrescar { flex: 0 0 44px; padding: 0; }
+  .ag-acciones .btn:not(#agNueva):not(#agRefrescar) { flex: 1 1 auto; white-space: nowrap; }
+  /* La insignia baja debajo del nombre: a 320 px «Sin nombre · ****0101» se cortaba. */
+  .ag-lista .ag-cita { grid-template-columns: 72px minmax(0, 1fr); align-items: start; row-gap: 6px; }
+  .ag-lista .ag-cita .ag-hora { grid-row: span 2; padding-top: 1px; }
+  .ag-lista .ag-cita > .badge { grid-column: 2; justify-self: start; }
+}
+
+@media (max-width: 360px) {
+  /* A 320 px «Mi disponibilidad» se partía en dos renglones dentro del botón. */
+  .ag-acciones .btn:not(#agNueva):not(#agRefrescar) { padding-left: 10px; padding-right: 10px; font-size: 13px; }
+  #agDisponibilidad .icon-svg { display: none; }
+}
