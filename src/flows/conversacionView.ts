@@ -6,6 +6,7 @@
  */
 import { normalize } from './validation';
 import type { NivelElegido, Relacion } from './recomendacionView';
+import { interpretarPregrado, type PregradoInterpretado } from './recomendacionPregrado';
 
 export interface BotonConversacion {
   id: string;
@@ -15,7 +16,7 @@ export interface BotonConversacion {
 /** Lo que el bot espera que responda la persona después de su última pregunta. */
 export type Pendiente =
   | 'datos' | 'tiene_programa' | 'estudia_utb' | 'egresado' | 'pregrado' | 'nivel' | 'info' | 'nombre_info' | 'ofrecer'
-  | 'regreso';
+  | 'regreso' | 'nombre_nuevo';
 
 /** Así se presenta Tooli en cada saludo. */
 export const PRESENTACION = 'Soy *Tooli Posgrados*, tu asistente 🎓';
@@ -109,6 +110,10 @@ export const PREGUNTAS: Record<Pendiente, Pregunta> = {
   nombre_info: {
     pendiente: 'nombre_info',
     texto: '¡Genial! 🙌 ¿Cómo te llamas? Así quedas registrado(a) 📝',
+  },
+  nombre_nuevo: {
+    pendiente: 'nombre_nuevo',
+    texto: '¡Claro! ✍️ ¿Cómo te llamas? Escríbeme tu nombre.',
   },
   datos: {
     pendiente: 'datos',
@@ -341,6 +346,9 @@ const NO_ES_NOMBRE = new Set([
   'posgrados', 'asesor', 'carrera', 'quiero', 'necesito', 'cuanto', 'cuando', 'donde', 'porque', 'pero', 'bueno', 'listo',
   'dale', 'entiendo', 'claro', 'anos', 'ano', 'buenas', 'buenos', 'dias', 'tardes', 'noches', 'nombre', 'llamo', 'ah', 'eh',
   'mmm', 'ya', 'vuelvo', 'jaja', 'jajaja', 'jeje', 'lol', 'xd', 'k', 'q', 'aja', 'volver', 'atras', 'menu', 'inicio', 'salir',
+  // "No soy egresado, soy estudiante" o "me llamó la atención": no son un nombre.
+  'estudiante', 'egresado', 'egresada', 'graduado', 'graduada', 'ingeniero', 'ingeniera', 'profesional', 'bachiller',
+  'atencion', 'interes', 'mucho', 'estudio', 'estudie', 'estudiando',
 ]);
 const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'san', 'da', 'do']);
 
@@ -557,11 +565,16 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
   if (esConfusion(texto) || /^no (entiendo|entendi|comprendo|te entiendo)\b/.test(n)) return null;
   // Una pregunta ("¿Hay descuento por ser egresado?") no es la respuesta a la pregunta pendiente.
   if ((texto ?? '').includes('?') && n.split(' ').length > 3) return null;
+  // "No, me equivoqué, estudio civil" o "ya te dije que…" corrigen un dato: no contestan la pregunta.
+  if (esCorreccion(n)) return null;
   // Un "sí"/"no" corto equivale al botón; una frase larga es una pregunta para la IA.
   const corto = n.split(' ').length <= 4;
   // También como se contesta en WhatsApp: "dale", "ok", "sii", "de una", "nel", "para nada".
   const si = corto && /^(si+|sip|simon|claro|correcto|asi es|exacto|obvio|por supuesto|dale|ok|okay|oki|vale|bueno|listo|de una|afirmativo|perfecto|me parece bien|acepto|autorizo)( .*)?$/.test(n);
   const no = corto && /^(no+|nop|nones|nel|nah|nunca|negativo|para nada|todavia no|aun no)( .*)?$/.test(n);
+  // "No, estudio sistemas": un "no" largo sigue siendo un "no" si lo demás no es una pregunta.
+  const noConDatos = !no && /^(no+|nop|nel|nah|negativo|para nada|todavia no|aun no)\b/.test(n)
+    && !pareceUnaPregunta(n.replace(/^(no+|nop|nel|nah|negativo|para nada|todavia no|aun no)( (pero|y|aunque|igual))?\s*/, ''));
   switch (pendiente) {
     case 'datos':
       // "No sé" a la autorización no es un "no": se le explica.
@@ -570,12 +583,16 @@ export function interpretarRespuestaEscrita(pendiente: Pendiente | '' | undefine
       if (si || /\b(acepto|autorizo)\b/.test(n)) return { boton: 'conv_datos_si' };
       return null;
     case 'tiene_programa':
+      // "Una especialización", "no, un posgrado": busca ese nivel y quiere ayuda para elegir.
+      if (buscaNivel(texto)) return { boton: 'conv_elegir' };
       if (si) return { boton: 'conv_tengo' };
-      if (no || /ayuda|elegir|no se|recomiend/.test(n)) return { boton: 'conv_elegir' };
+      if (no || noConDatos || /ayuda|elegir|no se|recomiend/.test(n)) return { boton: 'conv_elegir' };
       return null;
     case 'estudia_utb':
+      // "Egresado de otra universidad" es de otra universidad: eso se mira antes que "egresado".
+      if (/otra universidad|otra u\b|de otra|no (soy|estudie|estudio) (de|en) la utb/.test(n)) return { boton: 'conv_utb_no' };
       if (/egresad|me gradue|ya me gradue|graduad/.test(n)) return { boton: 'conv_egresado' };
-      if (no || /otra universidad|otra u\b|de otra/.test(n)) return { boton: 'conv_utb_no' };
+      if (no || (noConDatos && !/\butb\b/.test(n))) return { boton: 'conv_utb_no' };
       if (/\b(estudio|estudiante|estoy estudiando|curso|semestre)\b/.test(n) && !/\botra\b/.test(n)) return { boton: 'conv_estudiante' };
       if (si) return { boton: 'conv_utb_si' };
       return null;
@@ -626,14 +643,158 @@ export interface PerfilDetectado {
 export function detectarPerfil(texto: string): PerfilDetectado {
   const n = normalize(texto ?? '');
   const perfil: PerfilDetectado = {};
-  const utb = /\butb\b|tecnologica de bolivar/.test(n);
-  if (/\begresad[oa]\b/.test(n) && utb) perfil.relacion = 'egresado_utb';
-  else if (/\b(estudio|estudiante|curso)\b/.test(n) && utb) perfil.relacion = 'estudiante_utb';
-  else if (/otra universidad|no (soy|estudie|estudio) (de|en) la utb/.test(n)) perfil.relacion = 'externo';
-  if (/especializacion/.test(n)) perfil.nivel = 'especializacion';
+  const utb = /\butb\b|tecnologica de bolivar|\bla tecnologica\b/.test(n);
+  // "Otra universidad" manda aunque nombre la UTB ("no estudio en la UTB, sino en otra universidad").
+  if (/otra universidad|otra u\b|no (soy|estudie|estudio|me gradue) (de|en) la (utb|tecnologica)/.test(n)) perfil.relacion = 'externo';
+  else if (/\b(egresad[oa]|graduad[oa]|me gradue|termine)\b/.test(n) && utb) perfil.relacion = 'egresado_utb';
+  else if (/\b(estudio|estudiante|curso|estoy estudiando|estudiando)\b/.test(n) && utb) perfil.relacion = 'estudiante_utb';
+  if (/especiali[sz]a/.test(n)) perfil.nivel = 'especializacion';
   else if (/maestria|\bmba\b|magister/.test(n)) perfil.nivel = 'maestria';
   else if (/doctorado|\bphd\b/.test(n)) perfil.nivel = 'doctorado';
   return perfil;
+}
+
+/** "No, me equivoqué…", "perdón, …", "ya te dije que…": corrige o repite un dato. */
+export function esCorreccion(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return /^((no|ay|ups) )?(me equivoque|me confundi|perdon|perdona|disculpa|corrijo|corrijo que|mejor dicho|ya te dije|te dije|como te dije|ya te lo dije)\b/.test(n);
+}
+
+const NIVEL_ESCRITO: readonly (readonly [RegExp, NivelElegido])[] = [
+  [/^especiali[sz]a/, 'especializacion'], [/^(maestri|magister|master|mba$)/, 'maestria'], [/^(doctorado|phd$)/, 'doctorado'],
+];
+
+/**
+ * "Una especialización", "no, quiero una maestría virtual", "busco un posgrado":
+ * dice solo qué nivel busca (sin nombrar un programa). El nivel queda vacío con
+ * "posgrado" a secas: busca posgrado, pero no dijo cuál.
+ */
+export function buscaNivel(texto: string): { nivel: NivelElegido; virtual: boolean } | null {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const m = new RegExp(String.raw`^(?:(?:no+|nop|nel|pues|bueno|mmm|ah|perdon|mejor)\s+)*` +
+    String.raw`(?:(?:yo\s+)?(?:quiero|quisiera|busco|estoy buscando|me interesa|me interesaria|me gustaria|necesito|deseo|pienso|pensaba|planeo)\s+)?` +
+    String.raw`(?:(?:hacer|estudiar|cursar|sacar|tomar|ver|algo de)\s+)?(?:(?:un|una|algun|alguna|el|la|unas?|unos?)\s+)?` +
+    String.raw`(posgrados?|postgrados?|especiali[sz]aci?on(?:es)?|maestrias?|magister|master|mba|doctorados?|phd)` +
+    String.raw`(\s+(?:virtual|virtuales|en linea|online|a distancia))?(?:\s+(?:por favor|porfa|gracias))?$`).exec(n);
+  if (!m) return null;
+  const nivel = NIVEL_ESCRITO.find(([r]) => r.test(m[1]))?.[1] ?? '';
+  return { nivel, virtual: !!m[2] };
+}
+
+/** Palabras con que se dice la profesión en vez de la carrera: "soy abogada", "soy ingeniero de sistemas". */
+const PROFESION = String.raw`(?:ingenier|abogad|contador|economista|psicolog|administrador|comunicador|arquitect|licenciad|medic|enfermer|odontolog|bacteriolog|fisioterapeuta|nutricionista|disenador|publicista|periodista|politolog|quimic|fisic|matematic|biolog|estadistic|docente|profesor)\w*`;
+
+/** Lo que dice dónde estudia, no qué: "en la UTB", "de otra universidad". */
+const LUGAR = /\b(?:en|de|por) (?:la )?(?:utb|universidad tecnologica de bolivar|tecnologica(?: de bolivar)?)\b|\b(?:en|de) (?:otra|una|la) (?:universidad|u|uni)\b.*$|\ben (?:el )?(?:sena|colegio)\b.*$/g;
+
+/**
+ * La carrera que cuenta de paso: "estudio ingeniería de sistemas", "me gradué
+ * de derecho", "soy egresado de industrial", "soy abogada". Solo después de esos
+ * verbos: "quiero una maestría en finanzas" habla del posgrado, no de su carrera.
+ */
+export function carreraEnLaFrase(texto: string): PregradoInterpretado | null {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s,.;:!?]/gu, ' ').replace(/\s+/g, ' ');
+  const verbo = /\b(?:estudio|estudie|estudiaba|estoy estudiando|estoy cursando|curse|me gradue(?: de| en| como)?|(?:soy )?egresad[oa] (?:de|en)|(?:soy )?graduad[oa] (?:de|en|como)|termine)\s+/g;
+  const profesion = new RegExp(String.raw`\bsoy (?:un |una )?(?=${PROFESION})`, 'g');
+  // La última mención manda: en "estudié derecho, ahora estudio economía" o una corrección, vale la última.
+  let inicio = -1;
+  for (const r of [verbo, profesion]) for (const m of n.matchAll(r)) inicio = Math.max(inicio, (m.index ?? 0) + m[0].length);
+  if (inicio < 0) return null;
+  let fragmento = n.slice(inicio)
+    .split(/[,.;:!?]| y | pero | porque | aunque | quiero | busco | me interesa | necesito | hace | desde | ahora | actualmente /)[0]
+    .replace(LUGAR, ' ')
+    .replace(/^(?:(?:el|en|mi) )?(?:primer|segundo|tercer|cuarto|quinto|sexto|septimo|octavo|noveno|decimo|ultimo|\d+\w*) semestre (?:de |en )?/, '')
+    .replace(/\s+/g, ' ').trim();
+  fragmento = fragmento.split(' ').slice(0, 6).join(' ');
+  // Un posgrado ("estudio una maestría") no es su carrera.
+  if (fragmento.replace(/[^a-z]/g, '').length < 3 || /especiali|maestr|magister|master|\bmba\b|doctor|posgrado|postgrado/.test(fragmento)) return null;
+  return interpretarPregrado(fragmento);
+}
+
+/** Todo lo que trae una frase escrita: relación, carrera, nivel y si pide lo virtual. */
+export interface DatosDeLaFrase extends PerfilDetectado {
+  carrera?: PregradoInterpretado;
+  /** Dijo solo qué nivel busca ("una especialización"): quiere que le ayuden a elegir. */
+  buscaNivel?: { nivel: NivelElegido; virtual: boolean };
+}
+
+export function datosDeLaFrase(texto: string): DatosDeLaFrase {
+  const datos: DatosDeLaFrase = { ...detectarPerfil(texto) };
+  const carrera = carreraEnLaFrase(texto);
+  if (carrera) datos.carrera = carrera;
+  const busca = buscaNivel(texto);
+  if (busca) datos.buscaNivel = busca;
+  return datos;
+}
+
+/** "Soy egresado de sistemas de la UTB" sin pedir nada: se anota y se sigue, sin la IA. */
+export function soloCuentaDatos(texto: string): boolean {
+  const t = (texto ?? '').trim();
+  const n = normalize(t).replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!n || t.includes('?') || pareceUnaPregunta(t) || n.split(' ').length > 15) return false;
+  return !/\b(quiero saber|cuanto|cuanta|costo|cuesta|precio|valor|horario|requisito|requisitos|cuando|donde|como|informacion|info|me puedes|puedes|podrias|necesito saber|dime|cuentame|explicame|tienen|hay|beca|becas|descuento|inscrip|matricul)\b/.test(n);
+}
+
+export type CambioDeNombre = { nombre: string; resto: string } | { pedir: true } | null;
+
+/** Igual que el texto, con las letras sin tildes y en minúscula: los índices coinciden con el original. */
+function planoMismoLargo(texto: string): string {
+  return texto.split('').map((c) => (c.normalize('NFD')[0] ?? c).toLowerCase()).join('');
+}
+
+/**
+ * Quiere dar o cambiar su nombre: "me llamo Laura", "mi nombre es Laura Gómez",
+ * "cámbiame el nombre a Laura", "ese no es mi nombre, soy Laura", "no me llamo
+ * Pedro, me llamo Laura". "Quiero cambiar mi nombre" sin decir cuál → pedirlo.
+ * "Me llamó la atención…", "¿cómo se llama el programa?" o "me llamaron" no son nombres.
+ * `resto` es lo que siguió al nombre ("me llamo Laura, estudio derecho").
+ */
+export function cambioDeNombre(texto: string): CambioDeNombre {
+  const original = (texto ?? '').trim();
+  if (!original || original.startsWith('__') || original.length > 200) return null;
+  const plano = planoMismoLargo(original);
+  const solo = plano.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(?:(?:hola|oye|disculpa|perdon|por favor|porfa)\s+)*(?:(?:quiero|quisiera|puedo|necesito|me gustaria|como (?:puedo|hago para)|se puede)\s+)?(?:cambiar|corregir|modificar|actualizar|editar)\s+(?:mi|el)\s+nombre(?:\s+(?:por favor|porfa))?$/.test(solo)
+    || /^(?:cambia(?:me)?|corrige(?:me)?) (?:mi|el) nombre(?: por favor| porfa)?$/.test(solo)
+    || /^(?:no )?(?:ese|este) no es mi nombre$|^(?:ese|este) nombre no es el mio$|^mi nombre (?:esta|quedo) mal$|^me equivoque (?:de|en el|con el|en mi) nombre$/.test(solo)) {
+    return { pedir: true };
+  }
+  const patrones: readonly RegExp[] = [
+    // "No me llamo Pedro, me llamo Laura" / "no soy Pedro, soy Laura": antes que "me llamo" suelto.
+    /\bno me llamo [^,.;!]+?[\s,.;!]+(?:me llamo|soy|sino|mi nombre es)\s+/,
+    /^(?:(?:hola|oye|perdon|disculpa|ah)[\s,.!]+)*no soy [^,.;!]+?[\s,.;!]+soy\s+/,
+    /\b(?:ese|este) (?:no es mi nombre|nombre no es el mio|nombre esta mal)[\s,.!:;-]*(?:(?:me llamo|mi nombre es|soy|es|me dicen)\s+)?/,
+    /\b(?:cambia(?:me|r)?|cambie|corrige(?:me)?|corregir|actualiza(?:me|r)?|pon(?:me)?|ponga(?:me)?) (?:mi |el )?nombre (?:a|por|como)\s+/,
+    /^(?:(?:hola|buenas|oye|perdon|disculpa|ah|ay)[\s,.!]+)*(?:yo\s+)?(?:me llamo|mi nombre es|mi nombre real es|mi nombre correcto es|mi verdadero nombre es)\s+/,
+  ];
+  for (const patron of patrones) {
+    const m = patron.exec(plano);
+    if (!m) continue;
+    const despues = original.slice((m.index ?? 0) + m[0].length);
+    const corte = /[,.;!?\n]| y (?=quiero|estudio|estudie|soy|busco|me |tengo|necesito|vivo|trabajo)| (?=quiero|estudio|estudie|busco|necesito|tengo|trabajo|vivo)\b/i
+      .exec(planoMismoLargo(despues));
+    const candidato = corte ? despues.slice(0, corte.index) : despues;
+    const resto = corte ? despues.slice(corte.index).replace(/^[\s,.;!]+|^\s*y\s+/g, '').trim() : '';
+    const nombre = limpiarNombre(candidato);
+    if (nombre && nombre.split(' ').length <= 4) return { nombre, resto };
+    // "Ese no es mi nombre!!" sin el nombre nuevo: se le pregunta.
+    if (/no es mi nombre|nombre no es el mio|nombre esta mal|nombre (?:a|por|como)\s*$/.test(plano) && !candidato.trim()) return { pedir: true };
+    return null;
+  }
+  return null;
+}
+
+/** Al cambiar el nombre: corto, y se sigue con lo que iba. */
+export function nombreCambiado(nombre: string, anterior?: string): string {
+  const primero = primerNombre(nombre);
+  return anterior ? `Listo, *${primero}* ✍️ Ya corregí tu nombre.` : `¡Mucho gusto, *${primero}*! 🙌`;
+}
+
+/** La carrera que reconoció de paso, para que la corrija si no es. */
+export function carreraAnotada(carrera: string, esFamilia: boolean): string {
+  return esFamilia
+    ? `Anoté tu carrera como *${carrera}* ✅ _Si no es así, escríbemela de nuevo._`
+    : `Anoté *${carrera}* ✅ _Si no es así, escríbemela de nuevo._`;
 }
 
 /**
