@@ -47,7 +47,7 @@ interface Llamada {
 const args = process.argv.slice(2);
 const crudoEn = args.includes('--crudo') ? args[args.indexOf('--crudo') + 1] : null;
 const antesEn = args.includes('--antes') ? args[args.indexOf('--antes') + 1] : null;
-const carpeta = resolve(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--crudo' && args[i - 1] !== '--antes') ?? 'C:/Users/angel/Desktop/tareas uni/Tooli-proyecto-de-grado/llamadas-simuladas');
+const carpeta = resolve(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--crudo' && args[i - 1] !== '--antes') ?? process.env.CORPUS_VOZ ?? 'llamadas-simuladas');
 const corpus = JSON.parse(readFileSync(join(carpeta, 'corpus.json'), 'utf8')) as Llamada[];
 
 const AHORA = new Date('2026-11-23T10:00:00-05:00'); // lunes 10 a. m. en Colombia
