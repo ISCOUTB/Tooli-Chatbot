@@ -384,10 +384,16 @@ export function crearAgenda(deps: DepsAgenda) {
     return miembros.map(parseMiembro).filter((m): m is Ocupado & { id: string } => !!m);
   }
 
+  /** Fin (excluido) de lo que se puede reservar: medianoche de hoy + `diasVentana` días. Lo usan franjas y reservar. */
+  function limiteVentana(cfg: ConfigAgenda, ahoraMs: number): number {
+    return inicioDelDia(sumarDias(partesBogota(ahoraMs).fecha, cfg.diasVentana));
+  }
+
   function ventana(desde: Date | undefined, dias: number | undefined, cfg: ConfigAgenda, ahoraMs: number) {
     const desdeMs = Math.max(desde ? desde.getTime() : ahoraMs, 0);
     const n = Math.max(1, Math.min(dias ?? cfg.diasVentana, cfg.diasVentana));
-    const hastaMs = inicioDelDia(sumarDias(partesBogota(desdeMs).fecha, n));
+    // Pedir un día lejano no corre la ventana: nunca se ofrece (ni en el panel) lo que reservar rechazaría.
+    const hastaMs = Math.min(inicioDelDia(sumarDias(partesBogota(desdeMs).fecha, n)), limiteVentana(cfg, ahoraMs));
     return { desdeMs, hastaMs };
   }
 
@@ -467,7 +473,7 @@ export function crearAgenda(deps: DepsAgenda) {
       // dentro de la antelación mínima.
       if (!disp.activo || !disp.areas.includes(input.area)) return { ok: false, motivo: 'invalida' };
       if (finMs - inicioMs !== disp.duracionMin * MIN) return { ok: false, motivo: 'invalida' };
-      if (inicioMs > ahoraMs + cfg.diasVentana * DIA_MS) return { ok: false, motivo: 'invalida' };
+      if (inicioMs >= limiteVentana(cfg, ahoraMs)) return { ok: false, motivo: 'invalida' };
       const equipo = await deps.horarioEquipo().catch(() => null);
       const encaja = calcularFranjasAsesor({
         disp, ocupados: [], ahoraMs, desdeMs: inicioMs, hastaMs: inicioMs + 1,

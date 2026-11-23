@@ -2,8 +2,29 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga, formDesdeDisponibilidad,
-  horaCorta, hoyBogota, lineaDelDia, lunesDe, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
+  horaCorta, hoyBogota, lineaDelDia, lunesDe, opcionInicialFranja, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 } from './agenda.js';
+
+describe('horario preseleccionado al tocar «Libre»', () => {
+  const f = (h) => ({ inicio: `2026-11-24T${h}:00-05:00`, fin: `2026-11-24T${h.slice(0, 2)}:30:00-05:00` });
+  const franjas = [f('09:00'), f('10:00'), f('11:00')];
+
+  it('si la hora tocada sigue libre, queda elegida', () => {
+    assert.deepEqual(opcionInicialFranja(franjas, '2026-11-24T10:00:00-05:00'), { valor: `${franjas[1].inicio}|${franjas[1].fin}`, aviso: null });
+  });
+
+  it('si ya no está, lo dice y NO elige otra hora en silencio', () => {
+    const r = opcionInicialFranja(franjas, '2026-11-24T15:00:00-05:00');
+    assert.equal(r.valor, '');
+    assert.match(r.aviso, /mar 24 nov · 3:00 p\. m\..*ya no está libre/);
+    assert.equal(opcionInicialFranja([], '2026-11-24T15:00:00-05:00').valor, '', 'ni pasa a «Otra hora» sola');
+  });
+
+  it('sin hora tocada, la primera libre (o «Otra hora» si no hay)', () => {
+    assert.equal(opcionInicialFranja(franjas).valor, `${franjas[0].inicio}|${franjas[0].fin}`);
+    assert.equal(opcionInicialFranja([]).valor, '__otra__');
+  });
+});
 
 describe('citas sin recordatorio', () => {
   it('explica por qué una cita confirmada no tendrá recordatorio', () => {

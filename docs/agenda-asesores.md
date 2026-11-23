@@ -33,7 +33,8 @@ Hora de todo el sistema: **America/Bogota (UTC-5 fijo, sin horario de verano)**.
 ### Quien atiende (panel → **Agenda**)
 
 - Vista de **día** o **semana**, por asesor o de todos. En la vista de día de un asesor se ven también sus huecos libres
-  (tocar uno abre «Nueva cita» con esa hora).
+  (tocar uno abre «Nueva cita» con esa hora), solo dentro de la ventana de días que se pueden agendar. Si al abrir el
+  diálogo esa hora ya no está libre, lo dice y no elige otra por su cuenta.
 - **Nueva cita**, **Mover** y **Cancelar** (hoja de la cita). Marcar **atendida** o **no asistió** solo cuando la cita ya
   empezó; hay un aviso con las que ya pasaron y siguen sin marcar.
 - **Mi disponibilidad**: activar/desactivar, áreas que atiende, duración, pausa, tramos por día de la semana y
@@ -54,7 +55,8 @@ Una franja es libre si cumple todo esto (`src/services/agendaLogica.ts`, `calcul
 2. No sale del **horario del equipo** (`atencion:config`): es un tope. Si ese horario está desactivado no recorta.
 3. No es un festivo (config) ni cae en una excepción del asesor.
 4. No es del pasado ni empieza en menos de la **antelación mínima** (por defecto 120 min).
-5. Está dentro de la ventana de días (por defecto 14).
+5. Está dentro de la ventana de días (por defecto 14): empieza antes de la medianoche de hoy + `diasVentana`. Es el
+   mismo límite para ofrecer (bot y panel, aunque se pida un día lejano) y para reservar.
 6. No choca con una cita ya confirmada del asesor. Una cita que termina justo cuando empieza otra **no** choca (pausa 0);
    con pausa, deben quedar separadas.
 

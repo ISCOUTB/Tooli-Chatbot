@@ -121,6 +121,26 @@ function textoSinRecordatorio(c) {
   return motivos[c.motivoSinRecordatorio] ?? `Sin recordatorio automático (${cuales}): WhatsApp exige una plantilla aprobada fuera de las 24 horas.`;
 }
 
+const OTRA_HORA = '__otra__';
+
+/**
+ * Qué horario queda elegido al abrir «Nueva cita». Si se tocó un hueco «Libre» y ese hueco ya no está entre los
+ * libres (alguien lo tomó, o salió de la ventana), se avisa y NO se elige otra hora en silencio: así el asesor no
+ * agenda las 9:00 creyendo que agendó las 3:00.
+ */
+function opcionInicialFranja(franjas, buscada) {
+  const valor = (f) => `${f.inicio}|${f.fin}`;
+  if (buscada) {
+    const f = franjas.find(x => x.inicio === buscada);
+    if (f) return { valor: valor(f), aviso: null };
+    return {
+      valor: '',
+      aviso: `La hora que tocaste (${etiquetaDia(fechaDeIso(buscada))} · ${horaCorta(buscada)}) ya no está libre: alguien la tomó o quedó fuera de los días que se pueden agendar. Elige otra.`,
+    };
+  }
+  return { valor: franjas.length ? valor(franjas[0]) : OTRA_HORA, aviso: null };
+}
+
 /* ───────────── Formulario de disponibilidad ───────────── */
 
 /** Modelo del formulario a partir de lo que devuelve la API. */
@@ -201,8 +221,8 @@ function parseFestivos(texto) {
 }
 
 export {
-  AREAS, DIAS_CORTOS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS,
+  AREAS, DIAS_CORTOS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS, OTRA_HORA,
   agruparPorDia, citasPorTramo, diaSemana, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga,
-  fechaDeIso, fechaValida, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe,
+  fechaDeIso, fechaValida, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, opcionInicialFranja,
   parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 };

@@ -93,7 +93,8 @@ const esquemaConsultaCitas = z.object({
 const esquemaConsultaFranjas = z.object({
   asesor: z.string().min(1).max(60),
   desde: FECHA.optional(),
-  dias: z.coerce.number().int().min(1).max(31).default(7),
+  // Hasta 60 (la ventana máxima): el servicio recorta igual a la ventana configurada.
+  dias: z.coerce.number().int().min(1).max(60).default(7),
 });
 
 const MENSAJE_RESERVA = {

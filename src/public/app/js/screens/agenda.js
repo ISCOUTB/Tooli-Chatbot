@@ -1,8 +1,8 @@
 import { api } from '../core/api.js';
 import {
   AREAS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS, agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia,
-  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, parseFestivos,
-  porMarcar, sumarDias, textoSinRecordatorio,
+  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, opcionInicialFranja,
+  OTRA_HORA, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 } from '../core/agenda.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible } from '../core/format.js';
@@ -340,9 +340,17 @@ function abrirModal({ titulo, ayuda, cuerpo, etiquetaGuardar = 'Guardar', ancho 
   };
 }
 
-/** Opciones de horario libre de un asesor para los próximos 14 días. */
-async function cargarFranjas(asesor) {
-  const r = await pedir(`/franjas?asesor=${encodeURIComponent(asesor)}&desde=${hoyBogota()}&dias=14`);
+/** Días entre dos fechas AAAA-MM-DD (b - a). */
+const diasEntre = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * Horarios libres de un asesor desde hoy: 14 días, o los que haga falta para llegar al hueco tocado (hasta 60, el
+ * máximo de la ventana). El servidor recorta a la ventana configurada.
+ */
+async function cargarFranjas(asesor, hasta) {
+  const hoy = hoyBogota();
+  const dias = Math.min(60, Math.max(14, hasta ? diasEntre(hoy, fechaDeIso(hasta)) + 1 : 14));
+  const r = await pedir(`/franjas?asesor=${encodeURIComponent(asesor)}&desde=${hoy}&dias=${dias}`);
   return r.ok ? (r.data.franjas ?? []) : [];
 }
 
@@ -384,7 +392,7 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
   const selFranja = m.overlay.querySelector('#agFranja');
   const otra = m.overlay.querySelector('#agOtra');
   let area = mover ? cita.area : (areasDe(asesorInicial)[0] ?? 'posgrados');
-  const OTRA = '__otra__';
+  const OTRA = OTRA_HORA;
 
   if (!mover) {
     m.overlay.querySelector('#agAreaWrap').appendChild(buildSegmented(
@@ -394,13 +402,16 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
 
   async function llenarFranjas(usuario, preseleccion) {
     selFranja.innerHTML = '<option>Cargando horarios…</option>';
-    const franjas = await cargarFranjas(usuario);
+    const franjas = await cargarFranjas(usuario, preseleccion);
     if (!m.overlay.isConnected) return;
-    selFranja.innerHTML = franjas.map(f => `<option value="${escapeHtml(f.inicio)}|${escapeHtml(f.fin)}">${escapeHtml(etiquetaFranja(f))}</option>`).join('')
+    const inicial = opcionInicialFranja(franjas, preseleccion);
+    selFranja.innerHTML = (inicial.valor === '' ? '<option value="">Elige un horario…</option>' : '')
+      + franjas.map(f => `<option value="${escapeHtml(f.inicio)}|${escapeHtml(f.fin)}">${escapeHtml(etiquetaFranja(f))}</option>`).join('')
       + `<option value="${OTRA}">Otra hora…</option>`;
-    m.overlay.querySelector('#agFranjaAyuda').textContent = franjas.length ? '' : 'Este asesor no tiene horarios libres en 14 días; usa "Otra hora".';
-    const buscada = preseleccion && franjas.find(f => f.inicio === preseleccion);
-    selFranja.value = buscada ? `${buscada.inicio}|${buscada.fin}` : (franjas.length ? selFranja.options[0].value : OTRA);
+    // Si el hueco tocado ya no está, se dice y no se elige otra hora por la persona.
+    m.overlay.querySelector('#agFranjaAyuda').textContent = inicial.aviso
+      ?? (franjas.length ? '' : 'Este asesor no tiene horarios libres en los días que se pueden agendar; usa "Otra hora".');
+    selFranja.value = inicial.valor;
     otra.classList.toggle('hidden', selFranja.value !== OTRA);
   }
   selAsesor.addEventListener('change', () => llenarFranjas(selAsesor.value));

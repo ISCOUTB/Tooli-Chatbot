@@ -63,6 +63,17 @@ describe('franjasLibres', () => {
     assert.ok(ultimo <= '2026-12-06', `salió de la ventana de 14 días: ${ultimo}`);
   });
 
+  it('el panel tampoco ve huecos fuera de la ventana aunque pida un día lejano (no los podría reservar)', async () => {
+    // Ventana de 14 días desde el lunes 23: llega hasta el domingo 6 de diciembre.
+    const lejos = await ag.franjasDeAsesor('laura', { desde: new Date(bog('2026-12-10T00:00:00')), dias: 1 });
+    assert.deepEqual(lejos, [], 'el 10 de diciembre está fuera de la ventana');
+    const borde = await ag.franjasDeAsesor('laura', { desde: new Date(bog('2026-12-04T00:00:00')), dias: 7 });
+    assert.ok(borde.length > 0 && borde.every((f) => f.inicio < '2026-12-07'), 'recorta en el límite de la ventana');
+    assert.deepEqual(await ag.franjasLibres({ area: 'posgrados', desde: new Date(bog('2026-12-10T00:00:00')) }), []);
+    // Todo lo que se ofrece se puede reservar.
+    for (const f of borde) assert.equal((await reservar(`5730077${String(borde.indexOf(f)).padStart(5, '0')}`, f)).ok, true, f.inicio);
+  });
+
   it('una cita confirmada deja de ofrecerse y cancelarla la devuelve', async () => {
     const franja = fr('laura', '2026-11-24T10:00:00');
     const r = await reservar(TEL, franja);
