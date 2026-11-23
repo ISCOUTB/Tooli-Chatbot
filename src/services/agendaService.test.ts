@@ -429,3 +429,71 @@ describe('acciones del panel', () => {
     assert.equal(todos.find((a) => a.username === 'admin')?.disponibilidad.activo, false);
   });
 });
+
+describe('renombrar o borrar a un asesor', () => {
+  beforeEach(() => preparar());
+
+  const renombrarEnUsuarios = (viejo: string, nuevo: string) => {
+    const u = USUARIOS_DEL_MUNDO().find((x) => x.username === viejo)!;
+    u.username = nuevo;
+  };
+  const USUARIOS_DEL_MUNDO = () => (mundo.deps.usuarios as unknown as { _lista?: typeof USUARIOS_BASE })._lista ?? [];
+
+  it('renombrar migra disponibilidad, ocupación y citas: la hora tomada no se puede volver a reservar', async () => {
+    await ag.guardarDisponibilidad('mario', dispSemana(['posgrados'], { activo: false }));
+    const r = await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    const id = (r as { cita: { id: string } }).cita.id;
+    const cancelada = await reservar(TEL2, fr('laura', '2026-11-24T10:00:00'));
+    await ag.cancelar((cancelada as { cita: { id: string } }).cita.id, TEL2);
+
+    renombrarEnUsuarios('laura', 'laura.perez');
+    assert.equal(await ag.renombrarAsesor('laura', 'laura.perez'), 2, 'las dos citas de laura cambian de dueño');
+
+    assert.equal((await ag.disponibilidadDe('laura.perez')).activo, true, 'conserva su disponibilidad');
+    assert.equal(mundo.redis.strings.has('agenda:disp:laura'), false);
+    const libres = await ag.franjasDeAsesor('laura.perez', { desde: new Date(bog('2026-11-24T00:00:00')), dias: 1 });
+    assert.equal(libres.some((f) => f.inicio === '2026-11-24T09:00:00-05:00'), false, 'la hora ocupada sigue ocupada');
+    assert.deepEqual(await reservar(TEL2, fr('laura.perez', '2026-11-24T09:00:00')), { ok: false, motivo: 'ocupada' }, 'sin doble reserva');
+
+    const cita = await ag.obtenerCita(id);
+    assert.equal(cita?.asesor, 'laura.perez');
+    const dia = { desdeMs: bog('2026-11-24T00:00:00'), hastaMs: bog('2026-11-25T00:00:00') };
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura.perez' })).length, 2);
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura' })).length, 0);
+    // Cancelar después del cambio libera la hora del asesor nuevo (el ZSET correcto).
+    await ag.cancelarPanel(id);
+    assert.equal((await reservar(TEL2, fr('laura.perez', '2026-11-24T09:00:00'))).ok, true);
+  });
+
+  it('renombrar dos veces o a sí mismo no rompe nada', async () => {
+    await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    renombrarEnUsuarios('laura', 'lp');
+    assert.equal(await ag.renombrarAsesor('laura', 'lp'), 1);
+    assert.equal(await ag.renombrarAsesor('laura', 'lp'), 0, 'idempotente');
+    assert.equal(await ag.renombrarAsesor('lp', 'LP'), 0);
+    assert.equal((await ag.citasDe(TEL))[0].asesor, 'lp');
+  });
+
+  it('borrar: sus citas futuras no quedan huérfanas sin aviso', async () => {
+    const r = await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    const id = (r as { cita: { id: string } }).cita.id;
+    await reservar(TEL2, fr('mario', '2026-11-24T09:30:00'));
+    assert.equal(await ag.asesorBorrado('laura'), 1, 'una cita futura confirmada queda sin asesor');
+
+    const cita = await ag.obtenerCita(id);
+    assert.equal(cita?.sinAsesor, true);
+    assert.equal(cita?.estado, 'confirmada', 'la persona conserva su cita hasta que el equipo decida');
+    assert.deepEqual((await ag.citasSinAsesor()).map((c) => c.id), [id], 'el panel la lista');
+    assert.equal(mundo.redis.strings.has('agenda:disp:laura'), false);
+    assert.equal(mundo.redis.zsets.get('agenda:asesor:laura')?.size ?? 0, 0);
+    // Un usuario nuevo con el mismo nombre no hereda ni su agenda ni sus citas.
+    const dia = { desdeMs: bog('2026-11-24T00:00:00'), hastaMs: bog('2026-11-25T00:00:00') };
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura' })).length, 0);
+    assert.equal((await ag.disponibilidadDe('laura')).activo, false);
+    // El administrador la mueve a otro asesor y deja de estar huérfana.
+    const m = await ag.moverPanel(id, fr('mario', '2026-11-24T10:00:00'), 'admin', false);
+    assert.equal(m.ok, true);
+    assert.deepEqual(await ag.citasSinAsesor(), []);
+  });
+});
+

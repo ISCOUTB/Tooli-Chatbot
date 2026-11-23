@@ -25,6 +25,7 @@ const estado = {
   citas: [],
   franjas: [],
   cargaSeq: 0,
+  sinAsesor: { total: 0, primera: null },
 };
 
 async function pedir(ruta, opts) {
@@ -37,6 +38,8 @@ async function pedir(ruta, opts) {
 const esAdmin = () => sesion.user?.role === 'admin';
 const yo = () => sesion.user?.username?.toLowerCase();
 const nombreAsesor = (u) => estado.asesores.find(a => a.username.toLowerCase() === String(u).toLowerCase())?.nombre ?? u;
+/* Una cita de un asesor que se borró del panel no es de nadie, aunque alguien herede su nombre de usuario. */
+const asesorDeCita = (c) => (c.sinAsesor ? `Sin asesor (${c.asesorNombre ?? c.asesor} ya no está)` : nombreAsesor(c.asesor));
 const asesoresEditables = () => estado.asesores.filter(a => a.puedeEditar);
 
 function insignia(texto, color) {
@@ -90,6 +93,7 @@ async function renderAgenda(main) {
   if (!$('#agContenido')) return;
   if (!r.ok) { $('#agContenido').innerHTML = alertaError('No se pudo abrir la agenda.', 'agReintentar'); $('#agReintentar')?.addEventListener('click', () => renderAgenda(main)); return; }
   estado.asesores = r.data.asesores ?? [];
+  estado.sinAsesor = { total: r.data.citasSinAsesor ?? 0, primera: r.data.primeraSinAsesor ?? null };
   // Quien atiende ve primero su propia agenda; el administrador, la de todos.
   const mio = estado.asesores.find(a => a.esYo && a.activo);
   estado.asesor = mio && !esAdmin() ? mio.username : 'todos';
@@ -118,15 +122,18 @@ async function cargar() {
   if (rango) rango.textContent = estado.vista === 'dia' ? etiquetaDiaLarga(dias[0]) : `${etiquetaDia(dias[0])} – ${etiquetaDia(dias[6])}`;
   const filtro = estado.asesor !== 'todos' ? `&asesor=${encodeURIComponent(estado.asesor)}` : '';
   try {
-    const [rc, rf] = await Promise.all([
+    const [rc, rf, ra] = await Promise.all([
       pedir(`/citas?desde=${dias[0]}&dias=${dias.length}${filtro}`),
       // Los huecos libres solo se muestran en la vista de día de un asesor concreto.
       estado.vista === 'dia' && estado.asesor !== 'todos' ? pedir(`/franjas?asesor=${encodeURIComponent(estado.asesor)}&desde=${dias[0]}&dias=1`) : Promise.resolve({ ok: true, data: { franjas: [] } }),
+      // El administrador ve al día cuántas citas quedaron sin asesor (se borró su usuario).
+      esAdmin() ? pedir('/asesores') : Promise.resolve(null),
     ]);
     if (seq !== estado.cargaSeq || !cont.isConnected) return;
     if (!rc.ok) throw new Error(rc.data?.message || 'No se pudieron cargar las citas');
     estado.citas = rc.data.citas ?? [];
     estado.franjas = rf.ok ? (rf.data.franjas ?? []) : [];
+    if (ra?.ok) estado.sinAsesor = { total: ra.data.citasSinAsesor ?? 0, primera: ra.data.primeraSinAsesor ?? null };
   } catch (err) {
     if (seq !== estado.cargaSeq || !cont.isConnected) return;
     cont.innerHTML = alertaError(err.message || 'No se pudieron cargar las citas.', 'agReintentarCarga');
@@ -146,7 +153,7 @@ function filaCita(c, { conAsesor }) {
       <span class="ag-hora">${escapeHtml(horaCorta(c.inicio))}<small>${escapeHtml(horaCorta(c.fin))}</small></span>
       <span class="ag-cuerpo">
         <strong>${persona}</strong>
-        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor ? ` · ${escapeHtml(nombreAsesor(c.asesor))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
+        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor || c.sinAsesor ? ` · ${escapeHtml(asesorDeCita(c))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
       </span>
       ${insignia(meta.label, meta.color)}
     </button>`;
@@ -170,9 +177,19 @@ function pintar() {
   const hoy = hoyBogota();
 
   const pendientes = porMarcar(estado.citas);
-  $('#agAviso').innerHTML = pendientes.length
+  const huerfanas = estado.sinAsesor?.total ?? 0;
+  $('#agAviso').innerHTML = (pendientes.length
     ? `<div class="alert alert-warning" role="status">${pendientes.length === 1 ? 'Hay 1 cita que ya pasó y todavía no está marcada como atendida o sin asistencia.' : `Hay ${pendientes.length} citas que ya pasaron y todavía no están marcadas como atendidas o sin asistencia.`}</div>`
-    : '';
+    : '') + (huerfanas
+    ? `<div class="alert alert-warning" role="status">${huerfanas === 1 ? 'Hay 1 cita futura de un asesor que ya no está en el panel.' : `Hay ${huerfanas} citas futuras de asesores que ya no están en el panel.`} La persona la sigue teniendo: muévela a otro asesor o cancélala. ${estado.sinAsesor.primera ? `<button type="button" class="btn btn-secondary" id="agVerSinAsesor">Ver la primera</button>` : ''}</div>`
+    : '');
+  $('#agVerSinAsesor')?.addEventListener('click', () => {
+    estado.asesor = 'todos';
+    estado.fecha = estado.sinAsesor.primera;
+    const sel = $('#agAsesor');
+    if (sel) sel.value = 'todos';
+    cargar();
+  });
 
   if (estado.vista === 'dia') {
     const delDia = grupos[dias[0]] ?? [];
@@ -210,7 +227,7 @@ function detalleCita(c) {
   const filas = [
     ['phone', 'WhatsApp', c.telefono ? `+${c.telefono}` : c.telefonoMasc],
     ['user', 'Persona', c.nombre ?? '—'],
-    ['users', 'Asesor', nombreAsesor(c.asesor)],
+    ['users', 'Asesor', asesorDeCita(c)],
     ['tag', 'Área', AREAS[c.area] ?? c.area],
     ['send', 'Origen', nombreCanal(c.canal)],
     c.motivo ? ['note', 'Motivo', c.motivo] : null,
@@ -338,7 +355,8 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
   const mover = modo === 'mover';
   const editables = asesoresEditables();
   if (!editables.length) { toast('No tienes una agenda propia para crear citas.'); return; }
-  const asesorInicial = (mover ? cita.asesor : asesor) ?? editables.find(a => a.esYo)?.username ?? editables[0].username;
+  // Una cita sin asesor (su usuario se borró) se mueve a otro: no se preselecciona el nombre viejo.
+  const asesorInicial = (mover ? (cita.sinAsesor ? null : cita.asesor) : asesor) ?? editables.find(a => a.esYo)?.username ?? editables[0].username;
   const areasDe = (u) => estado.asesores.find(a => a.username === u)?.areas ?? [];
   const cuerpo = `
     ${mover ? '' : `

@@ -258,3 +258,23 @@ describe('citas desde el panel', () => {
     assert.equal((await llamar(LAURA, 'GET', '/agenda/franjas')).status, 400);
   });
 });
+
+describe('citas de un asesor borrado', () => {
+  it('solo el administrador las ve como suyas para mover o cancelar, y sabe cuántas hay', async () => {
+    const c = (await llamar(LAURA, 'POST', '/agenda/citas', cita())).json.cita;
+    await servicio.asesorBorrado('laura');
+    const q = '/agenda/citas?desde=2026-11-24&dias=1';
+    const comoLaura = (await llamar(LAURA, 'GET', q)).json.citas[0];
+    assert.equal(comoLaura.sinAsesor, true);
+    assert.equal(comoLaura.puedeEditar, false, 'un usuario nuevo con el mismo nombre no la hereda');
+    assert.equal(comoLaura.telefono, undefined);
+    assert.equal((await llamar(LAURA, 'POST', `/agenda/citas/${c.id}/cancelar`)).status, 403);
+    assert.equal((await llamar(ADMIN, 'GET', q)).json.citas[0].puedeEditar, true);
+    assert.equal((await llamar(ADMIN, 'GET', '/agenda/asesores')).json.citasSinAsesor, 1);
+    assert.equal((await llamar(MARIO, 'GET', '/agenda/asesores')).json.citasSinAsesor, undefined, 'el aviso es para el administrador');
+    const movida = await llamar(ADMIN, 'POST', `/agenda/citas/${c.id}/mover`, { inicio: '2026-11-24T10:00:00-05:00', asesor: 'mario' });
+    assert.equal(movida.status, 200);
+    assert.equal((await llamar(ADMIN, 'GET', '/agenda/asesores')).json.citasSinAsesor, 0);
+  });
+});
+

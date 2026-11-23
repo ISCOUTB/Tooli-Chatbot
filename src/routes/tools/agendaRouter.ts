@@ -113,6 +113,9 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
 
   const puedeEditar = (req: AuthedRequest, asesor: string) =>
     req.user!.role === 'admin' || req.user!.username.toLowerCase() === asesor.toLowerCase();
+  /** La cita de un asesor borrado (`sinAsesor`) solo la toca el administrador, aunque alguien herede ese nombre. */
+  const puedeEditarCita = (req: AuthedRequest, c: { asesor: string; sinAsesor?: boolean }) =>
+    req.user!.role === 'admin' || (!c.sinAsesor && puedeEditar(req, c.asesor));
 
   const prohibido = (res: Response) => {
     res.status(403).json({ error: 'forbidden', message: 'Solo puedes modificar tu propia agenda.' });
@@ -143,7 +146,7 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
 
   /** Lo que ve el panel de una cita: el teléfono completo solo si puede editarla. */
   const paraPanel = (req: AuthedRequest, c: CitaAgenda) => {
-    const editar = puedeEditar(req, c.asesor);
+    const editar = puedeEditarCita(req, c);
     const { telefono, ...resto } = c;
     return { ...resto, telefonoMasc: maskPhone(telefono), ...(editar ? { telefono } : {}), puedeEditar: editar };
   };
@@ -165,7 +168,10 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
   router.get('/agenda/asesores', async (req: AuthedRequest, res: Response) => {
     try {
       const asesores = await servicio.asesores();
+      // Al administrador se le avisa de las citas que quedaron sin asesor (se borró su usuario).
+      const huerfanas = req.user!.role === 'admin' ? await servicio.citasSinAsesor() : undefined;
       res.json({
+        ...(huerfanas ? { citasSinAsesor: huerfanas.length, primeraSinAsesor: huerfanas[0]?.inicio.slice(0, 10) ?? null } : {}),
         asesores: asesores.map((a) => ({
           username: a.username, nombre: a.nombre, role: a.role,
           activo: a.disponibilidad.activo, areas: a.disponibilidad.areas, duracionMin: a.disponibilidad.duracionMin,
@@ -261,7 +267,7 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
     if (!ID_CITA.test(id)) { res.status(400).json({ error: 'validation_error', message: 'id de cita inválido' }); return null; }
     const cita = await servicio.obtenerCita(id);
     if (!cita) { res.status(404).json({ error: 'no_encontrada', message: 'Esa cita ya no existe.' }); return null; }
-    if (!puedeEditar(req, cita.asesor)) { prohibido(res); return null; }
+    if (!puedeEditarCita(req, cita)) { prohibido(res); return null; }
     return cita;
   }
 

@@ -71,6 +71,8 @@ export interface CitaAgenda extends Cita {
    * o `error` (el programador falló).
    */
   motivoSinRecordatorio?: MotivoSinRecordatorio;
+  /** El asesor dueño se borró del panel: la cita conserva `asesor` como historia, pero ya no es de nadie. */
+  sinAsesor?: boolean;
 }
 
 export type MotivoSinRecordatorio = 'ventana' | 'sin_telefono' | 'error';
@@ -198,6 +200,74 @@ redis.call('SET', KEYS[1], cjson.encode(c), 'EX', ARGV[4])
 if ARGV[2] == 'cancelada' then redis.call('ZREM', KEYS[2], ARGV[5]) end
 redis.call('ZREM', KEYS[3], ARGV[5])
 return 'ok'
+`;
+
+/**
+ * Renombrar a un asesor en la agenda, en UNA operación (sin ventana para una doble reserva).
+ * KEYS: 1 disponibilidad vieja, 2 disponibilidad nueva, 3 zset del asesor viejo, 4 zset del nuevo, 5 índice general
+ * ARGV: 1 usuario viejo, 2 usuario nuevo, 3 prefijo de las citas ('agenda:cita:')
+ * La disponibilidad se copia tal cual (el JSON se valida con el usuario de la clave al leerla). Las citas de una
+ * persona borrada (`sinAsesor`) no se le asignan a nadie. Devuelve cuántas citas cambiaron de asesor.
+ */
+export const LUA_RENOMBRAR_ASESOR = `
+local disp = redis.call('GET', KEYS[1])
+if disp then
+  redis.call('SET', KEYS[2], disp)
+  redis.call('DEL', KEYS[1])
+end
+local ocupa = redis.call('ZRANGE', KEYS[3], 0, -1, 'WITHSCORES')
+for i = 1, #ocupa, 2 do
+  redis.call('ZADD', KEYS[4], ocupa[i + 1], ocupa[i])
+end
+redis.call('DEL', KEYS[3])
+local n = 0
+for _, id in ipairs(redis.call('ZRANGE', KEYS[5], 0, -1)) do
+  local k = ARGV[3] .. id
+  local raw = redis.call('GET', k)
+  if raw then
+    local ok, c = pcall(cjson.decode, raw)
+    if ok and type(c) == 'table' then
+      local cambio = false
+      if c.asesor == ARGV[1] and not c.sinAsesor then
+        c.asesor = ARGV[2]
+        cambio = true
+        n = n + 1
+      end
+      if c.creadaPor == ARGV[1] then
+        c.creadaPor = ARGV[2]
+        cambio = true
+      end
+      if cambio then redis.call('SET', k, cjson.encode(c), 'KEEPTTL') end
+    end
+  end
+end
+return n
+`;
+
+/**
+ * Un asesor se borró del panel: su disponibilidad y su ocupación se van (un usuario nuevo con el mismo nombre
+ * empieza limpio) y sus citas quedan marcadas `sinAsesor` para que el panel las muestre al administrador.
+ * KEYS: 1 disponibilidad, 2 zset del asesor, 3 índice general
+ * ARGV: 1 usuario, 2 prefijo de las citas, 3 ahora (ms)
+ * Devuelve cuántas citas FUTURAS y confirmadas quedaron sin asesor.
+ */
+export const LUA_ASESOR_BORRADO = `
+redis.call('DEL', KEYS[1], KEYS[2])
+local n = 0
+local todas = redis.call('ZRANGE', KEYS[3], 0, -1, 'WITHSCORES')
+for i = 1, #todas, 2 do
+  local k = ARGV[2] .. todas[i]
+  local raw = redis.call('GET', k)
+  if raw then
+    local ok, c = pcall(cjson.decode, raw)
+    if ok and type(c) == 'table' and c.asesor == ARGV[1] and not c.sinAsesor then
+      c.sinAsesor = true
+      redis.call('SET', k, cjson.encode(c), 'KEEPTTL')
+      if c.estado == 'confirmada' and tonumber(todas[i + 1]) >= tonumber(ARGV[3]) then n = n + 1 end
+    end
+  end
+end
+return n
 `;
 
 /* ─────────────────────────────── Utilidades ────────────────────────────── */
@@ -611,12 +681,42 @@ export function crearAgenda(deps: DepsAgenda) {
     raws.forEach((raw, i) => {
       const c = parseCita(raw);
       if (!c) { huerfanos.push(recortados[i]); return; }
-      if (opts.asesor && c.asesor !== opts.asesor.toLowerCase()) return;
+      // Las de un asesor borrado no son de nadie: no aparecen al filtrar por ese nombre (ni para quien lo herede).
+      if (opts.asesor && (c.asesor !== opts.asesor.toLowerCase() || c.sinAsesor)) return;
       if (opts.estado && c.estado !== opts.estado) return;
       citas.push(c);
     });
     if (huerfanos.length) await redis.zrem(K.todas, ...huerfanos).catch(() => 0);
     return citas.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }
+
+  /* ── Cambios de usuarios del panel (los llama usersService) ─────────── */
+
+  /** Renombrar: disponibilidad, ocupación y citas pasan al usuario nuevo en una sola operación atómica. */
+  async function renombrarAsesor(viejo: string, nuevo: string): Promise<number> {
+    const v = viejo.toLowerCase();
+    const n = nuevo.toLowerCase();
+    if (!v || !n || v === n) return 0;
+    return Number(await redis.eval(
+      LUA_RENOMBRAR_ASESOR, 5, K.disp(v), K.disp(n), K.asesorZ(v), K.asesorZ(n), K.todas, v, n, K.cita(''),
+    ));
+  }
+
+  /** Borrar: ver LUA_ASESOR_BORRADO. Devuelve cuántas citas futuras quedaron sin asesor. */
+  async function asesorBorrado(usuario: string): Promise<number> {
+    const u = usuario.toLowerCase();
+    if (!u) return 0;
+    return Number(await redis.eval(LUA_ASESOR_BORRADO, 3, K.disp(u), K.asesorZ(u), K.todas, u, K.cita(''), deps.ahora()));
+  }
+
+  /** Citas futuras y confirmadas de asesores borrados: el administrador las mueve o las cancela. */
+  async function citasSinAsesor(): Promise<CitaAgenda[]> {
+    const ids = await redis.zrangebyscore(K.todas, deps.ahora(), '+inf');
+    if (!ids.length) return [];
+    const raws = await redis.mget(ids.slice(0, 2000).map(K.cita));
+    return raws.map(parseCita)
+      .filter((c): c is CitaAgenda => !!c && c.sinAsesor === true && c.estado === 'confirmada')
+      .sort((a, b) => a.inicio.localeCompare(b.inicio));
   }
 
   const api: AgendaApi = {
@@ -634,6 +734,7 @@ export function crearAgenda(deps: DepsAgenda) {
     franjasDeAsesor,
     obtenerCita, listarCitas,
     reservarPanel, moverPanel, cancelarPanel, marcarPanel,
+    renombrarAsesor, asesorBorrado, citasSinAsesor,
   };
 }
 

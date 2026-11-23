@@ -70,6 +70,21 @@ en la ventana. Para ver los de un asesor concreto (panel) se usa `franjasDeAseso
 - Una cita ya guardada no cambia de horario: mover crea una cita nueva (`reprogramadaDe` apunta a la vieja) y deja la
   vieja `cancelada`.
 
+## Renombrar o borrar a un asesor
+
+Las claves de la agenda usan el nombre de usuario (`agenda:disp:<u>`, `agenda:asesor:<u>`, `cita.asesor`).
+
+- **Renombrar** (`usersService.renameUser`) llama a `agendaServicio.renombrarAsesor(viejo, nuevo)`: un solo script Lua
+  (`LUA_RENOMBRAR_ASESOR`) mueve la disponibilidad, une la ocupación en el ZSET nuevo y cambia `asesor` (y `creadaPor`)
+  en todas las citas guardadas, conservando su vencimiento. Antes la agenda del nombre nuevo nacía vacía y la hora que el
+  asesor ya tenía tomada se podía volver a reservar.
+- **Borrar** (`usersService.deleteUser`) llama a `agendaServicio.asesorBorrado(u)` (`LUA_ASESOR_BORRADO`): se borran su
+  disponibilidad y su ocupación (un usuario nuevo con el mismo nombre empieza limpio) y **sus citas quedan marcadas
+  `sinAsesor`**. Decisión: la persona conserva su cita (sigue en «mis citas» y con sus recordatorios) hasta que el equipo
+  decida; no se le avisa sola. En el panel esas citas salen como «Sin asesor», solo el administrador puede moverlas
+  (a otro asesor) o cancelarlas, y la Agenda le muestra un aviso con cuántas citas futuras hay así y un botón para ir a la
+  primera. Al filtrar por asesor no aparecen (no son de nadie).
+
 ## Datos en Redis
 
 | Clave | Contenido |
@@ -117,7 +132,7 @@ cerrada. Hoy `reminderService` envía solo texto y `broadcastService` solo plant
   operaciones se intercalan como en Redis real), flujo de WhatsApp de punta a punta con adaptador falso, API del
   panel contra un Express real y funciones puras del panel.
 - `tools/test-agenda-redis.mjs`: los **scripts Lua de verdad** contra un Redis temporal (40 reservas simultáneas de la
-  misma franja, límite por teléfono bajo concurrencia, cancelación doble). Instrucciones en el encabezado del archivo.
+  misma franja, límite por teléfono bajo concurrencia, cancelación doble, renombrar y borrar a un asesor). Instrucciones en el encabezado del archivo.
 
 ## Qué falta / ideas
 

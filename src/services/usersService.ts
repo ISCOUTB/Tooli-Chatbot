@@ -208,6 +208,9 @@ export async function renameUser(viejo: string, nuevo: string): Promise<PublicUs
     ['macros', () => renombrarUsuarioEnMacros(user.username, username)],
     ['recordatorios', () => renombrarUsuarioEnRecordatorios(user.username, username)],
     ['envíos masivos', () => renombrarUsuarioEnBroadcasts(user.username, username)],
+    // Disponibilidad, ocupación y citas en un solo script: sin esto, la agenda del nombre nuevo nacía vacía y la
+    // hora que el asesor ya tenía tomada se podía volver a reservar.
+    ['agenda', async () => { await (await import('./agendaService')).agendaServicio.renombrarAsesor(user.username, username); }],
   ];
   for (const [nombre, migrar] of migraciones) {
     try {
@@ -252,6 +255,14 @@ export async function deleteUser(username: string): Promise<void> {
   if (user?.chatwootUserId) await deleteChatwootUser(user.chatwootUserId);
   await redis.del(KEY(username));
   await redis.srem(INDEX_KEY, username.toLowerCase());
+  // Sus citas no quedan huérfanas sin aviso: se marcan «sin asesor» y el administrador las ve en la Agenda.
+  try {
+    const { agendaServicio } = await import('./agendaService');
+    const futuras = await agendaServicio.asesorBorrado(username);
+    if (futuras) console.warn(`[users] ${futuras} cita(s) futura(s) quedaron sin asesor; el administrador las ve en la Agenda`);
+  } catch {
+    console.error('[users] no se pudo marcar en la agenda las citas del usuario borrado');
+  }
 }
 
 export async function verifyPassword(username: string, password: string): Promise<User | null> {

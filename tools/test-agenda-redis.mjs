@@ -96,6 +96,32 @@ try {
   // 6. Los ZSET no se pierden: citasDe usa el índice del teléfono.
   assert.equal((await ag.listarCitas({ desdeMs: Date.parse('2026-11-24T00:00:00-05:00'), hastaMs: Date.parse('2026-11-25T00:00:00-05:00') })).length >= 4, true);
   console.log('ok 6: listarCitas del panel');
+
+  // 7. Renombrar al asesor (LUA_RENOMBRAR_ASESOR): disponibilidad, ZSET y citas pasan juntos; sin doble reserva.
+  const tomadas = await ag.listarCitas({ desdeMs: 0, hastaMs: Date.parse('2100-01-01'), asesor: 'laura', estado: 'confirmada' });
+  const ttlAntes = await redis.ttl(`agenda:cita:${tomadas[0].id}`);
+  usuarios[0].username = 'laura.perez';
+  const movidas = await ag.renombrarAsesor('laura', 'laura.perez');
+  assert.ok(movidas >= tomadas.length, `citas migradas: ${movidas}`);
+  assert.equal(await redis.exists('agenda:disp:laura', 'agenda:asesor:laura'), 0);
+  assert.equal((await ag.disponibilidadDe('laura.perez')).activo, true);
+  assert.equal(await redis.zcard('agenda:asesor:laura.perez'), tomadas.length);
+  const migrada = await ag.obtenerCita(tomadas[0].id);
+  assert.equal(migrada.asesor, 'laura.perez');
+  assert.ok(Math.abs((await redis.ttl(`agenda:cita:${tomadas[0].id}`)) - ttlAntes) <= 2, 'KEEPTTL conserva el vencimiento');
+  const otra = { ...franja(tomadas[0].inicio.slice(11, 16)), asesor: 'laura.perez' };
+  assert.deepEqual(await reservar('573006660000', otra), { ok: false, motivo: 'ocupada' }, 'la hora tomada sigue tomada');
+  assert.equal(await ag.renombrarAsesor('laura', 'laura.perez'), 0, 'idempotente');
+  console.log('ok 7: renombrar migra todo de una vez y no deja doble reserva');
+
+  // 8. Borrar al asesor (LUA_ASESOR_BORRADO): sus citas quedan sin asesor y su agenda se limpia.
+  const huerfanas = await ag.asesorBorrado('laura.perez');
+  assert.equal(huerfanas, tomadas.length);
+  assert.equal(await redis.exists('agenda:disp:laura.perez', 'agenda:asesor:laura.perez'), 0);
+  assert.equal((await ag.citasSinAsesor()).length, tomadas.length);
+  assert.equal((await ag.obtenerCita(tomadas[0].id)).sinAsesor, true);
+  assert.equal((await ag.obtenerCita(tomadas[0].id)).estado, 'confirmada');
+  console.log('ok 8: borrar deja las citas futuras «sin asesor» a la vista del administrador');
   console.log('TODAS LAS PRUEBAS CONTRA REDIS REAL PASARON');
 } catch (e) {
   fallo = true;
