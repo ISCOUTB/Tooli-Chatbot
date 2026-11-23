@@ -4,6 +4,7 @@ import { FlowContext, messaging, normalize, sendMenu, sendMenuClasico, sendMenuP
 import { parseGlobalCommand } from './commands';
 import { iniciarConsultaDeNotas } from './notas';
 import { iniciarMiSemestre } from './miSemestre';
+import { miSemestreDisponible } from '../services/academico/interruptores';
 import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
 import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
@@ -69,8 +70,8 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   if (await salirDeMenuDeArea(from, text)) return;
 
-  // 10 — Mi semestre (solo aparece para estudiantes verificados; también se puede escribir)
-  if (input === '10' || normalize(input) === 'mi semestre') {
+  // 10 — Mi semestre (solo con alguna integración académica encendida y para verificados; también se puede escribir)
+  if (miSemestreDisponible() && (input === '10' || normalize(input) === 'mi semestre')) {
     await iniciarMiSemestre(from, 'posgrado');
     return;
   }
@@ -163,8 +164,8 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
 
   if (await salirDeMenuDeArea(from, text)) return;
 
-  // 10 — Mi semestre (solo aparece para estudiantes verificados; también se puede escribir)
-  if (input === '10' || normalize(input) === 'mi semestre') {
+  // 10 — Mi semestre (solo con alguna integración académica encendida y para verificados; también se puede escribir)
+  if (miSemestreDisponible() && (input === '10' || normalize(input) === 'mi semestre')) {
     await iniciarMiSemestre(from, 'pregrado');
     return;
   }

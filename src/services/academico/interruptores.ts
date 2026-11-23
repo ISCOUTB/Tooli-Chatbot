@@ -29,6 +29,14 @@ export const interruptoresDeEntorno: Interruptores = {
   cursos: () => encendido('TOOLI_SAVIO_ENABLED') && Boolean(process.env.SAVIO_WS_TOKEN?.trim()),
 };
 
+/**
+ * ¿Hay al menos una integración académica encendida? Con todas apagadas (lo de fábrica) «Mi semestre» no existe:
+ * ni en los menús, ni al escribirlo, ni en «Mi vida académica». Todo se comporta como antes de los datos académicos.
+ */
+export function miSemestreDisponible(i: Interruptores = interruptoresDeEntorno): boolean {
+  return i.notas() || i.recibo() || i.turno() || i.horario() || i.cursos();
+}
+
 export type CaminoNotas = 'A' | 'B';
 
 /**

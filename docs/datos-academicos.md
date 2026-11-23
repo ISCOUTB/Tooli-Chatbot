@@ -69,7 +69,9 @@ Clave: `openssl rand -hex 32`. Rotarla invalida las sesiones guardadas y los ín
 
 ## Menú de WhatsApp
 
-*Mi semestre* aparece en los menús de pregrado y posgrado (fila 10) solo para verificados, en lugar de *Cómo inscribirme* (WhatsApp permite 10 filas). También se puede escribir «mi semestre». Turno y recibo de los menús llevan allí. Eventos nuevos de métricas: `academico_semestre`, `codigo_vinculado`, `codigo_vinculo_fallido`, `notas_sesion_guardada`, `avisos_academicos_enviados`.
+Con **todas las integraciones apagadas** (lo de fábrica) *Mi semestre* no existe: los menús son los de `main` (los verificados siguen viendo *Cómo inscribirme*), «mi semestre» y «10» no hacen nada especial y *Mi vida académica* no invita a escribirlo (`miSemestreDisponible()` en `interruptores.ts`).
+
+Con alguna encendida, *Mi semestre* aparece en los menús de pregrado y posgrado (fila 10) solo para verificados, en lugar de *Cómo inscribirme* (WhatsApp permite 10 filas), y dentro solo se listan las consultas encendidas (más *¿Cuánto necesito?*). También se puede escribir «mi semestre». Sin `RESEND_API_KEY` no se abre la verificación por correo (no podría llegar el código): se le dice a la persona que aún no está disponible. Turno y recibo de los menús llevan allí. Eventos nuevos de métricas: `academico_semestre`, `codigo_vinculado`, `codigo_vinculo_fallido`, `notas_sesion_guardada`, `avisos_academicos_enviados`.
 
 ## Qué se tomó de nutriIA (solo lectura)
 

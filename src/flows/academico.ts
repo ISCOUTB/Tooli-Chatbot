@@ -20,7 +20,7 @@ import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
 import { sendAcademicAccount } from './academicAccount';
 import { iniciarConsultaSavio } from './savio';
 import { consultarEnSemestre, iniciarMiSemestre } from './miSemestre';
-import { interruptoresDeEntorno } from '../services/academico/interruptores';
+import { interruptoresDeEntorno, miSemestreDisponible } from '../services/academico/interruptores';
 import type { FlowArea } from './commands';
 
 /** Métrica por recurso: explícita (y no un template literal) para que el
@@ -64,7 +64,8 @@ export async function sendMenuAcademico(to: string, area: AreaRecurso): Promise<
     title: '🎒 Mi vida académica',
     description:
       'Te llevo directo a donde está tu información, sin dar vueltas por la página.\n\n' +
-      '¿Qué necesitas consultar?\n_Si ya eres estudiante, escribe *mi semestre* para ver tus datos._',
+      '¿Qué necesitas consultar?' +
+      (miSemestreDisponible() ? '\n_Si ya eres estudiante, escribe *mi semestre* para ver tus datos._' : ''),
     footer: 'Universidad Tecnológica de Bolívar',
     buttonText: 'Ver opciones',
     sections: [
@@ -111,7 +112,7 @@ export async function handleAcademicoMenu(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  if (normalize(input) === 'mi semestre') {
+  if (miSemestreDisponible() && normalize(input) === 'mi semestre') {
     await iniciarMiSemestre(from, area);
     return;
   }

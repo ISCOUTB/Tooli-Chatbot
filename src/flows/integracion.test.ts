@@ -47,6 +47,9 @@ const sesiones = new Map<string, { step: string; data: Record<string, string> }>
 let iniciarConversacionAsesor: typeof import('./agentHandoff').iniciarConversacionAsesor;
 let handleMessage: typeof import('./index').handleMessage;
 let sendMenuPregrado: typeof import('./shared').sendMenuPregrado;
+let sendMenuPosgrado: typeof import('./shared').sendMenuPosgrado;
+let sendMenuAcademico: typeof import('./academico').sendMenuAcademico;
+let config: typeof import('../config').config;
 
 before(async () => {
   if (SIN_MOCKS) return;
@@ -92,6 +95,9 @@ before(async () => {
   mock.method(shared.messaging, 'sendButtons', registrar('botones'));
   mock.method(shared.messaging, 'sendList', registrar('lista'));
   sendMenuPregrado = shared.sendMenuPregrado;
+  sendMenuPosgrado = shared.sendMenuPosgrado;
+  ({ sendMenuAcademico } = await import('./academico'));
+  ({ config } = await import('../config'));
   ({ iniciarConversacionAsesor } = await import('./agentHandoff'));
   ({ handleMessage } = await import('./index'));
 }, { timeout: 180_000 }); // cargar todo el grafo de flujos tarda con el PC ocupado
@@ -140,8 +146,84 @@ describe('paso a TI: identidad (seguridad) + oferta de cita (agenda) juntos', { 
   });
 });
 
+// Interruptores académicos: se leen en cada llamada, así que cada prueba los fija y los deja como estaban.
+const INTERRUPTORES = ['TOOLI_NOTAS_SSO_ENABLED', 'TOOLI_ACADEMIC_LOOKUP_ENABLED', 'TOOLI_HORARIO_ENABLED', 'TOOLI_SAVIO_ENABLED', 'SAVIO_WS_TOKEN'];
+async function conEntorno(valores: Record<string, string>, prueba: () => Promise<void>): Promise<void> {
+  const antes = Object.fromEntries(INTERRUPTORES.map((k) => [k, process.env[k]]));
+  for (const k of INTERRUPTORES) delete process.env[k];
+  Object.assign(process.env, valores);
+  try { await prueba(); } finally {
+    for (const k of INTERRUPTORES) { if (antes[k] === undefined) delete process.env[k]; else process.env[k] = antes[k]; }
+  }
+}
+const textos = () => enviados.map((e) => String(e.msg.text ?? `${e.msg.title}\n${e.msg.description}`)).join('\n---\n');
+
+describe('datos académicos APAGADOS (por defecto): todo igual que en main', { skip: SIN_MOCKS }, () => {
+  it('el estudiante verificado sigue viendo «Cómo inscribirme» y no «Mi semestre»', () => conEntorno({}, async () => {
+    for (const enviar of [sendMenuPregrado, sendMenuPosgrado]) {
+      enviados.length = 0;
+      await enviar(ANA_TEL);
+      const filas = ids(enviados[0]);
+      assert.ok(filas.includes('9'), 'Cómo inscribirme');
+      assert.equal(filas.includes('10'), false, 'sin Mi semestre');
+    }
+  }));
+
+  it('«mi semestre» y «10» no abren Mi semestre ni la verificación: el menú dice que no reconoce la opción', () => conEntorno({}, async () => {
+    for (const [step, texto] of [['menu_pregrado', 'mi semestre'], ['menu_pregrado', '10'], ['menu_posgrado', 'Mi semestre'], ['menu_posgrado', '10']]) {
+      for (const tel of [ANA_TEL, '573009990000']) {
+        enviados.length = 0;
+        sesiones.set(tel, { step, data: {} });
+        await handleMessage(tel, texto);
+        assert.match(textos(), /No reconocí esa opción/, `${step} «${texto}»`);
+        assert.doesNotMatch(textos(), /Mi semestre|Verificación de identidad/, `${step} «${texto}»`);
+        assert.notEqual(sesiones.get(tel)?.step, 'semestre_menu');
+      }
+    }
+  }));
+
+  it('«Mi vida académica» no invita a escribir «mi semestre» ni lo atiende', () => conEntorno({}, async () => {
+    await sendMenuAcademico(ANA_TEL, 'pregrado');
+    assert.doesNotMatch(String(enviados[0].msg.description), /mi semestre/i);
+    enviados.length = 0;
+    await handleMessage(ANA_TEL, 'mi semestre');
+    assert.doesNotMatch(textos(), /📅 Mi semestre|Verificación de identidad/);
+  }));
+});
+
+describe('«Mi semestre» con alguna integración encendida', { skip: SIN_MOCKS }, () => {
+  it('solo ofrece lo que está encendido (nada de «Por ahora no consulto…»)', () => conEntorno({ TOOLI_NOTAS_SSO_ENABLED: '1' }, async () => {
+    sesiones.set(ANA_TEL, { step: 'menu_pregrado', data: {} });
+    await handleMessage(ANA_TEL, 'mi semestre');
+    const lista = enviados.find((e) => e.tipo === 'lista' && e.msg.title === '📅 Mi semestre');
+    assert.ok(lista, textos());
+    assert.deepEqual(ids(lista!).sort(), ['0', '1', '6'], 'notas, ¿cuánto necesito? y volver');
+  }));
+
+  it('sin correo configurado (RESEND_API_KEY) no abre una verificación que no puede mandar el código', () => conEntorno({ TOOLI_NOTAS_SSO_ENABLED: '1' }, async () => {
+    const correo = config.mail as { apiKey: string };
+    const antes = correo.apiKey;
+    try {
+      correo.apiKey = '';
+      sesiones.set('573009990000', { step: 'menu_pregrado', data: {} });
+      await handleMessage('573009990000', 'mi semestre');
+      assert.doesNotMatch(textos(), /Verificación de identidad/);
+      assert.match(textos(), /todavía no está disponible/);
+      assert.notEqual(sesiones.get('573009990000')?.step, 'verif_email');
+
+      enviados.length = 0;
+      correo.apiKey = 'clave-de-prueba';
+      sesiones.set('573009990000', { step: 'menu_pregrado', data: {} });
+      await handleMessage('573009990000', 'mi semestre');
+      assert.match(textos(), /Verificación de identidad/, 'con correo, sí verifica');
+    } finally {
+      correo.apiKey = antes;
+    }
+  }));
+});
+
 describe('menú de WhatsApp: «Mi semestre» y «agendar» a la vez', { skip: SIN_MOCKS }, () => {
-  it('el menú muestra Mi semestre; «agendar» abre la agenda y «mi semestre» sale de ella y abre Mi semestre', async () => {
+  it('el menú muestra Mi semestre; «agendar» abre la agenda y «mi semestre» sale de ella y abre Mi semestre', () => conEntorno({ TOOLI_NOTAS_SSO_ENABLED: '1' }, async () => {
     await sendMenuPregrado(ANA_TEL);
     const filas = ids(enviados[0]);
     assert.ok(filas.includes('10'), 'Mi semestre en el menú del estudiante verificado');
@@ -158,7 +240,7 @@ describe('menú de WhatsApp: «Mi semestre» y «agendar» a la vez', { skip: SI
     assert.equal(lista?.msg.title, '📅 Mi semestre', `respuesta: ${JSON.stringify(enviados.map((e) => e.msg))}`);
     assert.equal(enviados.some(deAgenda), false);
     assert.equal(sesiones.get(ANA_TEL)?.step, 'semestre_menu');
-  });
+  }));
 
   it('en un paso de cédula o contraseña, «quiero una cita» es del paso, no de la agenda', async () => {
     for (const step of ['vincular_cedula', 'notas_password']) {
