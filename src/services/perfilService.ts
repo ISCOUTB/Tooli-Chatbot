@@ -1,8 +1,9 @@
 /**
  * Perfil de quien conversa con el flujo de posgrados. La sesión dura una hora;
  * el perfil, 90 días, para que quien vuelve no tenga que contestar todo de nuevo.
- * Solo guarda valores cerrados (relación, carrera, nivel), el nombre que dio y
- * si autorizó recibir información. Nunca lo que escribió.
+ * Solo guarda valores cerrados (relación, carrera, nivel), el nombre que dio,
+ * cómo prefiere que la contacten (canal, número y franja) y si autorizó recibir
+ * información. Nunca lo que escribió.
  */
 import Redis from 'ioredis';
 import { config } from '../config';
@@ -16,7 +17,7 @@ export const TTL_PERFIL_SEGUNDOS = 90 * 24 * 60 * 60;
 /** Lo que se recuerda entre conversaciones. */
 export const CAMPOS_PERFIL = [
   'relacion', 'pregradoId', 'familiaId', 'nivel', 'nivelListo', 'nombre', 'correo', 'datos', 'info', 'filaCrm', 'sinPregrado',
-  'pendiente', 'pendienteEn', 'programaInteres',
+  'pendiente', 'pendienteEn', 'programaInteres', 'contactoCanal', 'contactoTel', 'contactoFranja',
 ] as const;
 
 /**
@@ -30,8 +31,8 @@ export function pendienteVigente(perfil: Record<string, string>, ahora = Date.no
   return !!perfil.pendiente && Number.isFinite(desde) && desde > 0 && ahora - desde < PENDIENTE_VIGENTE_MS;
 }
 
-/** Lo que nunca se pierde al empezar de nuevo: el nombre y las autorizaciones. */
-export const CAMPOS_CONSENTIMIENTO = ['nombre', 'correo', 'datos', 'info', 'filaCrm'] as const;
+/** Lo que nunca se pierde al empezar de nuevo: el nombre, las autorizaciones y cómo contactarla. */
+export const CAMPOS_CONSENTIMIENTO = ['nombre', 'correo', 'datos', 'info', 'filaCrm', 'contactoCanal', 'contactoTel', 'contactoFranja'] as const;
 
 export function perfilDeDatos(data: Record<string, string>): Record<string, string> {
   const perfil: Record<string, string> = {};
