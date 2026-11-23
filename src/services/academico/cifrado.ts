@@ -6,6 +6,9 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
  * autenticado: un blob copiado a otro teléfono NO se descifra.
  */
 
+/** GCM con etiqueta completa: sin `authTagLength`, Node 22 acepta etiquetas recortadas (más fáciles de falsificar). */
+const LARGO_ETIQUETA = 16;
+
 export class ErrorCifrado extends Error {
   constructor() { super('No se pudo descifrar el dato'); }
 }
@@ -21,7 +24,7 @@ export function leerClave(clave: string | undefined = process.env.TOOLI_ACADEMIC
 
 export function cifrar(texto: string, contexto: string, clave: Buffer): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', clave, iv);
+  const cipher = createCipheriv('aes-256-gcm', clave, iv, { authTagLength: 16 });
   cipher.setAAD(Buffer.from(contexto, 'utf8'));
   const cuerpo = Buffer.concat([cipher.update(texto, 'utf8'), cipher.final()]);
   const etiqueta = cipher.getAuthTag();
@@ -32,9 +35,11 @@ export function descifrar(blob: string, contexto: string, clave: Buffer): string
   try {
     const [version, iv, etiqueta, cuerpo] = blob.split('.');
     if (version !== 'v1' || !iv || !etiqueta || cuerpo === undefined) throw new ErrorCifrado();
-    const decipher = createDecipheriv('aes-256-gcm', clave, Buffer.from(iv, 'base64url'));
+    const tag = Buffer.from(etiqueta, 'base64url');
+    if (tag.length !== LARGO_ETIQUETA) throw new ErrorCifrado();
+    const decipher = createDecipheriv('aes-256-gcm', clave, Buffer.from(iv, 'base64url'), { authTagLength: 16 });
     decipher.setAAD(Buffer.from(contexto, 'utf8'));
-    decipher.setAuthTag(Buffer.from(etiqueta, 'base64url'));
+    decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(Buffer.from(cuerpo, 'base64url')), decipher.final()]).toString('utf8');
   } catch {
     throw new ErrorCifrado();
