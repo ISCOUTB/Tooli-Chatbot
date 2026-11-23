@@ -3129,3 +3129,30 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 .ag-fila { align-items: end; }
 .voz-costo { text-align: left; }
 #vozAjustes h2, #vozSimulador h2 { margin-bottom: 10px; }
+
+/* ===== Revisión de diseño 23-nov: Llamadas, Agenda y Métricas ===== */
+/* Llamadas: estado de cada pieza de la línea (solo administrador). */
+.voz-conexion { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--text-muted); }
+.voz-con-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.voz-con-item strong { color: var(--text); font-weight: 600; }
+.voz-con-punto { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); transform: translateY(-1px); }
+.voz-con-item.falta .voz-con-punto { background: #b45309; }
+.voz-con-item code, .voz-aviso code { font-size: 11.5px; padding: 1px 5px; border-radius: 5px; background: rgba(0, 48, 135, .07); color: var(--text); overflow-wrap: anywhere; }
+.voz-avisos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.voz-aviso time { font-weight: 600; color: var(--text); margin-right: 4px; white-space: nowrap; }
+/* Registro: la flecha dice que la fila se abre y gira al abrirla. */
+.voz-llamada summary { list-style: none; border-radius: var(--radius-sm); transition: background-color .15s var(--ease-out); }
+.voz-llamada summary::-webkit-details-marker { display: none; }
+.voz-llamada summary:hover { background: rgba(0, 48, 135, .03); }
+.voz-chevron { margin-left: auto; display: inline-flex; color: var(--text-muted); transition: transform .2s var(--ease-out); }
+.voz-llamada[open] .voz-chevron { transform: rotate(90deg); }
+/* Ajustes por grupos y, en pantallas anchas, los números en columnas. */
+.voz-grupo { border: 0; margin: 0; padding: 0; min-width: 0; }
+.voz-grupo + .voz-grupo { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.voz-grupo legend { float: left; width: 100%; padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--utb-blue); }
+.voz-campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 0 16px; align-items: start; }
+#ajAlerta:empty { display: none; }
+#ajAlerta { margin-bottom: 12px; }
+
+/* La leyenda flota para que el borde del grupo pase por encima y no la atraviese. */
+.voz-grupo legend + * { clear: both; }

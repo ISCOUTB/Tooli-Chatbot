@@ -3,9 +3,11 @@ import { $, $$, escapeHtml, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
+import { colorTextoLegible } from '../core/format.js';
 import { abrirDialogo } from '../ui/dialog.js';
 import {
-  duracionCorta, etiquetaVerificacionNegada, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
+  dolares, duracionCorta, etiquetaVerificacionNegada, faseLegible, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea,
+  telefonosLegibles, textoAHorario,
 } from '../core/llamadas.js';
 
 /* ============= LLAMADAS (línea de voz con IA) =============
@@ -45,9 +47,21 @@ function telefonoBonito(t) {
   return String(t ?? '');
 }
 
+/* Mismo fondo que las insignias de Agenda y el texto oscurecido hasta 4,5:1
+   (AA): con el color tal cual, «Colgó» o «Consulta resuelta» quedaban en 4,2-4,4. */
+function insignia(texto, color) {
+  return `<span class="badge" style="background:${color}1f;color:${colorTextoLegible(color)};">${escapeHtml(texto)}</span>`;
+}
+
 function chipResultado(clave) {
   const r = resultadoLlamada(clave);
-  return `<span class="badge" style="background:${r.color}1a;color:${r.color};">${escapeHtml(r.label)}</span>`;
+  return insignia(r.label, r.color);
+}
+
+/* Estado de cada pieza de la línea para el administrador: qué está listo y,
+   si falta algo, qué variable del servidor lo resuelve. */
+function itemConexion(nombre, listo, textoListo, textoFalta) {
+  return `<li class="voz-con-item ${listo ? 'ok' : 'falta'}"><span class="voz-con-punto" aria-hidden="true"></span><span><strong>${escapeHtml(nombre)}:</strong> ${listo ? textoListo : textoFalta}</span></li>`;
 }
 
 function lineasTranscripcion(lineas) {
@@ -106,19 +120,24 @@ async function renderLlamadas(main) {
       box.innerHTML = `
         <div class="voz-estado">
           <div>
-            <h2 class="voz-titulo-linea">Línea ${a.activo ? '<span class="badge" style="background:#15803d1a;color:#15803d;">Encendida</span>' : '<span class="badge" style="background:#64748b1a;color:#64748b;">Apagada</span>'}</h2>
-            <p class="field-help">${lista ? 'Telnyx configurado.' : 'Sin llaves de Telnyx en el servidor: solo funciona el simulador.'}
-            ${esAdmin() ? ` IA: ${c.ia ? escapeHtml(c.modeloIa) : 'sin OPENAI_API_KEY (entiende por reglas)'} · Datos académicos: ${c.academico ? 'conectados' : 'sin conectar'} · Agenda: ${c.agenda ? 'conectada' : 'sin conectar'} · Webhook: ${c.webhookListo ? 'listo' : 'falta VOICE_WEBHOOK_KEY'}` : ''}</p>
+            <h2 class="voz-titulo-linea">Línea ${a.activo ? insignia('Encendida', '#15803d') : insignia('Apagada', '#64748b')}</h2>
+            ${esAdmin() ? `<ul class="voz-conexion" aria-label="Estado de la conexión">
+              ${itemConexion('Telnyx', lista, 'llaves puestas', 'sin llaves en el servidor; solo funciona el simulador')}
+              ${itemConexion('Webhook', c.webhookListo, 'listo', 'falta <code>VOICE_WEBHOOK_KEY</code>')}
+              ${itemConexion('IA', c.ia, escapeHtml(c.modeloIa || 'conectada'), 'sin <code>OPENAI_API_KEY</code>; entiende por reglas')}
+              ${itemConexion('Datos académicos', c.academico, 'conectados', 'sin conectar')}
+              ${itemConexion('Agenda', c.agenda, 'conectada', 'sin conectar')}
+            </ul>` : `<p class="field-help">${lista ? 'La línea está conectada.' : 'La línea todavía no está conectada: solo funciona el simulador.'}</p>`}
           </div>
           <div class="voz-costo">
             <div class="field-help">Costo del mes (estimado)</div>
-            <strong>US$ ${Number(estado.costoMes.usd).toFixed(2)}</strong>
-            <div class="field-help">≈ $ ${Number(estado.costoMes.copAprox).toLocaleString('es-CO')}</div>
+            <strong>US$ ${dolares(estado.costoMes.usd)}</strong>
+            <div class="field-help">≈ $ ${Number(estado.costoMes.copAprox).toLocaleString('es-CO')} pesos</div>
           </div>
         </div>
         ${barra(estado.uso.dia, estado.uso.topeDia, 'Minutos de hoy')}
         ${barra(estado.uso.mes, estado.uso.topeMes, 'Minutos del mes')}
-        ${estado.avisos?.length ? `<h3 class="voz-sub">Avisos recientes</h3>${estado.avisos.slice(0, 5).map(x => `<div class="field-help voz-aviso">${escapeHtml(fechaCorta(x.at))} · ${escapeHtml(x.texto)}</div>`).join('')}` : ''}
+        ${estado.avisos?.length ? `<h3 class="voz-sub">Avisos recientes</h3><ul class="voz-avisos">${estado.avisos.slice(0, 5).map(x => `<li class="field-help voz-aviso"><time>${escapeHtml(fechaCorta(x.at))}</time> ${escapeHtml(telefonosLegibles(x.texto))}</li>`).join('')}</ul>` : ''}
       `;
       if (esAdmin()) pintarAjustes();
     } catch {
@@ -195,7 +214,8 @@ async function renderLlamadas(main) {
           <summary>
             <strong>${escapeHtml(telefonoBonito(l.telefono))}</strong> ${chipResultado(l.resultado)} ${l.simulada ? '<span class="badge">Simulada</span>' : ''}
             <span class="field-help">${escapeHtml(fechaCorta(l.iniciada))} · ${duracionCorta(l.duracionSeg)}${l.verificado ? ' · verificado' : ''}</span>
-            ${l.verificacionNegada ? `<span class="badge" style="background:#b453091a;color:#b45309;">${escapeHtml(etiquetaVerificacionNegada(l.verificacionNegada))}</span>` : ''}
+            ${l.verificacionNegada ? insignia(etiquetaVerificacionNegada(l.verificacionNegada), '#b45309') : ''}
+            <span class="voz-chevron" aria-hidden="true">${icon('chevronRight', 16)}</span>
           </summary>
           ${l.verificacionNegadaTexto ? `<p class="field-help">${escapeHtml(l.verificacionNegadaTexto)}</p>` : ''}
           <div class="voz-transcripcion"><p class="field-help">Cargando transcripción…</p></div>
@@ -234,11 +254,14 @@ async function renderLlamadas(main) {
     const acciones = (r.comandos ?? []).filter(c => c.tipo === 'transferir' || c.tipo === 'colgar' || c.tipo === 'cortar_audio')
       .map(c => (c.tipo === 'transferir' ? `Transfiere a ${c.a}` : c.tipo === 'colgar' ? 'Cuelga' : 'Corta el audio'));
     const puente = (r.comandos ?? []).some(c => c.tipo === 'decir' && c.encolado);
+    const resultado = resultadoLlamada(r.resultado).label;
     $('#simEstado', main).textContent = [
-      `Fase: ${r.fase}`, r.verificado ? 'verificado' : 'sin verificar', resultadoLlamada(r.resultado).label,
-      puente ? 'dijo frase puente' : '', ...acciones, r.estado === 'cerrada' ? 'llamada terminada' : '',
+      `Fase: ${faseLegible(r.fase)}`, r.verificado ? 'verificado' : 'sin verificar', resultado.charAt(0).toLowerCase() + resultado.slice(1),
+      puente ? 'dijo una frase de espera' : '', ...acciones, r.estado === 'cerrada' ? 'llamada terminada' : '',
     ].filter(Boolean).join(' · ');
     simForm.classList.toggle('hidden', r.estado === 'cerrada');
+    // Con una llamada en curso, el botón de arriba empieza otra.
+    $('#simIniciar', main).textContent = r.estado === 'cerrada' ? 'Iniciar llamada simulada' : 'Empezar otra llamada';
     // La línea de estado va debajo del formulario: si la conversación crece se
     // iría bajo la barra de pestañas del celular o bajo el borde de la
     // pantalla. «nearest» solo desplaza si hace falta y respeta el
@@ -252,6 +275,11 @@ async function renderLlamadas(main) {
     if (r.estado === 'cerrada') { simId = null; cargarRegistro(); }
   };
   const errorSim = (err) => toast(err?.status === 429 ? 'Se alcanzó el tope de simulaciones de hoy.' : 'El simulador no respondió. Intenta de nuevo.');
+  // Mientras la línea responde, un segundo toque no manda otro turno.
+  const ocupadoSim = (v) => {
+    simForm.setAttribute('aria-busy', String(v));
+    $$('button', simForm).forEach(b => { b.disabled = v; });
+  };
 
   $('#simIniciar', main).addEventListener('click', async () => {
     $('#simIniciar', main).disabled = true;
@@ -270,15 +298,24 @@ async function renderLlamadas(main) {
     if (!texto || !simId) return;
     input.value = '';
     input.disabled = true;
-    try { pintarSim(await pedir(`/api/tools/voz/simular/${simId}/decir`, { method: 'POST', body: JSON.stringify({ texto }) })); } catch (err) { errorSim(err); } finally { input.disabled = false; input.focus(); }
+    ocupadoSim(true);
+    try {
+      pintarSim(await pedir(`/api/tools/voz/simular/${simId}/decir`, { method: 'POST', body: JSON.stringify({ texto }) }));
+    } catch (err) {
+      // Lo escrito no se pierde si el simulador no respondió.
+      if (!input.value) input.value = texto;
+      errorSim(err);
+    } finally { input.disabled = false; ocupadoSim(false); input.focus(); }
   });
   $('#simSilencio', main).addEventListener('click', async () => {
     if (!simId) return;
-    try { pintarSim(await pedir(`/api/tools/voz/simular/${simId}/silencio`, { method: 'POST' })); } catch (err) { errorSim(err); }
+    ocupadoSim(true);
+    try { pintarSim(await pedir(`/api/tools/voz/simular/${simId}/silencio`, { method: 'POST' })); } catch (err) { errorSim(err); } finally { ocupadoSim(false); }
   });
   $('#simColgar', main).addEventListener('click', async () => {
     if (!simId) return;
-    try { pintarSim(await pedir(`/api/tools/voz/simular/${simId}/colgar`, { method: 'POST' })); } catch (err) { errorSim(err); }
+    ocupadoSim(true);
+    try { pintarSim(await pedir(`/api/tools/voz/simular/${simId}/colgar`, { method: 'POST' })); } catch (err) { errorSim(err); } finally { ocupadoSim(false); }
   });
 
   // ── Ajustes (admin) ──
@@ -292,24 +329,40 @@ async function renderLlamadas(main) {
     box.innerHTML = `
       <h2>Ajustes</h2>
       <form id="vozAjustesForm">
-        ${check('ajActivo', 'Línea encendida', a.activo, 'Apagada, la llamada pasa al número de desvío (si hay) sin gastar minutos.')}
-        <div class="field"><label for="ajNombre">Nombre del asistente virtual</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
-        <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select><div class="field-help">La línea se presenta como «el asistente» o «la asistente» según la voz.</div></div>
-        <div class="field"><label for="ajSaludo">Saludo propio (opcional)</label><textarea id="ajSaludo" maxlength="300" rows="2">${escapeHtml(a.saludo)}</textarea><div class="field-help">Siempre se agrega el aviso de transcripción y retención.</div></div>
-        <div class="field"><label for="ajDesvio">Número de desvío a asesores</label><input type="tel" id="ajDesvio" value="${escapeHtml(a.numeroDesvio ?? '')}" placeholder="+57 300 000 0000"><div class="field-help">Sin número no hay transferencia en vivo: se ofrece cita o devolución.</div></div>
-        <div class="field"><label for="ajHorario">Horario de asesores (hora de Colombia)</label><textarea id="ajHorario" rows="3">${escapeHtml(horarioATexto(a.horarioAsesores))}</textarea><div class="field-help">Una franja por línea: días (D L M X J V S) y horas, p. ej. «L M X J V 08:00-18:00».</div></div>
-        ${check('ajGrabar', 'Grabar las llamadas (además de transcribir)', a.grabar, 'El saludo avisa que se graba.')}
-        ${num('ajRetencion', 'Retención (días)', a.retencionDias, 'Ley 1581: la transcripción y el registro se borran solos pasado este plazo.', 'min="1" max="730"')}
-        ${num('ajTopeDia', 'Tope de minutos por día', a.topeMinutosDia, '', 'min="0"')}
-        ${num('ajTopeMes', 'Tope de minutos por mes', a.topeMinutosMes, '', 'min="0"')}
-        ${num('ajMax', 'Máximo de minutos por llamada', a.maxMinutosLlamada, '', 'min="1" max="30"')}
-        ${num('ajMaxTransfer', 'Máximo de minutos con el asesor', a.maxMinutosTransferencia, 'Tope de la llamada pasada a un asesor (también el desvío con la línea apagada o sin minutos). La parte con el asesor también se cobra.', 'min="1" max="240"')}
-        ${num('ajPorNumero', 'Llamadas por día desde un mismo número', a.maxLlamadasNumeroDia, 'Así un solo número no gasta los minutos del día. Las llamadas sin número cuentan juntas.', 'min="1" max="100"')}
-        ${num('ajCosto', 'Costo por minuto (US$)', a.costoMinutoUsd, 'Solo para estimar el costo del mes.', 'min="0" step="0.001"')}
-        ${num('ajSim', 'Tope de simulaciones por día', a.topeSimulacionesDia, '', 'min="0"')}
+        <fieldset class="voz-grupo">
+          <legend>La línea</legend>
+          ${check('ajActivo', 'Línea encendida', a.activo, 'Apagada, la llamada pasa al número de desvío (si hay) sin gastar minutos.')}
+          <div class="voz-campos">
+            <div class="field"><label for="ajNombre">Nombre del asistente virtual</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
+            <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select><div class="field-help">La línea se presenta como «el asistente» o «la asistente» según la voz.</div></div>
+          </div>
+          <div class="field"><label for="ajSaludo">Saludo propio (opcional)</label><textarea id="ajSaludo" maxlength="300" rows="2">${escapeHtml(a.saludo)}</textarea><div class="field-help">Siempre se agrega el aviso de transcripción y retención.</div></div>
+        </fieldset>
+        <fieldset class="voz-grupo">
+          <legend>Asesores</legend>
+          <div class="field"><label for="ajDesvio">Número de desvío a asesores</label><input type="tel" id="ajDesvio" value="${escapeHtml(a.numeroDesvio ?? '')}" placeholder="+57 300 000 0000"><div class="field-help">Sin número no hay transferencia en vivo: se ofrece cita o devolución.</div></div>
+          <div class="field"><label for="ajHorario">Horario de asesores (hora de Colombia)</label><textarea id="ajHorario" rows="3">${escapeHtml(horarioATexto(a.horarioAsesores))}</textarea><div class="field-help">Una franja por línea: días (D L M X J V S) y horas, p. ej. «L M X J V 08:00-18:00».</div></div>
+        </fieldset>
+        <fieldset class="voz-grupo">
+          <legend>Grabación y privacidad</legend>
+          ${check('ajGrabar', 'Grabar las llamadas (además de transcribir)', a.grabar, 'El saludo avisa que se graba.')}
+          ${num('ajRetencion', 'Retención (días)', a.retencionDias, 'Ley 1581: la transcripción y el registro se borran solos pasado este plazo.', 'min="1" max="730"')}
+        </fieldset>
+        <fieldset class="voz-grupo">
+          <legend>Topes y costo</legend>
+          <div class="voz-campos">
+            ${num('ajTopeDia', 'Tope de minutos por día', a.topeMinutosDia, '', 'min="0"')}
+            ${num('ajTopeMes', 'Tope de minutos por mes', a.topeMinutosMes, '', 'min="0"')}
+            ${num('ajMax', 'Máximo de minutos por llamada', a.maxMinutosLlamada, '', 'min="1" max="30"')}
+            ${num('ajMaxTransfer', 'Máximo de minutos con el asesor', a.maxMinutosTransferencia, 'Tope de la llamada pasada a un asesor (también el desvío con la línea apagada o sin minutos). La parte con el asesor también se cobra.', 'min="1" max="240"')}
+            ${num('ajPorNumero', 'Llamadas por día desde un mismo número', a.maxLlamadasNumeroDia, 'Así un solo número no gasta los minutos del día. Las llamadas sin número cuentan juntas.', 'min="1" max="100"')}
+            ${num('ajCosto', 'Costo por minuto (US$)', a.costoMinutoUsd, 'Solo para estimar el costo del mes.', 'min="0" step="0.001"')}
+            ${num('ajSim', 'Tope de simulaciones por día', a.topeSimulacionesDia, '', 'min="0"')}
+          </div>
+        </fieldset>
         <div id="ajAlerta" role="alert"></div>
         <div class="voz-fila">
-          <button type="submit" class="btn btn-primary">Guardar</button>
+          <button type="submit" class="btn btn-primary" id="ajGuardar">Guardar</button>
           <button type="button" class="btn btn-secondary" id="ajProbar">Probar conexión con Telnyx</button>
         </div>
       </form>`;
@@ -326,6 +379,10 @@ async function renderLlamadas(main) {
         maxMinutosTransferencia: Number($('#ajMaxTransfer', box).value), maxLlamadasNumeroDia: Number($('#ajPorNumero', box).value),
         topeSimulacionesDia: Number($('#ajSim', box).value),
       };
+      const guardar = $('#ajGuardar', box);
+      guardar.disabled = true;
+      guardar.classList.add('is-loading');
+      guardar.textContent = 'Guardando…';
       try {
         await pedir('/api/tools/voz/ajustes', { method: 'PUT', body: JSON.stringify(cuerpo) });
         alerta.innerHTML = '';
@@ -333,23 +390,33 @@ async function renderLlamadas(main) {
         box.dataset.pintado = '';
         cargarEstado();
       } catch {
-        alerta.innerHTML = '<div class="alert alert-error">No se pudieron guardar los ajustes.</div>';
+        alerta.innerHTML = '<div class="alert alert-error">No se pudieron guardar los ajustes. Intenta de nuevo; si sigue fallando, avisa a TI.</div>';
+      } finally {
+        if (guardar.isConnected) { guardar.disabled = false; guardar.classList.remove('is-loading'); guardar.textContent = 'Guardar'; }
       }
     });
     const probar = $('#ajProbar', box);
     probar.addEventListener('click', async () => {
       probar.disabled = true;
+      probar.classList.add('is-loading');
+      probar.textContent = 'Probando…';
       try {
         const r = await pedir('/api/tools/voz/probar', { method: 'POST' });
         $('#ajAlerta', box).innerHTML = `<div class="alert ${r.ok ? 'alert-success' : 'alert-error'}">${escapeHtml(r.message)}</div>`;
       } catch {
-        $('#ajAlerta', box).innerHTML = '<div class="alert alert-error">No se pudo probar la conexión.</div>';
-      } finally { probar.disabled = false; }
+        $('#ajAlerta', box).innerHTML = '<div class="alert alert-error">No se pudo probar la conexión. Intenta de nuevo en un momento.</div>';
+      } finally { probar.disabled = false; probar.classList.remove('is-loading'); probar.textContent = 'Probar conexión con Telnyx'; }
     });
   }
 
   const cargarTodo = () => Promise.all([cargarEstado(), cargarDevoluciones(), cargarRegistro()]);
-  $('#vozRefrescar', main).addEventListener('click', cargarTodo);
+  $('#vozRefrescar', main).addEventListener('click', () => {
+    const giro = $('#vozRefrescar .refresh-icon', main);
+    giro?.classList.remove('spin-once');
+    void giro?.offsetWidth; // reinicia la vuelta si se toca dos veces seguidas
+    giro?.classList.add('spin-once');
+    cargarTodo();
+  });
   $('#vozConSimuladas', main).addEventListener('change', cargarRegistro);
   setPullToRefresh(cargarTodo);
   await cargarTodo();

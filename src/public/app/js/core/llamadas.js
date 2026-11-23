@@ -60,6 +60,36 @@ export function etiquetaVerificacionNegada(motivo) {
   return '';
 }
 
+/* La fase del diálogo de voz (src/voice/tipos.ts) dicha para el asesor: la
+   clave interna («pide_codigo_estudiantil») no le dice nada. */
+const FASES = {
+  libre: 'conversación libre',
+  pide_codigo_estudiantil: 'pide el código estudiantil',
+  pide_otp: 'pide el código de verificación',
+  elige_programa: 'elige el programa',
+  elige_franja: 'elige el horario de la cita',
+  confirma_franja: 'confirma el horario de la cita',
+  ofrece_devolucion: 'ofrece devolver la llamada',
+  ofrece_asesor: 'ofrece pasar con un asesor',
+  ofrece_whatsapp_recibo: 'ofrece el recibo por WhatsApp',
+};
+
+/** «pide_codigo_estudiantil» → «pide el código estudiantil»; una fase nueva sin traducir sale sin guiones bajos. */
+export function faseLegible(fase) {
+  if (!fase) return '—';
+  return FASES[fase] ?? String(fase).replace(/_/g, ' ');
+}
+
+/** Los números de Colombia que traen los avisos del servidor («573005550141») escritos como en el resto del panel. */
+export function telefonosLegibles(texto) {
+  return String(texto ?? '').replace(/(^|[^\d+*])57(3\d{2})(\d{3})(\d{4})(?!\d)/g, '$1+57 $2 $3 $4');
+}
+
+/** Dólares con coma decimal, como el resto del panel en es-CO: 1.68 → «1,68». */
+export function dolares(valor) {
+  return (Number(valor) || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /** Qué rol tiene cada línea de la transcripción en el simulador. */
 export function rolLinea(r) {
   return r === 'c' ? 'Persona' : r === 's' ? 'Sistema' : 'Línea';
