@@ -69,6 +69,13 @@ export const VOCES: { id: string; label: string; idioma: string }[] = [
   { id: 'AWS.Polly.Pedro-Neural', label: 'Pedro · Latino (EE. UU.), hombre', idioma: 'es-US' },
 ];
 
+/**
+ * El `language` del speak de Telnyx solo admite es-ES, es-MX y es-US (developers.telnyx.com, «Speak text»); con otro
+ * (es-CO) el speak podría fallar. Las voces Azure ya traen su idioma en el nombre y no cambian.
+ */
+export const IDIOMAS_SPEAK = ['es-ES', 'es-MX', 'es-US'] as const;
+const idiomaValido = (v: unknown): v is string => typeof v === 'string' && (IDIOMAS_SPEAK as readonly string[]).includes(v);
+
 const entero = (v: unknown, min: number, max: number, def: number) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : def;
@@ -93,7 +100,7 @@ export function leerAjustes(raw: unknown, base: AjustesVoz = AJUSTES_DEFECTO): A
     numeroDesvio: has('numeroDesvio') ? (o.numeroDesvio === null || o.numeroDesvio === '' ? null : numeroE164(o.numeroDesvio) ?? base.numeroDesvio) : base.numeroDesvio,
     nombreAgente: typeof o.nombreAgente === 'string' && o.nombreAgente.trim() ? o.nombreAgente.trim().slice(0, 30) : base.nombreAgente,
     voz,
-    idioma: typeof o.idioma === 'string' && /^es-[A-Z]{2}$/.test(o.idioma) ? o.idioma : preset?.idioma ?? base.idioma,
+    idioma: idiomaValido(o.idioma) ? o.idioma : preset?.idioma ?? (idiomaValido(base.idioma) ? base.idioma : AJUSTES_DEFECTO.idioma),
     saludo: typeof o.saludo === 'string' ? o.saludo.replace(/[<>{}]/g, '').trim().slice(0, 300) : base.saludo,
     grabar: has('grabar') ? o.grabar === true : base.grabar,
     retencionDias: has('retencionDias') ? entero(o.retencionDias, 1, 730, base.retencionDias) : base.retencionDias,

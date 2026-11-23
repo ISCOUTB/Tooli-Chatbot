@@ -807,3 +807,15 @@ describe('punto 19: la duración del call.hangup sale de start_time y occurred_a
     assert.equal(parseTelnyxEvent(cuerpo({ start_time: '2026-11-23T15:00:00Z' }))?.durationSeconds, null);
   });
 });
+
+describe('punto 20: el language del speak solo admite es-ES, es-MX y es-US', () => {
+  it('un idioma que Telnyx no acepta (es-CO) no se guarda; la voz Azure conserva su propio idioma', async () => {
+    const { leerAjustes, AJUSTES_DEFECTO: def } = await import('./ajustes');
+    assert.equal(leerAjustes({ idioma: 'es-CO' }).idioma, def.idioma);
+    assert.equal(leerAjustes({ voz: 'Azure.es-CO-GonzaloNeural', idioma: 'es-CO' }).idioma, 'es-MX');
+    assert.equal(leerAjustes({ voz: 'Azure.es-CO-GonzaloNeural', idioma: 'es-CO' }).voz, 'Azure.es-CO-GonzaloNeural');
+    assert.equal(leerAjustes({ idioma: 'es-US' }).idioma, 'es-US');
+    assert.equal(leerAjustes({ idioma: 'es-ES' }).idioma, 'es-ES');
+    assert.equal(leerAjustes({ ...def, idioma: 'es-CO' }, { ...def, idioma: 'es-CO' }).idioma, 'es-MX', 'un ajuste viejo guardado con es-CO se corrige');
+  });
+});
