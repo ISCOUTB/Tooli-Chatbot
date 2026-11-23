@@ -210,6 +210,28 @@ describe('la conversación real: no vuelve a pedir lo que ya dijo', { skip: SIN_
   });
 });
 
+describe('el primer mensaje también cuenta', { skip: SIN_MOCKS }, () => {
+  it('«Hola, me llamo Laura y estudio derecho en la UTB»: no pide el nombre ni la carrera, ni va a la IA', async () => {
+    await escribir('Hola, me llamo Laura y estudio derecho en la UTB');
+    const r = await escribir('sí');
+    assert.equal(datos().nombre, 'Laura');
+    assert.equal(datos().relacion, 'estudiante_utb');
+    assert.equal(datos().pregradoId, 'derecho');
+    assert.ok(!r.some((t) => /cómo te llamas/i.test(t)), JSON.stringify(r));
+    assert.ok(r.some((t) => /Anoté \*Derecho\*/.test(t)), 'confirma la carrera');
+    assert.match(ultimo(r), PIDE_NIVEL, `relación y carrera ya están: sigue el nivel ${JSON.stringify(r)}`);
+    assert.equal(preguntasIa.length, 0);
+  });
+
+  it('una pregunta con datos va a la IA y los datos igual quedan', async () => {
+    await empezar();
+    await escribir('soy egresado de sistemas de la UTB, ¿cuánto cuesta la maestría en ciberseguridad?');
+    assert.equal(preguntasIa.length, 1);
+    assert.equal(datos().relacion, 'egresado_utb');
+    assert.equal(datos().pregradoId, 'ingenieria-de-sistemas-y-computacion');
+  });
+});
+
 describe('sabe qué busca', { skip: SIN_MOCKS }, () => {
   for (const frase of ['no, una especialización', 'quiero una especialización', 'Especialización', 'no, busco una especializacion']) {
     it(`«${frase}» fija el nivel y el modo elegir, sin volver a preguntar el nivel`, async () => {
@@ -278,6 +300,15 @@ describe('cambiar el nombre en cualquier momento', { skip: SIN_MOCKS }, () => {
       assert.equal(notas.filter((n) => /nombre/i.test(n.texto)).length, 0);
     });
   }
+
+  it('una pregunta en vez del nombre nuevo se responde y el nombre sigue igual', async () => {
+    await empezar('Pedro');
+    await escribir('quiero cambiar mi nombre');
+    await escribir('¿cuánto cuesta la maestría?');
+    assert.equal(preguntasIa.length, 1);
+    assert.equal(datos().nombre, 'Pedro');
+    assert.notEqual(datos().pendiente, 'nombre_nuevo');
+  });
 
   it('sin autorización de datos no se anota nada en el CRM', async () => {
     await escribir('hola');

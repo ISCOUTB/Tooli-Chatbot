@@ -645,8 +645,13 @@ export function detectarPerfil(texto: string): PerfilDetectado {
   const perfil: PerfilDetectado = {};
   const utb = /\butb\b|tecnologica de bolivar|\bla tecnologica\b/.test(n);
   // "Otra universidad" manda aunque nombre la UTB ("no estudio en la UTB, sino en otra universidad").
-  if (/otra universidad|otra u\b|no (soy|estudie|estudio|me gradue) (de|en) la (utb|tecnologica)/.test(n)) perfil.relacion = 'externo';
-  else if (/\b(egresad[oa]|graduad[oa]|me gradue|termine)\b/.test(n) && utb) perfil.relacion = 'egresado_utb';
+  // "Estudié en la Universidad de Cartagena": otra universidad, salvo que sea la Tecnológica de Bolívar.
+  if (/otra universidad|otra u\b|no (soy|estudie|estudio|me gradue) (de|en) la (utb|tecnologica)/.test(n)
+    || (/\b(estudi\w*|egresad[oa]|graduad[oa]|me gradue|soy) (en|de) (la )?universidad\b/.test(n) && !utb)) perfil.relacion = 'externo';
+  // "Soy ingeniera de sistemas de la UTB": ya tiene el título, es egresada.
+  else if ((/\b(egresad[oa]|graduad[oa]|me gradue|termine)\b/.test(n) || new RegExp(String.raw`\bsoy (un |una )?${PROFESION}`).test(n)) && utb) {
+    perfil.relacion = 'egresado_utb';
+  }
   else if (/\b(estudio|estudiante|curso|estoy estudiando|estudiando)\b/.test(n) && utb) perfil.relacion = 'estudiante_utb';
   if (/especiali[sz]a/.test(n)) perfil.nivel = 'especializacion';
   else if (/maestria|\bmba\b|magister/.test(n)) perfil.nivel = 'maestria';
@@ -694,7 +699,7 @@ const LUGAR = /\b(?:en|de|por) (?:la )?(?:utb|universidad tecnologica de bolivar
  */
 export function carreraEnLaFrase(texto: string): PregradoInterpretado | null {
   const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s,.;:!?]/gu, ' ').replace(/\s+/g, ' ');
-  const verbo = /\b(?:estudio|estudie|estudiaba|estoy estudiando|estoy cursando|curse|me gradue(?: de| en| como)?|(?:soy )?egresad[oa] (?:de|en)|(?:soy )?graduad[oa] (?:de|en|como)|termine)\s+/g;
+  const verbo = /\b(?:estudio|estudie|estudiaba|estoy estudiando|estudiando|estoy cursando|cursando|curse|me gradue(?: de| en| como)?|(?:soy )?egresad[oa] (?:de|en)|(?:soy )?graduad[oa] (?:de|en|como)|termine)\s+/g;
   const profesion = new RegExp(String.raw`\bsoy (?:un |una )?(?=${PROFESION})`, 'g');
   // La última mención manda: en "estudié derecho, ahora estudio economía" o una corrección, vale la última.
   let inicio = -1;
@@ -754,7 +759,7 @@ export function cambioDeNombre(texto: string): CambioDeNombre {
   if (!original || original.startsWith('__') || original.length > 200) return null;
   const plano = planoMismoLargo(original);
   const solo = plano.replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-  if (/^(?:(?:hola|oye|disculpa|perdon|por favor|porfa)\s+)*(?:(?:quiero|quisiera|puedo|necesito|me gustaria|como (?:puedo|hago para)|se puede)\s+)?(?:cambiar|corregir|modificar|actualizar|editar)\s+(?:mi|el)\s+nombre(?:\s+(?:por favor|porfa))?$/.test(solo)
+  if (/^(?:(?:hola|oye|disculpa|perdon|por favor|porfa)\s+)*(?:(?:quiero|quisiera|puedo|necesito|me gustaria|como (?:puedo|hago para)|se puede)\s+)?(?:cambiar|corregir|modificar|actualizar|editar)\s+(?:(?:mi|el)\s+)?nombre(?:\s+(?:por favor|porfa))?$/.test(solo)
     || /^(?:cambia(?:me)?|corrige(?:me)?) (?:mi|el) nombre(?: por favor| porfa)?$/.test(solo)
     || /^(?:no )?(?:ese|este) no es mi nombre$|^(?:ese|este) nombre no es el mio$|^mi nombre (?:esta|quedo) mal$|^me equivoque (?:de|en el|con el|en mi) nombre$/.test(solo)) {
     return { pedir: true };
@@ -764,19 +769,21 @@ export function cambioDeNombre(texto: string): CambioDeNombre {
     /\bno me llamo [^,.;!]+?[\s,.;!]+(?:me llamo|soy|sino|mi nombre es)\s+/,
     /^(?:(?:hola|oye|perdon|disculpa|ah)[\s,.!]+)*no soy [^,.;!]+?[\s,.;!]+soy\s+/,
     /\b(?:ese|este) (?:no es mi nombre|nombre no es el mio|nombre esta mal)[\s,.!:;-]*(?:(?:me llamo|mi nombre es|soy|es|me dicen)\s+)?/,
-    /\b(?:cambia(?:me|r)?|cambie|corrige(?:me)?|corregir|actualiza(?:me|r)?|pon(?:me)?|ponga(?:me)?) (?:mi |el )?nombre (?:a|por|como)\s+/,
+    /\b(?:cambia(?:me|r)?|cambie|corrige(?:me)?|corregir|actualiza(?:me|r)?|pon(?:me)?|ponga(?:me)?) (?:mi |el |de |como )?nombre (?:(?:a|por|como) )?(?=\S)/,
     /^(?:(?:hola|buenas|oye|perdon|disculpa|ah|ay)[\s,.!]+)*(?:yo\s+)?(?:me llamo|mi nombre es|mi nombre real es|mi nombre correcto es|mi verdadero nombre es)\s+/,
   ];
   for (const patron of patrones) {
     const m = patron.exec(plano);
     if (!m) continue;
     const despues = original.slice((m.index ?? 0) + m[0].length);
-    const corte = /[,.;!?\n]| y (?=quiero|estudio|estudie|soy|busco|me |tengo|necesito|vivo|trabajo)| (?=quiero|estudio|estudie|busco|necesito|tengo|trabajo|vivo)\b/i
+    const corte = /[,.;!?\n]| pero | y (?=quiero|estudio|estudie|soy|busco|me |tengo|necesito|vivo|trabajo)| (?=quiero|estudio|estudie|busco|necesito|tengo|trabajo|vivo)\b/i
       .exec(planoMismoLargo(despues));
     const candidato = corte ? despues.slice(0, corte.index) : despues;
-    const resto = corte ? despues.slice(corte.index).replace(/^[\s,.;!]+|^\s*y\s+/g, '').trim() : '';
+    const siguio = corte ? despues.slice(corte.index).replace(/^[\s,.;!]+/, '').replace(/^y\s+/i, '').trim() : '';
+    // "…pero me dicen Lau" sigue hablando del nombre: no es algo más que atender.
+    const resto = /^pero\b|^(?:me dicen|de cariño)\b/i.test(siguio) ? '' : siguio;
     const nombre = limpiarNombre(candidato);
-    if (nombre && nombre.split(' ').length <= 4) return { nombre, resto };
+    if (nombre) return { nombre, resto };
     // "Ese no es mi nombre!!" sin el nombre nuevo: se le pregunta.
     if (/no es mi nombre|nombre no es el mio|nombre esta mal|nombre (?:a|por|como)\s*$/.test(plano) && !candidato.trim()) return { pedir: true };
     return null;
