@@ -402,3 +402,32 @@ describe('punto 11: los efectos de un turno descartado no se pierden', () => {
     assert.equal((await viejo).note, 'turno viejo descartado');
   });
 });
+
+describe('punto 12: al colgar no quedan el código dictado ni el teléfono verificado en el registro de 180 días', () => {
+  it('el código estudiantil dictado se borra al colgar', async () => {
+    const x = montar();
+    await contestar(x, 'cc1', '+573005550000');
+    await decir(x, 'mi código es T00012345');
+    assert.equal((await x.llamada()).dialogo.codigoDictado, 'T00012345', 'durante la llamada sí se recuerda');
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 30 }));
+    const l = await x.llamada();
+    assert.equal(l.dialogo.codigoDictado, null);
+    assert.doesNotMatch(JSON.stringify(l), /T00012345|00012345/);
+  });
+
+  it('el teléfono del vínculo verificado se borra al colgar; el panel sigue sabiendo que se verificó', async () => {
+    const x = montar();
+    await contestar(x);
+    await verificar(x);
+    await decir(x, 'repítemelo');
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 60 }));
+    const l = await x.llamada();
+    assert.equal(l.dialogo.verificado, null);
+    assert.equal(l.dialogo.ultimaRespuesta, null);
+    assert.equal(l.dialogo.ultimaDatos, null);
+    assert.equal(l.dialogo.verificacion, null);
+    assert.equal(l.dictado, '');
+    const { vistaLlamada } = await import('./vista');
+    assert.equal(vistaLlamada(l, true).verificado, true);
+  });
+});

@@ -86,6 +86,7 @@ export function nuevaLlamada(args: {
     actividad: args.ahora.getTime(),
     silencioVence: null,
     dictado: '',
+    verificada: false,
   };
 }
 

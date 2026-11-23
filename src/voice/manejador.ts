@@ -249,6 +249,35 @@ export function crearManejador(d: DepsManejador) {
     return { handled: true, note: etapa === 1 ? 'sigues ahí' : 'despedida por silencio' };
   }
 
+  /**
+   * Cierra la llamada una sola vez (compare-and-set): duración, minutos cobrados y costo; borra lo sensible que el
+   * registro no necesita durante la retención (última respuesta, código dictado, teléfono verificado, verificación en
+   * curso, dígitos juntados; punto 12) y cambia en el uso lo apartado por lo cobrado.
+   */
+  async function cerrarLlamada(id: string, a: AjustesVoz, seg: number): Promise<LlamadaVoz | null> {
+    cancelarLocal(id);
+    const s = Math.max(0, Math.min(86_400, Math.round(seg)));
+    const l = await actualizar(id, (x) => (x.estado === 'cerrada' ? null : {
+      ...x,
+      estado: 'cerrada',
+      cerrada: ahora().toISOString(),
+      duracionSeg: s,
+      minutosCobrados: x.simulada ? 0 : billedMinutes(s),
+      costoUsd: x.simulada ? 0 : estimatedCostUsd(s, a.costoMinutoUsd),
+      resultado: x.resultado === 'en_curso' ? (x.contestada ? 'colgo' : 'error') : x.resultado,
+      hablando: false,
+      despuesDeHablar: null,
+      silencioVence: null,
+      dictado: '',
+      verificada: x.verificada || Boolean(x.dialogo.verificado),
+      dialogo: { ...x.dialogo, ultimaRespuesta: null, ultimaDatos: null, verificacion: null, codigoDictado: null, verificado: null },
+    }));
+    if (!l) return null;
+    // Lo apartado al contestar se cambia por lo cobrado (el uso del día/mes queda con minutos reales).
+    if (!l.simulada) await d.almacen.ajustarUso(l.usoDia, l.usoMes, l.minutosCobrados - l.minutosPermitidos);
+    return l;
+  }
+
   async function procesarEvento(ev: VoiceEvent): Promise<Nota> {
     if (!(await d.almacen.reclamarEvento(d.proveedor.id, ev.eventId))) return { handled: false, note: 'duplicado' };
     try {
@@ -454,24 +483,8 @@ export function crearManejador(d: DepsManejador) {
         cancelarLocal(l0.id);
         if (l0.estado === 'cerrada') return { handled: false, note: 'ya cerrada' };
         const desdeContestada = l0.contestada ? Math.round((ahora().getTime() - Date.parse(l0.contestada)) / 1000) : 0;
-        const seg = Math.max(0, Math.min(86_400, ev.durationSeconds ?? desdeContestada));
-        const l = await actualizar(l0.id, (x) => (x.estado === 'cerrada' ? null : {
-          ...x,
-          estado: 'cerrada',
-          cerrada: ahora().toISOString(),
-          duracionSeg: seg,
-          minutosCobrados: x.simulada ? 0 : billedMinutes(seg),
-          costoUsd: x.simulada ? 0 : estimatedCostUsd(seg, a.costoMinutoUsd),
-          resultado: x.resultado === 'en_curso' ? (x.contestada ? 'colgo' : 'error') : x.resultado,
-          hablando: false,
-          despuesDeHablar: null,
-          silencioVence: null,
-          dialogo: { ...x.dialogo, ultimaRespuesta: null, verificacion: null },
-        }));
-        if (!l) return { handled: false, note: 'ya cerrada' };
-        // Lo apartado al contestar se cambia por lo cobrado (el uso del día/mes queda con minutos reales).
-        if (!l.simulada) await d.almacen.ajustarUso(l.usoDia, l.usoMes, l.minutosCobrados - l.minutosPermitidos);
-        return { handled: true, note: 'cerrada' };
+        const l = await cerrarLlamada(l0.id, a, ev.durationSeconds ?? desdeContestada);
+        return l ? { handled: true, note: 'cerrada' } : { handled: false, note: 'ya cerrada' };
       }
 
       default:

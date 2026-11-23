@@ -17,7 +17,7 @@ export function vistaLlamada(l: LlamadaVoz, admin: boolean) {
     minutosCobrados: l.minutosCobrados,
     costoUsd: l.costoUsd,
     resumen: l.resumen,
-    verificado: Boolean(l.dialogo.verificado),
+    verificado: l.verificada || Boolean(l.dialogo.verificado),
     devolucionHecha: l.devolucionHecha,
     devolucionNota: l.devolucionNota,
     devolucionPor: l.devolucionPor,

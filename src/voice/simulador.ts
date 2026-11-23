@@ -106,7 +106,7 @@ export function crearSimulador(opts: {
   async function estado(llamadaId: string) {
     const l = await opts.almacen.leer(llamadaId);
     return l && {
-      llamadaId: l.id, estado: l.estado, resultado: l.resultado, fase: l.dialogo.fase, verificado: Boolean(l.dialogo.verificado),
+      llamadaId: l.id, estado: l.estado, resultado: l.resultado, fase: l.dialogo.fase, verificado: l.verificada || Boolean(l.dialogo.verificado),
       transcripcion: await opts.almacen.transcripcion(l.id),
     };
   }

@@ -146,6 +146,11 @@ export interface LlamadaVoz {
    * «nueve uno tres»): se juntan con la siguiente. Se vacía al usarlos, con cualquier otra frase y al colgar.
    */
   dictado: string;
+  /**
+   * Se verificó a un estudiante en esta llamada. Al colgar se borra el teléfono del vínculo (`dialogo.verificado`) y
+   * queda solo esto, para que el panel lo muestre sin guardar el dato 180 días (punto 12).
+   */
+  verificada: boolean;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];
