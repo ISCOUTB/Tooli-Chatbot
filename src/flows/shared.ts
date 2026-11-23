@@ -1,16 +1,22 @@
 import { EvolutionAPIAdapter } from '../adapters/messaging/EvolutionAPIAdapter';
 import { MetaCloudAdapter } from '../adapters/messaging/MetaCloudAdapter';
 import { IMessagingAdapter } from '../adapters/messaging/IMessagingAdapter';
+import { conZonaDePruebas } from '../adapters/messaging/ZonaDePruebasAdapter';
 import { config } from '../config';
 import { miSemestreDisponible } from '../services/academico/interruptores';
 import { Session, setSession } from '../services/session';
 import { returnMenuStep } from './commands';
 import type { FlowArea, SessionData } from './commands';
 
-export const messaging: IMessagingAdapter =
+/**
+ * El adaptador de todo el bot. Va envuelto en la zona de pruebas: lo que se le manda a un número del simulador
+ * del panel (57 0000…) se queda en su buzón y nunca sale a Meta ni a Evolution (ver services/simulacion.ts).
+ */
+export const messaging: IMessagingAdapter = conZonaDePruebas(
   config.messagingAdapter === 'meta'
     ? new MetaCloudAdapter()
-    : new EvolutionAPIAdapter();
+    : new EvolutionAPIAdapter(),
+);
 
 // Reexportadas desde validation.ts (puras y probadas allí); se mantienen aquí
 // para no tocar los ~20 archivos que ya las importan desde este módulo.
