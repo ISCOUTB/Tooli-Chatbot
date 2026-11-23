@@ -82,7 +82,7 @@ function ptrGetIndicador() {
     // contenedor con su propio scroll (el hilo de mensajes, por ejemplo).
     if (window.scrollY > 4) return;
     if ($('#main')?.scrollTop > 4 || e.target.closest?.('.inbox-rows')?.scrollTop > 4) return;
-    const dentroDeScroll = e.target.closest?.('.inbox-thread, .profile-sheet, .action-sheet');
+    const dentroDeScroll = e.target.closest?.('.inbox-thread, .profile-sheet, .action-sheet, .lv-fondo');
     if (dentroDeScroll) return;
     startY = e.touches[0].clientY;
     activo = true;

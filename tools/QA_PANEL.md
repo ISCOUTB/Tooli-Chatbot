@@ -16,6 +16,7 @@ node tools/qa-panel-atencion-movil.cjs
 node tools/qa-panel-ficha.cjs
 node tools/qa-panel-voz-agenda.cjs
 node tools/qa-panel-probar-bot.cjs
+node tools/qa-panel-llamada-voz.cjs
 npm run lint
 npm run build
 npm test
@@ -34,6 +35,8 @@ npm test
 El flujo de acciones comprueba que Recordatorios advierta según la **hora programada** cuando el adaptador es Meta, y que un teléfono mal formado llegue al validador del servidor sin perder caracteres. También comprueba que Conversaciones conserve el borrador cuando Meta rechaza texto libre sin un mensaje entrante reciente verificable. Posgrados muestra la conversión como no disponible si faltan eventos de inicio, y explica los gráficos de programas sin datos.
 
 En CRM, actualizar el Sheet borra una selección activa: el orden de las filas puede cambiar y una posición anterior no identifica al mismo destinatario. La barra de broadcast muestra números únicos y separa los contactos sin WhatsApp válido de los números repetidos. `qa-panel-actions.cjs` simula un reordenamiento y comprueba que no se pueda enviar con la selección antigua.
+
+`qa-panel-llamada-voz.cjs` revisa «Llamar con voz» (Llamadas) a 320, 375, 800 y 1280 píxeles, y a 1280×720 y 1366×768 para un proyector. El navegador sin cabeza no tiene micrófono ni voces: `SpeechRecognition` y `speechSynthesis` se reemplazan por dobles y el micrófono es el falso de Chromium, que sí mueve el medidor. Recorre el bot hablando con la voz de Gonzalo, el subtítulo en vivo, el silencio a los ~6 s («¿Sigues ahí?»), la transferencia, volver a llamar, colgar, un navegador sin reconocimiento y el permiso negado; a 375 y 1280 también interrumpir con audífonos, silenciar, Escape, salir de la pantalla en plena llamada, movimiento reducido y dos pestañas con su propia llamada. Revisa desbordes, textos cortados, botones de 44 píxeles, foco y que el micrófono quede libre. Inicia muchas simulaciones: reiniciar el mock antes de repetirla. Con `QA_CAPTURAS=<carpeta>` guarda capturas y con `QA_ANCHOS=375,1280` corre solo esos anchos. La voz y el micrófono reales no se pueden probar así: hay que hacer una llamada en Edge.
 
 `qa-panel-probar-bot.cjs` revisa el simulador de WhatsApp («Probar el bot») a 320, 375, 800 y 1280 píxeles: enviar con Enter, la lista desplegable (foco atrapado, Escape, flechas y Enviar), los botones de respuesta rápida, la imagen, las palomitas que pasan a azul, las notas de prueba, que el chat no baje solo si se subió a leer y «Empezar de nuevo», además de desbordes y botones de menos de 44 píxeles. El mock tarda `MOCK_SIM_ESPERA_MS` (1.200 ms por defecto) en responder, para poder ver el «escribiendo…». Con `QA_CAPTURAS=<carpeta>` guarda capturas. Detalles del simulador: `docs/simulador-whatsapp.md`.
 

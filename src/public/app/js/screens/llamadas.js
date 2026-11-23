@@ -1,10 +1,11 @@
 import { api } from '../core/api.js';
-import { $, $$, escapeHtml, toast } from '../core/dom.js';
+import { $, $$, emoji, escapeHtml, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { colorTextoLegible } from '../core/format.js';
 import { abrirDialogo } from '../ui/dialog.js';
+import { abrirLlamadaVoz } from '../ui/llamada-voz.js';
 import {
   dolares, duracionCorta, etiquetaVerificacionNegada, faseLegible, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea,
   telefonosLegibles, textoAHorario,
@@ -82,8 +83,9 @@ async function renderLlamadas(main) {
     <div id="vozEstado" class="card" aria-live="polite"><p>Cargando…</p></div>
     <div class="card voz-card" id="vozSimulador">
       <h2>Simulador</h2>
-      <p class="field-help">Escribe como si hablaras por teléfono y mira lo que diría la línea. Usa el mismo motor que una llamada real, pero con datos de estudiante y agenda <strong>de ejemplo</strong>: nunca reserva citas reales. El código estudiantil de ejemplo es T00012345.</p>
+      <p class="field-help">Escribe como si hablaras por teléfono, o <strong>llama con voz</strong> y habla con la línea por el micrófono. Usa el mismo motor que una llamada real, pero con datos de estudiante y agenda <strong>de ejemplo</strong>: nunca reserva citas reales. El código estudiantil de ejemplo es T00012345.</p>
       <div class="voz-fila">
+        <button type="button" class="btn voz-btn-voz" id="simVoz">${emoji('🎙️')} Llamar con voz</button>
         <button type="button" class="btn btn-primary" id="simIniciar">Iniciar llamada simulada</button>
         <label class="asis-check voz-check"><input type="checkbox" id="simDesdeEstudiante"> <span>Llamar desde el número del estudiante de ejemplo</span></label>
       </div>
@@ -306,6 +308,16 @@ async function renderLlamadas(main) {
       if (!input.value) input.value = texto;
       errorSim(err);
     } finally { input.disabled = false; ocupadoSim(false); input.focus(); }
+  });
+  // Llamada con voz en el navegador: el mismo simulador, con micrófono y voz (ui/llamada-voz.js).
+  $('#simVoz', main).addEventListener('click', () => {
+    abrirLlamadaVoz({
+      desdeNumeroDelEstudiante: $('#simDesdeEstudiante', main).checked,
+      vozConfigurada: estado?.ajustes?.voz,
+      nombreAgente: estado?.ajustes?.nombreAgente,
+      alCerrar: (huboLlamada) => { if (huboLlamada && main.isConnected) cargarRegistro(); },
+      alUsarEscrito: () => { if (main.isConnected) $('#simIniciar', main)?.focus(); },
+    });
   });
   $('#simSilencio', main).addEventListener('click', async () => {
     if (!simId) return;
