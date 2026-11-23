@@ -89,6 +89,17 @@ describe('simulador de WhatsApp con el flujo real', { skip: SIN_MOCKS }, () => {
     assert.notEqual(JSON.parse(RedisMemoria.datos.get(`session:${SIM}`) ?? '{}').step, 'chatting_with_ai', despues);
   });
 
+  it('con el flujo clásico (FLUJO_CONVERSACIONAL apagado), pedir un asesor en el menú no queda en «No reconocí»', async () => {
+    const { config } = await import('../config');
+    assert.equal(config.conversacion.activa, false, 'esta prueba es del flujo clásico');
+    await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, 'hola'));
+    sim.buzon.sacar(SIM);
+    await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, 'quiero hablar con un asesor'));
+    const r = JSON.stringify(sim.buzon.sacar(SIM));
+    assert.doesNotMatch(r, /No reconoc/, r);
+    assert.notEqual(JSON.parse(RedisMemoria.datos.get(`session:${SIM}`) ?? '{}').step, 'menu', r);
+  });
+
   it('un número real NUNCA se captura: el mismo mensaje sale por el adaptador real', async () => {
     await handleMessage(REAL, 'hola');
     assert.ok(alAdaptadorReal.length > 0);

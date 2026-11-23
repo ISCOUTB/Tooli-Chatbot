@@ -232,6 +232,11 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   return false;
 }
 
+/** Pasos de la recomendación donde «quiero un asesor» siempre se entiende, también con el flujo clásico. */
+function esPasoDelFlujoClasico(step: string): boolean {
+  return step !== 'reco_consentimiento' && (step === 'menu' || PASOS_DE_OPCION.has(step) || PASOS_DE_TEXTO.has(step));
+}
+
 /** Pasos de identidad y credenciales (académico y TI): la agenda nunca lee lo que se escribe en ellos. */
 export const PASOS_SIN_AGENDA: ReadonlySet<string> = new Set([
   'notas_password', 'notas_mfa', 'notas_consentimiento', 'vincular_codigo', 'vincular_cedula',
@@ -250,6 +255,12 @@ export async function handleMessage(from: string, text: string): Promise<void> {
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.
   const util = parseUtil(text);
   if (util) return atenderUtil(from, util, session?.data ?? {}, session?.step);
+  // Con el flujo clásico (FLUJO_CONVERSACIONAL apagado, lo de fábrica) los atajos no corren: pedir un asesor con
+  // palabras («quiero hablar con un asesor») caía en «No reconocí esa opción» en bucle. Pedir un asesor vale siempre.
+  if (!config.conversacion.activa && session && esPasoDelFlujoClasico(session.step) && esPedidoAsesor(text)) {
+    await pedirAsesorDesdePaso(from, session.step, session.data ?? {}, text);
+    return;
+  }
   const atajo = await atajos(from, text, session);
   if (atajo === true) return;
   // Un atajo que atendió una parte ("me llamo Laura, …") deja el resto para el paso.
