@@ -1,8 +1,9 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { recordEvent } from './promMetrics';
+import { enSimulacion } from './simulacion';
 
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 const COUNTER_TTL = 60 * 60 * 24 * 90;
 
@@ -42,6 +43,7 @@ export type MetricEvent =
   | 'ai_reutilizada'
   | 'ia_corregida'
   | 'conv_sugerencia'
+  | 'conv_cambio_nombre'
   | 'duplicate_message'
   // Posgrados
   | 'prospecto_iniciado'
@@ -85,6 +87,12 @@ export type MetricEvent =
   // Notas
   | 'notas_consultadas'
   | 'notas_no_encontradas'
+  | 'notas_sesion_guardada'
+  // Datos académicos: Mi semestre, código estudiantil, avisos
+  | 'academico_semestre'
+  | 'codigo_vinculado'
+  | 'codigo_vinculo_fallido'
+  | 'avisos_academicos_enviados'
   // Recomendación de posgrados según el pregrado
   | 'reco_inicio'
   | 'reco_relacion_estudiante_utb'
@@ -120,6 +128,8 @@ function dayKey(d: Date = new Date()): string {
 }
 
 export async function track(event: MetricEvent, props: MetricProps = {}): Promise<void> {
+  // Las conversaciones del simulador de WhatsApp no cuentan en las métricas del panel.
+  if (enSimulacion()) return;
   const day = dayKey();
   const propsStr = Object.entries(props)
     .filter(([, v]) => v !== undefined)

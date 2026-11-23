@@ -3,6 +3,10 @@ import { config } from '../config';
 import { describeError } from './logSafe';
 import { publicarAtencion } from './atencionEventos';
 import { isBsuid } from './whatsappId';
+import { saltarEnSimulacion } from './simulacion';
+
+/** Id de conversación del simulador: negativo, así que nunca coincide con una de Chatwoot (ni la publica el panel). */
+export const CONVERSACION_SIMULADA = -1;
 
 let client: AxiosInstance | null = null;
 
@@ -43,6 +47,9 @@ export function esNombreGenerico(nombre: string | null | undefined, phoneNumber:
  * lo corrige: si no, el asesor lo vería como "Usuario 1234" para siempre.
  */
 export async function getOrCreateContact(phoneNumber: string, name: string): Promise<ChatwootContact> {
+  if (saltarEnSimulacion('Chatwoot', 'No se creó el contacto en Chatwoot (simulador).', phoneNumber)) {
+    return { contactId: CONVERSACION_SIMULADA, sourceId: phoneNumber };
+  }
   const inboxId = parseInt(config.chatwoot.inboxId);
 
   // 1. Buscar por identifier
@@ -117,6 +124,10 @@ export interface CreateConversationOpts {
  * Devuelve el conversation_id.
  */
 export async function createConversation(opts: CreateConversationOpts): Promise<number> {
+  // Los asesores no ven conversaciones de prueba en su bandeja: el paso al asesor se simula hasta aquí.
+  if (saltarEnSimulacion('Chatwoot', `Un asesor habría recibido esta conversación en Chatwoot (no se creó):\n${opts.initialMessage}`, opts.sourceId)) {
+    return CONVERSACION_SIMULADA;
+  }
   const inboxId = parseInt(config.chatwoot.inboxId);
 
   const res = await cw().post('/conversations', {
@@ -180,6 +191,8 @@ export async function addPrivateNote(conversationId: number, content: string): P
  * reenviarlo al asesor en Chatwoot.
  */
 export async function sendIncomingMessage(conversationId: number, content: string): Promise<void> {
+  const simulada = saltarEnSimulacion('Chatwoot', 'El asesor recibiría este mensaje en Chatwoot (simulador: no se envió).');
+  if (simulada || conversationId === CONVERSACION_SIMULADA) return;
   await cw().post(`/conversations/${conversationId}/messages`, {
     content,
     message_type: 'incoming',

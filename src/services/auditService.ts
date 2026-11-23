@@ -46,7 +46,17 @@ export type AuditAction =
   | 'asistencia_importada'
   | 'asistencia_persona_agregada'
   | 'asistencia_persona_eliminada'
-  | 'plantilla_creada';
+  | 'plantilla_creada'
+  | 'agenda_cita_creada'
+  | 'agenda_cita_movida'
+  | 'agenda_cita_cancelada'
+  | 'agenda_cita_atendida'
+  | 'agenda_cita_no_asistio'
+  | 'agenda_disponibilidad_actualizada'
+  | 'agenda_config_actualizada'
+  | 'voz_ajustes_actualizados'
+  | 'voz_devolucion_hecha'
+  | 'simulador_whatsapp_iniciado';
 
 export interface AuditEntry {
   ts: number;

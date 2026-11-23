@@ -22,6 +22,12 @@ import { validateJwtSecret } from './middleware/auth';
 import { iniciarAsignacionAutomatica } from './services/atencionEquipoService';
 import { iniciarAvisosCorreo } from './services/atencionAvisosService';
 import { iniciarRegistroHitos } from './services/atencionInformesService';
+import { iniciarAvisosAcademicos } from './services/academico/avisosJob';
+import { messaging } from './flows/shared';
+import { crearWebhookVoz } from './routes/voiceWebhook';
+import { telnyxProvider } from './voice/proveedor/telnyx';
+import { iniciarBarridoSilencios, manejador as manejadorVoz } from './voice/servicio';
+import { conectarContratosVoz } from './voice/contratos';
 
 const app = express();
 
@@ -31,6 +37,14 @@ app.set('trust proxy', 1);
 
 app.use(securityHeaders);
 app.use(bodySizeLimit);
+// Webhook de la línea de voz (Telnyx): va ANTES de express.json porque la firma Ed25519 se verifica sobre el cuerpo
+// crudo, con su propio tope de 256 KB. Sin VOICE_WEBHOOK_KEY responde 404.
+app.use('/voice', crearWebhookVoz({
+  clave: () => config.voz.webhookKey,
+  llavePublica: () => config.voz.telnyxPublicKey || null,
+  proveedor: telnyxProvider,
+  procesar: (ev) => manejadorVoz.procesarEvento(ev),
+}));
 app.use(express.json({
   limit: '5mb',
   verify: (req, _res, body) => {
@@ -96,6 +110,11 @@ app.use(errorHandler);
   startInboundWorker();
   iniciarSeguimientos(recordarPendiente);
   iniciarPrecalentamientoFlyers();
+  // Avisos de tareas y turno: apagados salvo TOOLI_AVISOS_ACADEMICOS_ENABLED=1.
+  iniciarAvisosAcademicos((to, text) => messaging.sendText({ to, text }));
+  // La línea de voz lee datos académicos y agenda con las implementaciones reales.
+  conectarContratosVoz();
+  iniciarBarridoSilencios();
   app.listen(config.port, () => {
     console.log(`Tooli Chatbot escuchando en puerto ${config.port}`);
     console.log(`UI Asesores → http://localhost:${config.port}/app/`);

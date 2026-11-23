@@ -1,0 +1,95 @@
+# Datos académicos de Tooli
+
+Qué hace: entrega a cada estudiante **su propia** información (notas, horario, cursos y tareas, turno, recibo) por WhatsApp y por voz. Todo sale de una sola API, `academico` (`src/services/academico/servicio.ts`), que cumple el contrato `src/contratos/academico.ts`.
+
+Todas las integraciones vienen **apagadas**. Las integraciones que ya existían (Banner por SSO, Iceberg, hoja de turnos, Savio) no se borraron: ahora están detrás de una capa de proveedores.
+
+## Arquitectura
+
+```
+WhatsApp (flows/miSemestre.ts)  ┐
+Voz (usa `academico`)           ┴─> academico.consultar(telefono, tipo)         [nucleo.ts]
+                                      │ interruptor -> identidad -> proveedor -> paraVoz / paraTexto
+        proveedores/ (puertos en tipos.ts)
+          notasBanner      <- notasService (Playwright, SSO Microsoft) + sesionNotas (camino A)
+          reciboIceberg    <- icebergService (+ verificador de código)
+          turnoSheets      <- turnosService (hoja de Google)
+          cursosSavio      <- savioService (token de servicio Moodle)
+          horario          <- simulado (pruebas) | Banner (misma sesión de notas)
+```
+
+`nucleo.ts` no importa Redis ni Playwright: recibe todo por `deps` (por eso se prueba con fakes). `servicio.ts` hace la conexión real con imports dinámicos.
+
+## Cómo encender cada integración
+
+| Integración | Variables | Notas |
+|---|---|---|
+| Notas | `TOOLI_NOTAS_SSO_ENABLED=1` | Camino B por defecto. Probar antes con cuenta real (ver lista abajo). |
+| Notas camino A (opcional) | `TOOLI_NOTAS_CAMINO=A`, `TOOLI_ACADEMICO_CLAVE`, `TOOLI_NOTAS_SESION_HORAS` (1-72, def. 12) | Sin clave válida cae a B. Necesario para horario y para que la voz lea notas. |
+| Turno, recibo y comprobar código | `TOOLI_ACADEMIC_LOOKUP_ENABLED=1` + `TOOLI_ACADEMICO_CLAVE` | Un solo interruptor para las tres. La clave es **obligatoria**: sin ella la cédula no se guarda y el recibo no se puede bajar (antes entraba en un ciclo «vincula tu código» con un login a Iceberg en cada vuelta). Sin clave, `tools/deploy-preflight.py` detiene el despliegue, el arranque lo dice (`[config] ERROR`), *Mi semestre* no ofrece el recibo y, si se pide, responde que se baje en el portal. |
+| Cursos y tareas (Savio) | `TOOLI_SAVIO_ENABLED=1`, `SAVIO_WS_TOKEN` | El servicio Moodle debe permitir además `mod_assign_get_assignments` y `mod_assign_get_submission_status`. |
+| Horario | `TOOLI_HORARIO_ENABLED=1` (+ camino A) | `TOOLI_HORARIO_PROVEEDOR=simulado` solo fuera de producción. |
+| Avisos proactivos | `TOOLI_AVISOS_ACADEMICOS_ENABLED=1` | Tareas a menos de 48 h y turno de hoy/mañana. Una corrida diaria tras las 8:00, nunca de noche, una vez por aviso, respeta «baja». Solo dentro de las 24 h de WhatsApp (fuera haría falta plantilla de Meta: pendiente). |
+| Regla de notas | `TOOLI_NOTA_MINIMA`, `TOOLI_CORTES_PESOS`, `TOOLI_REGLA_NOTAS_CONFIRMADA` | La regla de la UTB **no está** en `knowledgeBase*.ts`. Por defecto 3.0 y 30/30/40 **sin confirmar** (así lo dicen los textos). |
+
+Clave: `openssl rand -hex 32`. Rotar `TOOLI_ACADEMICO_CLAVE` invalida las sesiones guardadas y las cédulas cifradas (hay que volver a vincular para el recibo); los vínculos siguen valiendo. Los índices de búsqueda ya no dependen de ella (ver abajo).
+
+## Índices de búsqueda (código y cédula)
+
+`identity-codigo:<hmac>` e `identity-cedula:<hmac>` llevan de un código o una cédula al vínculo (búsqueda de la voz y «un código, un correo»). El HMAC usa una **clave propia**, `TOOLI_BUSQUEDA_CLAVE` (32+ caracteres), de la que se deriva el secreto con HKDF y la etiqueta `tooli/indices-busqueda/v1` (`src/services/academico/indicesBusqueda.ts`). Antes era `TOOLI_ACADEMICO_CLAVE || JWT_SECRET`: rotar cualquiera dejaba huérfanos los índices y el mismo código se podía atar a un segundo correo (issue #38).
+
+- Sin `TOOLI_BUSQUEDA_CLAVE` todo sigue como antes (y el arranque/preflight lo avisan si turno y recibo están encendidos).
+- Con ella, los índices se escriben con el secreto nuevo y se **leen con los dos** (nuevo y anterior) mientras no se migre; el script Lua de atar el código revisa los dos, así que «un código, un correo» se mantiene durante la transición.
+- **Migración** (idempotente, se puede repetir; sin `--aplicar` solo cuenta; no imprime datos personales):
+  1. Generar la clave (`openssl rand -hex 32`), ponerla en `.env` como `TOOLI_BUSQUEDA_CLAVE` y desplegar.
+  2. `node --env-file=.env --import tsx tools/migrar-indices-busqueda.ts` (simulacro) y luego con `--aplicar`. Dentro del contenedor (solo trae `dist/`): `docker compose exec backend node -e "require('./dist/services/identityService').migrarIndicesDeBusqueda({ aplicar: true }).then((r) => { console.log(r); process.exit(0); })"`.
+  3. El informe dice cuántos índices pasaron. Las cédulas sin cédula cifrada que abrir (vinculadas sin `TOOLI_ACADEMICO_CLAVE`) quedan con el índice viejo y se siguen leyendo con el respaldo: **no rotar `TOOLI_ACADEMICO_CLAVE` ni `JWT_SECRET` hasta que `cedulasPendientes` sea 0** (o esas personas vuelvan a vincular). Los `conflictos` (el índice nuevo ya es de otro vínculo vigente) se revisan a mano.
+- **El índice de cédula se confirma**: el vínculo guarda la huella de su índice (`cedulaIndice`, no revela la cédula) y la búsqueda solo devuelve un vínculo con código comprobado que reconozca ese índice (en vínculos anteriores a la huella, si su cédula cifrada es esa). Al cambiar de código o de cédula, y al revocar el vínculo, sus índices de código y de cédula se borran. Vínculos viejos sin huella ni cédula cifrada ya no se encuentran por cédula (sí por código) hasta que vuelvan a vincular.
+
+## Identidad fuerte
+
+- El vínculo `identity:<tel>` ahora admite campos opcionales: `codigo`, `codigoVerificado`, `codigoFuente`, `nombre`, `programa`, `nivel`, `cedulaCifrada`. Los vínculos viejos siguen valiendo (probado contra Redis real).
+- Cómo se ata el código (`vincularCodigoEstudiantil`, WhatsApp: *Mi semestre > Vincular mi código*): correo verificado por OTP + código + cédula aceptados por Iceberg **y la misma cédula leída en la cabecera del portal** («[CÉDULA, NOMBRE]»). Solo entonces `codigoVerificado=true`. Si el portal «deja entrar» pero no muestra la cédula (`{ ok: true, noRecibos: true }` sin cédula, que también sale cuando el login cae en una página inesperada) no se ata nada y la persona recibe «intenta más tarde». El recibo tampoco dice «no tienes recibos» ni entrega un PDF sin esa confirmación. Con la fuente apagada no se ata nada.
+- Un código pertenece a un solo correo vigente (Lua atómico). Renovar con el mismo correo conserva el código; verificar el mismo correo desde otro número lo hereda (la cédula cifrada no viaja); otro correo no hereda nada.
+- **Qué prueba y qué no.** Atar el código prueba que alguien con ese WhatsApp (y ese correo) conocía un par código + cédula que el portal aceptó; **no** que sea el titular: quien conozca el par de otra persona lo puede atar primero. Por eso el bloque que recibe TI dice «Código: T… (vinculado: el portal aceptó código + cédula) … prueba que conocía ese par, no que sea su titular», nunca «comprobado».
+- **Soltar un código.** Si el dueño real recibe «Ese código ya está vinculado a otra cuenta», escribe *asesor*; TI confirma por otro medio quién es el titular y corre `node --env-file=.env --import tsx tools/soltar-codigo.ts T00012345` (dice a quién se lo quitaría, enmascarado) y luego con `--aplicar` (en el contenedor: `docker compose exec backend node -e "require('./dist/services/identityService').soltarCodigoEstudiantil('T00012345', { aplicar: true }).then((r) => { console.log(r.estado); process.exit(0); })"`). Quien lo tenía conserva su vínculo de correo, sin código, nombre, programa ni cédula, y sus índices se borran (`SOLTAR_CODIGO_SCRIPT`, solo si nadie tocó el vínculo entretanto). Después el dueño lo vincula desde *Mi semestre*.
+- **Comprobación extra propuesta (no aplicada).** Iceberg devuelve el nombre del portal («[CÉDULA, NOMBRE]»). Comparar sus palabras con la parte local del correo verificado (`ana.perez` ↔ «ANA MARIA PEREZ») detectaría casi todos los casos de alguien atando el código de otra persona. No se aplicó como bloqueo porque no se conoce el formato real de los correos de estudiantes (iniciales, números, homónimos) y un falso negativo dejaría al dueño fuera; se puede empezar guardándolo como señal para TI y medirlo con cuentas reales.
+- Turno y recibo usan **solo** el código atado al número de quien escribe. Los pasos viejos (`esperando_codigo`, `recibo_*`) ahora redirigen a *Mi semestre*: ya no se puede pedir el recibo de otra persona escribiendo su código y cédula.
+- `buscarParaVerificar`: no devuelve datos; solo `encontrado`, teléfono y correo enmascarados. Cupo global de 30 búsquedas/min (no hay identidad del que llama; si el contrato pasara el número del llamante, el límite sería por llamante).
+- Para la voz (parte opcional del contrato): `iniciarVerificacionPorDato` manda un código de 6 dígitos PROPIO DE LA VOZ al correo institucional (misma plantilla que el OTP, `sendOtpEmail`) sin revelarlo. Se guarda como HMAC en `voz-otp:<número que llama>`, atado a ese número y al vínculo encontrado, vence a los 10 min, admite 3 intentos y es de un solo uso. `confirmarVerificacion` NO vincula ni mueve nada: devuelve `{ ok: true, telefonoEstudiante }` y la voz consulta con ese teléfono solo durante esa llamada (nunca lo dice ni consulta con el número de quien llama). Antes usaba `checkCode` y movía el WhatsApp del estudiante al número que llamaba (auditoría de la integración, 22-nov-2026).
+
+## Notas: seguridad de la contraseña
+
+- Camino B: la contraseña se usa una vez en `startNotasLogin` y no se guarda. La sesión de Redis solo guarda el paso y el área.
+- Camino A: con consentimiento (botones, nunca texto libre) se guarda la **sesión del navegador** cifrada con AES-256-GCM, atada al teléfono, con vencimiento; se borra al desvincular o desde *Mi semestre*. La contraseña nunca se guarda.
+- Pruebas (`src/flows/notasLogin.test.ts`): rastrean la contraseña por sesión, mensajes, métricas y consola, incluso si el error de automatización la trae; `activityPrivacy` oculta todos los pasos; guardia estática contra `console.*`/`describeError` en los ficheros del login (`logSafe.describeError` **no** oculta contraseñas).
+- Riesgo que no se puede cerrar desde el código: lo que la persona escribe queda en el historial de WhatsApp y en lo que Meta/Evolution retengan. Alternativa más segura a medio plazo: un enlace a una página de inicio de sesión en lugar de pedir la contraseña por chat.
+
+## Cálculos
+
+`calculos.ts`: promedio, avance por corte y «cuánto necesitas para pasar» (`necesarioParaPasar`). Banner solo da notas definitivas por materia; las notas **por corte** solo aparecen cuando una fuente las entregue (falta ese selector). Mientras tanto *Mi semestre > ¿Cuánto necesito?* las pide a la persona.
+
+## Qué falta para probar con cuentas reales del equipo
+
+1. Una cuenta de estudiante del equipo con Microsoft y MFA. Con `TOOLI_NOTAS_SSO_ENABLED=1` en un entorno de prueba, pedir notas y revisar los selectores de `notasService.ts` (correo, contraseña, MFA, «mantener sesión», tabla `P_ViewTermGrde`). Nunca se probó end-to-end.
+2. Confirmar con Registro Académico la regla de notas y poner `TOOLI_REGLA_NOTAS_CONFIRMADA=1`.
+3. Horario: abrir `bwskfshd.P_CrseSchdDetl` con la sesión de prueba, guardar el HTML y comparar con `proveedores/bannerHorarioParser.ts` (URL, idioma de «Días»/«Hora», letras de los días). Hoy solo se probó con HTML sintético.
+4. Notas por corte: localizar en Banner la página de calificaciones parciales y añadir su lector a `notasService.ts`.
+5. Iceberg: con código y cédula del equipo, comprobar que `vincularCodigoEstudiantil` da `ok`, que el valor del recibo se lee (`leerValorPesos` sobre la fila de la tabla; si no aparece, el recibo sale sin valor) y que el correo del portal coincide.
+6. Hoja de turnos: confirmar columnas I y J (fecha y hora límite) y el formato de fechas.
+7. Savio: crear el servicio Moodle de solo lectura con las cuatro funciones, token en `SAVIO_WS_TOKEN`, y probar tareas y estados de entrega con una cuenta con cursos.
+8. Camino A: generar `TOOLI_ACADEMICO_CLAVE`, activar y comprobar que tras un login la sesión se reutiliza, que expira y que desvincular la borra.
+9. Avisos: confirmar la política de plantillas de Meta antes de avisar fuera de las 24 h.
+10. Redis real: `TOOLI_TEST_REDIS=1 REDIS_URL=redis://localhost:6392 npm test` ejecuta `identidadFuerte.redis.test.ts` (Lua).
+
+## Menú de WhatsApp
+
+Con **todas las integraciones apagadas** (lo de fábrica) *Mi semestre* no existe: los menús son los de `main` (los verificados siguen viendo *Cómo inscribirme*), «mi semestre» y «10» no hacen nada especial y *Mi vida académica* no invita a escribirlo (`miSemestreDisponible()` en `interruptores.ts`).
+
+Con alguna encendida, *Mi semestre* aparece en los menús de pregrado y posgrado (fila 10) solo para verificados, en lugar de *Cómo inscribirme* (WhatsApp permite 10 filas), y dentro solo se listan las consultas encendidas (más *¿Cuánto necesito?*). También se puede escribir «mi semestre». Sin `RESEND_API_KEY` no se abre la verificación por correo (no podría llegar el código): se le dice a la persona que aún no está disponible. Turno y recibo de los menús llevan allí. Eventos nuevos de métricas: `academico_semestre`, `codigo_vinculado`, `codigo_vinculo_fallido`, `notas_sesion_guardada`, `avisos_academicos_enviados`.
+
+## Qué se tomó de nutriIA (solo lectura)
+
+Tomado: la **idea de la capa de adaptadores** (`IEnrollmentAdapter` + `IcebergEnrollmentAdapter` que envuelve `loginAndDownloadReceipt`) como los puertos de `proveedores/`; las formas `StudentGrade`/`ScheduleClass` (CRN) para `CursoNota`/`ClaseHorario`; la advertencia de tratar los scrapers como frágiles (errores sin detalle, sin reintentos agresivos).
+
+No tomado: `tenancy/` y `mobileApi.ts` (multi-universidad y app móvil: fuera de este alcance y acoplados a mensajería); `UtbAcademicApiAdapter` (api.utb.edu.co exige un token Azure AD delegado que Tooli no puede obtener desde WhatsApp; sus rutas no están confirmadas); `peoplesoftService`/`PeopleSoftEnrollmentAdapter` (es Unisinú, heurístico y sin selectores); `glpi/` (tickets, no datos académicos). Se puede reabrir `UtbAcademicApiAdapter` como proveedor si la UTB entrega un token de servicio.

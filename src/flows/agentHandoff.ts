@@ -8,6 +8,9 @@ import { parseOriginArea } from './commands';
 import { resumenRecomendacion } from './recomendacionView';
 import { dentroDeHorarioAsync, textoProximaAtencion } from '../services/atencionEquipoService';
 import { contactIdLabel } from '../services/whatsappId';
+import { getIdentity, Identity } from '../services/identityService';
+import { bloqueIdentidad, estadoIdentidad, etiquetaIdentidad, EstadoIdentidad } from './identidadAsesor';
+import { ofrecerAgendaTrasHandoff } from './agendaFlowRuntime';
 
 export interface HandoffOptions {
   aiNoResolvio?: boolean;
@@ -93,11 +96,14 @@ export async function iniciarConversacionAsesor(
     contexto += `📝 Pregunta: ${data.descripcion}\n`;
   }
 
+  // Los datos de TI los escribe la persona: solo el correo puede estar
+  // comprobado (si este WhatsApp quedó vinculado a ese correo con código).
+  let estadoId: EstadoIdentidad | undefined;
   if (opts.conVerificacionIdentidad) {
-    contexto += `\n🔐 *Identidad verificada por el bot:*\n`;
-    contexto += `   📧 Correo: ${data.verifEmail ?? '(no disponible)'}\n`;
-    contexto += `   🆔 Código: ${data.verifCodigo ?? '(no disponible)'}\n`;
-    contexto += `   🪪 Cédula: ${data.verifCedula ?? '(no disponible)'}\n`;
+    let identity: Identity | null = null;
+    try { identity = await getIdentity(from); } catch { identity = null; }
+    estadoId = estadoIdentidad(identity, data.verifEmail);
+    contexto += bloqueIdentidad(data, estadoId, identity);
   }
 
   contexto = contexto.trimEnd();
@@ -131,7 +137,7 @@ export async function iniciarConversacionAsesor(
     if (area === 'posgrados') labels.push('posgrado-prospecto');
     if (fueraHorario) labels.push('fuera-horario');
     if (opts.aiNoResolvio) labels.push('ai-no-resolvio');
-    if (opts.conVerificacionIdentidad) labels.push('identidad-verificada');
+    if (estadoId) labels.push(etiquetaIdentidad(estadoId));
 
     const conversationId = await createConversation({
       sourceId: contact.sourceId,
@@ -147,9 +153,12 @@ export async function iniciarConversacionAsesor(
           : { nivel: data.nivel, etapa: data.etapa }),
         ...(opts.conVerificacionIdentidad
           ? {
-              email_verificado: data.verifEmail ?? '',
-              codigo_verificado: data.verifCodigo ?? '',
-              cedula_verificada: data.verifCedula ?? '',
+              // «declarado» = lo escribió la persona; solo el correo puede quedar
+              // verificado (vínculo por código). Código y cédula nunca se comprueban aquí.
+              email_declarado: data.verifEmail ?? '',
+              codigo_declarado: data.verifCodigo ?? '',
+              cedula_declarada: data.verifCedula ?? '',
+              email_verificado: estadoId === 'correo_verificado' ? (data.verifEmail ?? '') : '',
             }
           : {}),
       },
@@ -183,6 +192,9 @@ export async function iniciarConversacionAsesor(
           'Cualquier mensaje que escribas le llegará al asesor. Para terminar la conversación, escribe *salir*.',
       });
     }
+    // Fuera de horario, o dentro pero sin nadie libre: se ofrece reservar una cita.
+    // Con un asesor libre en horario no cambia nada: sigue el flujo de siempre.
+    await ofrecerAgendaTrasHandoff(from, area, fueraHorario);
   } catch {
     console.error('[chatwoot] no se pudo crear la conversación');
     await setSession(from, { step: 'menu', data: {} });

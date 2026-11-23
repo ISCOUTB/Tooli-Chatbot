@@ -81,7 +81,8 @@ export const AREAS: readonly AreaInteres[] = [
 
 /** Atajos de una palabra (ya normalizados) hacia cada área. */
 const ALIAS_AREAS: Record<string, readonly string[]> = {
-  tecnologia: ['tecnologia', 'sistemas', 'software', 'ciberseguridad', 'datos'],
+  // "sistemas" es software y redes; los Sistemas Energéticos están en energía.
+  tecnologia: ['tecnologia', 'sistemas', 'software', 'ciberseguridad', 'datos', 'computacion', 'informatica', 'programacion'],
   gestion: ['gestion', 'proyectos', 'innovacion', 'mba'],
   negocios: ['negocios', 'finanzas', 'tributaria', 'logistica'],
   energia: ['energia', 'ambiente', 'sostenibilidad'],

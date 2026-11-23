@@ -10,6 +10,7 @@ import { describeExternalError, maskPhone } from './logSafe';
 import { resolveWhatsAppContact } from './whatsappContactService';
 import { getSession } from './session';
 import { cancelarSeguimiento } from './seguimientoService';
+import { reintentarRecordatoriosAlEscribir } from './agendaService';
 import { registrarIncidencia } from './incidenciasService';
 import { registrarNoReconocido } from './noReconocidoService';
 import { iniciarRecomendacion } from '../flows/recomendacion';
@@ -127,6 +128,8 @@ export async function processInboundMessage(
 
   // Escribió: si había un seguimiento programado, ya no hace falta.
   await cancelarSeguimiento(from);
+  // Y su mensaje reabre la ventana de 24 h de Meta: los recordatorios de cita que no cabían se reintentan (sin esperar).
+  reintentarRecordatoriosAlEscribir(from);
 
   // Con un asesor el bot no marca nada: los chulitos azules los pone quien lee en Chatwoot.
   if (source === 'meta') {

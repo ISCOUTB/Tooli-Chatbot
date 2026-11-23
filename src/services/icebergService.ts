@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { config } from '../config';
 import { observeReciboLatency } from './promMetrics';
+import { leerValorPesos } from './academico/pesos';
 
 const PORTAL_URL = 'https://iceberg-niif.utb.edu.co/iceberg-pf/';
 const DEBUG_DIR = '/tmp/iceberg';
@@ -14,6 +15,8 @@ export interface MatriculaFecha {
   tipo: 'ORDINARIA' | 'EXTRAORDINARIA' | 'EXTEMPORANEA';
   fechaVencimiento: string;
   recargo: string;
+  /** Valor en pesos de la misma fila del portal, si se pudo leer (lectura por texto: validar con una cuenta real). */
+  valor?: number;
 }
 
 export interface IcebergLoginResult {
@@ -198,7 +201,8 @@ async function extractMatriculaFechas(page: Page): Promise<MatriculaFecha[]> {
         const recargo = recargoMatch ? `${recargoMatch[1]}%` : '0%';
         // Evitar duplicados del mismo tipo
         if (!matriculas.find(m => m.tipo === tipo)) {
-          matriculas.push({ tipo, fechaVencimiento: fecha, recargo });
+          const valor = leerValorPesos(line);
+          matriculas.push({ tipo, fechaVencimiento: fecha, recargo, ...(valor ? { valor } : {}) });
         }
       }
     }

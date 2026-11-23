@@ -3,7 +3,7 @@ import axios from 'axios';
 import Redis from 'ioredis';
 import { config } from '../config';
 import { KB_ADMISIONES, KB_POSGRADOS } from './knowledgeBase';
-import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma } from './catalogoUtb';
+import { NIVELES_POSGRADO, NivelPrograma, buscarPrograma, fichaPrograma, textoNombraPrograma } from './catalogoUtb';
 import { KB_TI } from './knowledgeBaseTI';
 import { observeAILatency } from './promMetrics';
 import { buscarRespuesta, claveDeRespuesta, contarPregunta, guardarRespuesta } from './respuestasFrecuentes';
@@ -11,7 +11,7 @@ import { corregirRespuestaIa } from './verificarRespuestaIa';
 import { MAX_HISTORIAL, recortarHistorial } from './historialIa';
 
 const openai = config.openai.apiKey ? new OpenAI({ apiKey: config.openai.apiKey }) : null;
-const redis = new Redis(config.redis.url);
+const redis = new Redis(config.redis.url, { lazyConnect: true });
 
 export class AIUnavailableError extends Error {
   constructor(public readonly reason: 'not_configured' | 'api_error' | 'timeout', public readonly cause?: unknown) {
@@ -85,6 +85,18 @@ const TOOLS_ADMISIONES: OpenAI.Chat.ChatCompletionTool[] = [
   },
 ];
 
+/**
+ * Regla 13 del prompt de posgrados: recomendar de los afines a la carrera, con
+ * la modalidad que pida, y nunca decir "no hay" cuando lo pedido existe en otra área.
+ */
+export const REGLA_AFINES =
+  '13. Recomienda solo programas afines a la carrera de la persona. Si el contexto trae los "posgrados afines" a su pregrado, ' +
+  'recomienda de esa lista, del nivel y la modalidad que pida, y no de otras áreas (por ejemplo, a un ingeniero de sistemas no le ' +
+  'sugieras negocios internacionales) salvo que los pida. Si pide un nivel o una modalidad que no está en esa lista (por ejemplo, ' +
+  'un doctorado o algo virtual), no digas que no hay: di cuáles de ese nivel o modalidad tiene la UTB en tu base, aclarando que ' +
+  'son de otra área, y ofrece los de la lista que más se acercan. Si pide recomendaciones y no sabes qué estudió, pregúntaselo ' +
+  'antes de sugerir programas.';
+
 const SYSTEM_PROMPT_POSGRADOS = `
 Eres Tooli Posgrados, el asistente virtual de Posgrados de la Universidad Tecnológica de Bolívar (UTB) en Cartagena, Colombia.
 
@@ -105,6 +117,8 @@ Reglas:
 10. Comparte solo enlaces que aparezcan en tu base o en la ficha del programa.
 11. Para el costo total usa el "valor total" de tu base o de la ficha; no hagas multiplicaciones.
 12. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
+${REGLA_AFINES}
+14. Usa consultar_programa_posgrado con el nombre completo de un solo programa de tu base, nunca con un área ("Especialización en Sistemas", "Maestría en Gestión").
 
 Tu base de conocimiento:
 ${KB_POSGRADOS}
@@ -274,13 +288,26 @@ export async function preguntarAI(
     : null;
   if (clave) {
     const guardada = await buscarRespuesta(clave);
-    if (guardada) return { answer: guardada.answer, programaConsultado: guardada.programaConsultado, usedTool: false, reutilizada: true };
+    if (guardada) {
+      // El texto sirve para todos los que preguntan igual; el programa (y su flyer)
+      // solo si esta pregunta lo nombra: "¿qué especializaciones hay?" guardada para
+      // otra persona no debe mandar el flyer del programa que la IA eligió para ella.
+      const programaConsultado = programaNombradoEnLaPregunta(question, guardada.programaConsultado);
+      return { answer: guardada.answer, ...(programaConsultado ? { programaConsultado } : {}), usedTool: false, reutilizada: true };
+    }
   }
   const respuesta = revisar(area, await consultarIa(area, question, history, guidanceContext, instruccionExtra));
   if (clave && !respuesta.triggerIdentityVerification) {
     await guardarRespuesta(clave, { answer: respuesta.answer, programaConsultado: respuesta.programaConsultado });
   }
   return respuesta;
+}
+
+/** El programa de una respuesta guardada, solo si la pregunta de ahora lo nombra. */
+export function programaNombradoEnLaPregunta(pregunta: string, nombre: string | undefined): string | undefined {
+  if (!nombre) return undefined;
+  const encontrados = buscarPrograma(nombre, NIVELES_POSGRADO);
+  return encontrados.length === 1 && textoNombraPrograma(pregunta, encontrados[0]) ? nombre : undefined;
 }
 
 /** En posgrados, los programas con el nivel cambiado y los enlaces inventados se corrigen antes de enviar. */
@@ -350,7 +377,7 @@ async function consultarIa(
   // El AI quiere usar tool: ejecutarla y volver a llamar
   messages.push(choice.message);
 
-  let programaConsultado: string | undefined;
+  const consultados = new Set<string>();
   let triggerIdentityVerification = false;
 
   for (const call of toolCalls) {
@@ -359,7 +386,7 @@ async function consultarIa(
     if (call.function.name === 'consultar_programa' || call.function.name === 'consultar_programa_posgrado') {
       try {
         const args = JSON.parse(call.function.arguments);
-        programaConsultado = args.nombre_programa;
+        if (typeof args.nombre_programa === 'string') consultados.add(args.nombre_programa);
         const niveles = call.function.name === 'consultar_programa_posgrado' ? NIVELES_POSGRADO : undefined;
         const resultado = await fetchProgramaInfo(args.nombre_programa, niveles);
         messages.push({ role: 'tool', tool_call_id: call.id, content: resultado });
@@ -392,6 +419,8 @@ async function consultarIa(
 
   observeAILatency(area, 'success', (Date.now() - startTotal) / 1000);
 
+  // Si consultó varios (al listar o comparar), ninguno es "el" programa: no hay flyer de primero.
+  const programaConsultado = consultados.size === 1 ? [...consultados][0] : undefined;
   return {
     answer: second.choices[0].message.content?.trim() ?? 'No pude generar respuesta.',
     usedTool: true,

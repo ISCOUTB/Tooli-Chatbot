@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '../config';
+import { saltarEnSimulacion } from './simulacion';
 
 // Envío de correo transaccional vía Resend (https://resend.com).
 // En producción, MAIL_FROM debe ser de un dominio verificado en Resend
@@ -18,6 +19,7 @@ export interface Correo {
 }
 
 export async function enviarCorreo({ to, subject, html, text }: Correo): Promise<void> {
+  if (saltarEnSimulacion('Correo', `No se envió el correo «${subject}» (simulador).`)) return;
   if (!config.mail.apiKey) {
     throw new Error('RESEND_API_KEY no configurada');
   }
@@ -37,6 +39,8 @@ export async function enviarCorreo({ to, subject, html, text }: Correo): Promise
 }
 
 export async function sendOtpEmail(to: string, code: string): Promise<void> {
+  // En el simulador el correo no sale: quien prueba ve el código aquí y lo escribe en el chat.
+  if (saltarEnSimulacion('Correo', `Código de verificación: ${code} (el correo no se envió; escríbelo en el chat para seguir).`)) return;
   const html = `
     <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 420px; margin: 0 auto;">
       <h2 style="color: #005BFF;">Verificación Tooli UTB</h2>

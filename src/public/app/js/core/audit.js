@@ -33,6 +33,16 @@ const AUDIT_LABELS = {
   asistencia_persona_agregada: { label: 'Anotó a un asistente', icon: '➕' },
   asistencia_persona_eliminada: { label: 'Quitó a un asistente', icon: '✖️' },
   plantilla_creada: { label: 'Creó una plantilla de WhatsApp', icon: '📣' },
+  agenda_cita_creada: { label: 'Agendó una cita', icon: '📅' },
+  agenda_cita_movida: { label: 'Movió una cita', icon: '🔁' },
+  agenda_cita_cancelada: { label: 'Canceló una cita', icon: '✖️' },
+  agenda_cita_atendida: { label: 'Marcó una cita como atendida', icon: '✅' },
+  agenda_cita_no_asistio: { label: 'Marcó que no asistieron a una cita', icon: '🚫' },
+  agenda_disponibilidad_actualizada: { label: 'Actualizó su disponibilidad de agenda', icon: '🗓️' },
+  agenda_config_actualizada: { label: 'Cambió la configuración de la agenda', icon: '⚙️' },
+  voz_ajustes_actualizados: { label: 'Cambió los ajustes de la línea de voz', icon: '📞' },
+  voz_devolucion_hecha: { label: 'Devolvió una llamada de la línea de voz', icon: '📞' },
+  simulador_whatsapp_iniciado: { label: 'Probó el bot en el simulador de WhatsApp', icon: '🧪' },
 };
 
 /* Agrupa cada acción de auditoría por área real de negocio, para poder
@@ -43,9 +53,9 @@ const AUDIT_AREAS = {
   pregrado: { label: 'Pregrado', color: '#2f6fd6', actions: ['turno_consultado', 'recibo_descargado'] },
   posgrado: { label: 'Posgrado', color: '#003087', actions: ['seguimiento_evento_actualizado', 'invitacion_evento_enviada'] },
   eventos: { label: 'Eventos', color: '#0f766e', actions: ['asistencia_evento_creado', 'asistencia_evento_actualizado', 'asistencia_evento_eliminado', 'asistencia_importada', 'asistencia_persona_agregada', 'asistencia_persona_eliminada'] },
-  atencion: { label: 'Atención directa', color: '#003087', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'plantilla_creada', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada'] },
-  administracion: { label: 'Administración', color: '#64748b', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_actualizado', 'usuario_vinculado_atencion', 'usuario_eliminado', 'ia_activada', 'ia_desactivada'] },
-  sistema: { label: 'Sistema', color: '#64748b', actions: ['login'] },
+  atencion: { label: 'Atención directa', color: '#003087', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'plantilla_creada', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada', 'agenda_cita_creada', 'agenda_cita_movida', 'agenda_cita_cancelada', 'agenda_cita_atendida', 'agenda_cita_no_asistio', 'voz_devolucion_hecha'] },
+  administracion: { label: 'Administración', color: '#64748b', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_actualizado', 'usuario_vinculado_atencion', 'usuario_eliminado', 'ia_activada', 'ia_desactivada', 'agenda_disponibilidad_actualizada', 'agenda_config_actualizada', 'voz_ajustes_actualizados'] },
+  sistema: { label: 'Sistema', color: '#64748b', actions: ['login', 'simulador_whatsapp_iniciado'] },
 };
 function areaForAction(action) {
   return Object.entries(AUDIT_AREAS).find(([, a]) => a.actions.includes(action))?.[0] ?? 'sistema';

@@ -1,15 +1,22 @@
 import { EvolutionAPIAdapter } from '../adapters/messaging/EvolutionAPIAdapter';
 import { MetaCloudAdapter } from '../adapters/messaging/MetaCloudAdapter';
 import { IMessagingAdapter } from '../adapters/messaging/IMessagingAdapter';
+import { conZonaDePruebas } from '../adapters/messaging/ZonaDePruebasAdapter';
 import { config } from '../config';
+import { miSemestreDisponible } from '../services/academico/interruptores';
 import { Session, setSession } from '../services/session';
 import { returnMenuStep } from './commands';
 import type { FlowArea, SessionData } from './commands';
 
-export const messaging: IMessagingAdapter =
+/**
+ * El adaptador de todo el bot. Va envuelto en la zona de pruebas: lo que se le manda a un número del simulador
+ * del panel (57 0000…) se queda en su buzón y nunca sale a Meta ni a Evolution (ver services/simulacion.ts).
+ */
+export const messaging: IMessagingAdapter = conZonaDePruebas(
   config.messagingAdapter === 'meta'
     ? new MetaCloudAdapter()
-    : new EvolutionAPIAdapter();
+    : new EvolutionAPIAdapter(),
+);
 
 // Reexportadas desde validation.ts (puras y probadas allí); se mantienen aquí
 // para no tocar los ~20 archivos que ya las importan desde este módulo.
@@ -143,7 +150,22 @@ export async function sendMenuClasico(to: string): Promise<void> {
   });
 }
 
+/**
+ * Estudiantes verificados ven «Mi semestre» donde un aspirante ve «Cómo inscribirme» (el límite de WhatsApp es 10
+ * filas), pero solo si hay alguna integración académica encendida: con todo apagado el menú es el de siempre.
+ */
+async function esEstudianteVerificado(to: string): Promise<boolean> {
+  if (!miSemestreDisponible()) return false;
+  try {
+    const { isVerified } = await import('../services/identityService');
+    return await isVerified(to);
+  } catch {
+    return false;
+  }
+}
+
 export async function sendMenuPosgrado(to: string): Promise<void> {
+  const verificado = await esEstudianteVerificado(to);
   await messaging.sendList({
     to,
     title: '🎓 Posgrados UTB',
@@ -162,7 +184,9 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
           { id: '6', title: '🧾 Recibo matrícula',    description: 'Descarga el PDF de tu recibo de pago' },
           { id: '7', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '8', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
-          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
+          verificado
+            ? { id: '10', title: '📅 Mi semestre', description: 'Notas, horario, tareas, turno y recibo' }
+            : { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Pregrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },
@@ -171,6 +195,7 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
 }
 
 export async function sendMenuPregrado(to: string): Promise<void> {
+  const verificado = await esEstudianteVerificado(to);
   await messaging.sendList({
     to,
     title: '🏫 Pregrado UTB',
@@ -189,7 +214,9 @@ export async function sendMenuPregrado(to: string): Promise<void> {
           { id: '6', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '7', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
           { id: '8', title: '🧭 Explorar carreras',    description: 'Conoce las áreas y carreras sin registrarte' },
-          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
+          verificado
+            ? { id: '10', title: '📅 Mi semestre', description: 'Notas, horario, tareas, turno y recibo' }
+            : { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },

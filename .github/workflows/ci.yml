@@ -16,7 +16,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22 LTS: con 20 se saltaban las pruebas con mock.module (necesitan 22.3+).
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies

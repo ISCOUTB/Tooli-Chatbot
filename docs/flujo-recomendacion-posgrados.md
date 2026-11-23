@@ -66,7 +66,7 @@ flowchart TD
   R --> I[Preguntar a la IA con contexto]
   R --> K[Hablar con asesor / registrarme]
   R --> V[Solo virtuales / cambiar nivel / más opciones]
-  K --> L[Consentimiento Ley 1581 → nombre → correo → lead]
+  K --> L[Consentimiento Ley 1581 → canal: chat, llamada o correo → nombre → lead]
 ```
 
 1. **Relación** (`reco_relacion`): lista de la tabla anterior. Se guarda
@@ -102,13 +102,20 @@ flowchart TD
    cerrados, nunca del pregrado escrito, para que nadie meta instrucciones a la
    IA por ahí. Si desde la IA pide asesor, ese resumen también va en el
    contexto del traspaso.
-9. **Asesor** (`reco_consentimiento` → `reco_nombre` → `reco_correo`):
-   consentimiento (Ley 1581) → nombre → correo → lead en Sheets (la columna de
-   programa lleva el de interés y el resumen) y HubSpot, y conversación en
-   Chatwoot con el mismo resumen, la constancia del consentimiento y la
-   etiqueta `reco-pregrado`. Si Sheets falla, se registra el error y se sigue:
-   lo que la persona pidió es el asesor, y Chatwoot ya lleva los datos. Si no
-   autoriza, no se guarda nada y vuelve a las opciones.
+9. **Asesor** (`reco_consentimiento` → `reco_contacto` → `reco_nombre`):
+   consentimiento (Ley 1581) → cómo lo contactan: 💬 por este chat (primero),
+   📞 llamada (`reco_llamada_numero` y `reco_llamada_franja`: este número u
+   otro, y la franja dentro del horario del equipo, de lunes a viernes de 8 a
+   18 por defecto; con la agenda encendida, una cita) o 📧 correo
+   (`reco_correo`) → nombre si falta → lead en Sheets (la columna de programa
+   lleva el de interés) y conversación en Chatwoot con el resumen, el canal
+   («📞 Pidió llamada al … en la tarde»), la constancia del consentimiento y
+   la etiqueta `reco-pregrado`. El correo nunca es obligatorio y HubSpot solo
+   recibe contactos con correo. Si el pedido ya dice el canal («que me
+   escriban por aquí», «llámenme al 300…»), no se pregunta; quien ya eligió
+   antes solo confirma «igual que la vez pasada». Si Sheets falla, se registra
+   el error y se sigue: lo que la persona pidió es el asesor, y Chatwoot ya
+   lleva los datos. Si no autoriza, no se guarda nada y vuelve a las opciones.
 
 Comandos globales en todos los pasos: *menu* (vuelve al saludo) y *0* (un paso
 atrás).
@@ -139,33 +146,41 @@ en *Profundiza* y ningún texto promete admisión ni empleo.
 
 ### Tabla para pregrados UTB
 
-Nombres cortos; `(v)` = UTB Virtual. Los IDs exactos van en el código.
+Nombres cortos; `(v)` = UTB Virtual. Los IDs exactos van en el código
+(`TABLA_PREGRADO` en `src/flows/recomendacionPregrado.ts`); esta tabla está al día con él (23-nov-2026).
 
 | Pregrado | Profundiza | Complementa | Investiga |
 |---|---|---|---|
 | Ingeniería Civil | Esp. Análisis y Diseño Estructural · Esp. Geotecnia Vial y Pavimentos | Esp. Gerencia de Proyectos · Maestría en Gerencia de Proyectos · Esp. Gestión Territorial y Derecho Urbano | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Arquitectura | Esp. Gestión Territorial y Derecho Urbano · Maestría en Gestión del Patrimonio y Turismo Cultural | Esp. Gerencia de Proyectos · Maestría en Gerencia de Proyectos | Doctorado en Desarrollo Regional y Local · Doctorado en Sostenibilidad |
-| Diseño | Maestría en Gestión de la Innovación · Esp. Gestión Cultural Sostenible | Esp. Gerencia de Mercadeo · Esp. Gestión de Tecnologías Disruptivas · Esp. Gerencia de Proyectos | — |
+| Diseño | Maestría en Gestión de la Innovación · Esp. Gestión Cultural Sostenible | Esp. Gerencia de Mercadeo · Esp. Gestión de Tecnologías Disruptivas · Esp. Gerencia de Proyectos · Maestría en Gerencia de Proyectos | — |
 | Ingeniería Industrial | Esp. Gerencia de Producción y Calidad · Esp. Gestión Logística y Cadena de Suministro · Maestría en Gerencia de Proyectos | MBA · Esp. Gerencia de la SST · Maestría en Gestión de la Innovación | Maestría en Ingeniería · Doctorado en Ingeniería |
-| Ingeniería Ambiental | Esp. Gestión Ambiental Sostenible · Esp. Sistemas Energéticos Sostenibles | Esp. Gerencia de la SST · Esp. Gerencia de Proyectos | Doctorado en Sostenibilidad · Maestría en Ingeniería |
-| Ingeniería Química | Esp. Gerencia de Producción y Calidad · Esp. Gestión Ambiental Sostenible · Esp. Sistemas Energéticos Sostenibles | Esp. Gerencia de la SST · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
+| Ingeniería Ambiental | Esp. Gestión Ambiental Sostenible · Esp. Sistemas Energéticos Sostenibles | Esp. Gerencia de la SST · Esp. Gerencia de Proyectos · Maestría en Gerencia de Proyectos | Doctorado en Sostenibilidad · Maestría en Ingeniería |
+| Ingeniería Química | Esp. Gerencia de Producción y Calidad · Esp. Gestión Ambiental Sostenible · Esp. Sistemas Energéticos Sostenibles | Esp. Gerencia de la SST · Esp. Gerencia de Proyectos · Maestría en Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Naval | Esp. Gerencia de Mantenimiento · Maestría en Gerencia de Mantenimiento | Esp. Gestión Logística y Cadena de Suministro · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Mecánica | Esp. Gerencia de Mantenimiento · Maestría en Gerencia de Mantenimiento · Esp. Sistemas Energéticos Sostenibles · Esp. Automatización y Control | Esp. Gerencia de Producción y Calidad · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Eléctrica | Esp. Sistemas Energéticos Sostenibles · Esp. Automatización y Control · Maestría en Industria 4.0 | Esp. Gerencia de Mantenimiento · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Electrónica | Esp. Automatización y Control · Maestría en Industria 4.0 · Esp. Telecomunicaciones y Redes | Maestría en Ciberseguridad · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Mecatrónica | Maestría en Industria 4.0 · Esp. Automatización y Control | Esp. Gerencia de Mantenimiento · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Ingeniería Biomédica | Esp. Gerencia de Servicios de Salud (v) · Esp. Gerencia de Mantenimiento | Esp. Gerencia de Proyectos · Maestría en Gestión de la Innovación | Maestría en Ingeniería · Doctorado en Ingeniería |
-| Ingeniería de Sistemas y Computación | Esp. Ingeniería de Software (v) · Maestría en Ciberseguridad · Maestría en Estadística Aplicada y Ciencia de Datos · Esp. Telecomunicaciones y Redes | Maestría en Management de la Transformación Digital · Esp. Gerencia de Proyectos | Maestría en Ingeniería · Doctorado en Ingeniería |
-| Ciencia de Datos | Maestría en Estadística Aplicada y Ciencia de Datos · Esp. Estadística Aplicada | Maestría en Ciberseguridad · Maestría en Management de la Transformación Digital · Esp. Gestión de Tecnologías Disruptivas | Maestría en Ingeniería |
+| Ingeniería de Sistemas y Computación | Esp. Ingeniería de Software (v) · Maestría en Ciberseguridad · Maestría en Estadística Aplicada y Ciencia de Datos · Esp. Telecomunicaciones y Redes | Maestría en Management de la Transformación Digital · Esp. Gerencia de Proyectos · Esp. Gestión de Tecnologías Disruptivas | Maestría en Ingeniería · Doctorado en Ingeniería |
+| Ciencia de Datos | Maestría en Estadística Aplicada y Ciencia de Datos · Esp. Estadística Aplicada | Maestría en Ciberseguridad · Maestría en Management de la Transformación Digital · Esp. Gestión de Tecnologías Disruptivas | Maestría en Ingeniería · Doctorado en Ingeniería |
 | Marketing y Transformación Digital | Esp. Gerencia de Mercadeo · Maestría en Management de la Transformación Digital · Esp. Gestión de Tecnologías Disruptivas | MBA · Esp. Gestión de Negocios Internacionales | Doctorado en Administración |
 | Comunicación Social | Esp. Gestión Cultural Sostenible · Maestría en Gestión del Patrimonio y Turismo Cultural · Esp. Gerencia de Mercadeo | Maestría en Management de la Transformación Digital · Maestría en Métodos de Investigación Social | Doctorado en Desarrollo Regional y Local |
-| Administración de Empresas | MBA · Esp. Gerencia Empresarial · Esp. Planeación Estratégica y Prospectiva · Esp. Gerencia del Talento Humano | Esp. Gerencia de Proyectos · Esp. Gerencia de Mercadeo · Maestría en Gestión Humana y Desarrollo Organizacional | Doctorado en Administración |
+| Administración de Empresas | MBA · Esp. Gerencia Empresarial · Esp. Planeación Estratégica y Prospectiva · Esp. Gerencia del Talento Humano | Esp. Gerencia de Proyectos · Esp. Gerencia de Mercadeo · Maestría en Gestión Humana y Desarrollo Organizacional · Esp. Finanzas · Esp. Gestión de Negocios Internacionales | Doctorado en Administración |
 | Finanzas y Negocios Internacionales | Maestría en Finanzas · Esp. Finanzas · Esp. Gestión de Negocios Internacionales · Maestría en Negocios Internacionales e Integración | MBA · Esp. Gestión Logística y Cadena de Suministro | Doctorado en Administración |
 | Contaduría Pública (y virtual) | Esp. Estándares Internacionales de Contabilidad y Auditoría · Esp. Gerencia Tributaria · Maestría en Gerencia Tributaria | Esp. Finanzas · Maestría en Finanzas | Doctorado en Administración |
-| Derecho | Maestría en Derecho · Esp. Derecho Comercial · Esp. Derecho del Trabajo y Relaciones Laborales · Esp. Contratación Estatal (v) · Esp. Derechos Humanos (v) | Esp. Gestión Territorial y Derecho Urbano · Esp. Gerencia Tributaria | Doctorado en Desarrollo Regional y Local |
+| Derecho | Maestría en Derecho · Esp. Derecho Comercial · Esp. Derecho del Trabajo y Relaciones Laborales · Esp. Contratación Estatal (v) · Esp. Derechos Humanos (v) | Esp. Gestión Territorial y Derecho Urbano · Esp. Gerencia Tributaria · Maestría en Gerencia Tributaria | Doctorado en Desarrollo Regional y Local |
 | Psicología | Maestría en Intervención Psicosocial · Esp. Gerencia del Talento Humano · Maestría en Gestión Humana y Desarrollo Organizacional | Esp. Gerencia de la SST · Maestría en Educación · Maestría en Métodos de Investigación Social | Doctorado en Desarrollo Regional y Local |
 | Economía | Maestría en Finanzas · Maestría en Estadística Aplicada y Ciencia de Datos · Esp. Estadística Aplicada · Maestría en Negocios Internacionales e Integración | Esp. Planeación Estratégica y Prospectiva · Esp. Gerencia Tributaria | Doctorado en Desarrollo Regional y Local · Doctorado en Administración |
 | Ciencia Política y Relaciones Internacionales | Esp. Derechos Humanos (v) · Maestría en Negocios Internacionales e Integración · Esp. Gestión de Negocios Internacionales · Esp. Contratación Estatal (v) | Maestría en Métodos de Investigación Social · Esp. Planeación Estratégica y Prospectiva · Esp. Gestión Territorial y Derecho Urbano | Doctorado en Desarrollo Regional y Local |
+
+Para la IA (`afinesParaIa`) y el flyer, la versión virtual de un afín (mismo
+programa y nivel en UTB Virtual; hoy, la Esp. Gerencia de la SST) también
+cuenta como afín. Si la persona pide un nivel o una modalidad que no está en
+la lista de su carrera (por ejemplo, un doctorado para Diseño), la IA dice qué
+tiene la UTB de ese nivel o modalidad, aclarando que es de otra área, en vez de
+decir que no hay.
 
 ### Familias para pregrados de otras universidades
 
@@ -217,7 +232,8 @@ contactarla por WhatsApp (Meta y la Ley 1581 la exigen).
 - Recomendar no pide datos personales. En sesión solo quedan relación,
   pregrado (ID o texto escrito), nivel y los IDs recomendados.
 - Al pedir asesor o registrarse: consentimiento explícito (Ley 1581 de 2012,
-  mismo texto que el flujo de evento), luego nombre y correo.
+  mismo texto que el flujo de evento), luego el canal de contacto y el nombre
+  (el correo solo si elige que le escriban al correo).
 - El lead lleva relación, pregrado, nivel y programas recomendados, para que
   el asesor no tenga que volver a preguntar.
 

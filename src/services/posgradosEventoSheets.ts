@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { config } from '../config';
 import { maskEmail, maskPhone } from './logSafe';
+import { saltarEnSimulacion } from './simulacion';
 
 export interface RegistroPosgrado {
   whatsapp: string;
@@ -31,6 +32,8 @@ function getSheetsClient(readonly = false) {
  *   H: Seguimiento del asesor (agregada para el panel — ver actualizarSeguimientoEvento)
  */
 export async function guardarRegistroPosgrado(data: RegistroPosgrado): Promise<number> {
+  // Fila 0: las actualizaciones de esa fila (programa, autorización) tampoco escriben.
+  if (saltarEnSimulacion('Google Sheets', `No se agregó a la hoja del evento de posgrados: ${data.nombre || 'sin nombre'}.`, data.whatsapp)) return 0;
   const sheetId = config.posgradosEvento.sheetId;
   if (!sheetId) {
     console.warn('[posgrados] POSGRADOS_EVENTO_SHEET_ID no configurado — registro no persistido', {

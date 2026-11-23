@@ -14,8 +14,13 @@ const NAV_SECTIONS = [
   { title: 'Atender', routes: [
     { route: 'atencion', icon: 'headset', label: 'Atención' },
     { route: 'conversaciones', icon: 'message', label: 'Conversaciones' },
+    // `cap`: solo aparece si el servidor la tiene encendida (AGENDA_ACTIVA; ver agendaActivaEnServidor).
+    { route: 'agenda', icon: 'calendar', label: 'Agenda', cap: 'agenda' },
     { route: 'recordatorios', icon: 'clock', label: 'Recordatorios' },
     { route: 'plantillas', icon: 'megaphone', label: 'Plantillas' },
+    { route: 'llamadas', icon: 'phone', label: 'Llamadas' },
+    // Simulador de WhatsApp: corre el bot real con números de prueba (la API también exige administrador).
+    { route: 'probar-bot', icon: 'bot', label: 'Probar el bot', admin: true },
   ] },
   { title: 'Prospectos', routes: [
     { route: 'registros', icon: 'users', label: 'CRM' },
@@ -44,12 +49,39 @@ const TAB_ROUTES = [
   { route: 'registros', icon: 'users', label: 'CRM' },
 ];
 
-function seccionesVisibles() {
-  const esAdmin = sesion.user?.role === 'admin';
-  return NAV_SECTIONS
-    .filter(section => !section.admin || esAdmin)
-    .map(section => ({ ...section, routes: section.routes.filter(route => !route.admin || esAdmin) }))
+const rutaVisible = (route, { esAdmin, caps }) => (!route.admin || esAdmin) && (!route.cap || caps?.[route.cap] === true);
+
+/** Secciones del menú para un rol y unas capacidades del servidor. Pura, para poder probarla. */
+function filtrarSecciones(secciones, permisos) {
+  return secciones
+    .filter(section => !section.admin || permisos.esAdmin)
+    .map(section => ({ ...section, routes: section.routes.filter(route => rutaVisible(route, permisos)) }))
     .filter(section => section.routes.length);
+}
+
+/** false si la ruta está en el menú pero esta sesión no la ve (rol o función apagada). */
+function rutaDisponible(routeName, permisos) {
+  const ruta = NAV_SECTIONS.flatMap(section => section.routes).find(item => item.route === routeName);
+  return !ruta || rutaVisible(ruta, permisos);
+}
+
+const permisosSesion = () => ({ esAdmin: sesion.user?.role === 'admin', caps: sesion.caps });
+
+function seccionesVisibles() {
+  return filtrarSecciones(NAV_SECTIONS, permisosSesion());
+}
+
+/* La agenda puede estar apagada en el servidor (AGENDA_ACTIVA=false): entonces su
+   API responde 404 y la pestaña no se muestra. Ante cualquier duda, apagada. */
+async function agendaActivaEnServidor() {
+  try {
+    const response = await api('/api/tools/agenda/estado');
+    if (!response?.ok) return false;
+    const data = await response.json();
+    return data?.activa === true;
+  } catch {
+    return false;
+  }
 }
 
 function moreRoutes() {
@@ -258,6 +290,7 @@ async function init() {
   sesion.user = data.user;
   if (data.urls) sesion.urls = data.urls;
   if (data.capabilities) sesion.caps = data.capabilities;
+  sesion.caps = { ...sesion.caps, agenda: await agendaActivaEnServidor() };
   $('#userName').textContent = sesion.user.fullName;
   $('#userRole').textContent = sesion.user.role === 'admin' ? 'Administrador' : 'Asesor';
   const avatar = $('#userAvatar');
@@ -341,13 +374,13 @@ function navigate(route, params) {
   updateTabBar(routeName);
   const main = $('#main');
   main.classList.remove('page-enter');
-  const render = PANTALLAS[routeName];
+  const render = rutaDisponible(routeName, permisosSesion()) ? PANTALLAS[routeName] : null;
   const result = render ? render(main) : (main.innerHTML = '<div class="card">Página no encontrada</div>');
   requestAnimationFrame(() => main.classList.add('page-enter'));
   return result;
 }
 
 export {
-  NAV_SECTIONS, registrarPantallas, navigate, parametrosRuta, init,
+  NAV_SECTIONS, filtrarSecciones, rutaDisponible, registrarPantallas, navigate, parametrosRuta, init,
   renderSidebarNav, renderTabBar, updateTabBar, moreRoutes, openMoreSheet,
 };

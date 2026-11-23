@@ -1,5 +1,7 @@
+# Node 22 LTS (las pruebas con mock.module necesitan 22.3+). Se fija bookworm: los nombres de paquetes de abajo
+# (libasound2, …) son de Debian 12; en trixie cambian (libasound2t64) y el apt-get fallaría.
 # ── Builder ────────────────────────────────────────────────────────────────────
-FROM node:20-slim AS builder
+FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
@@ -10,7 +12,7 @@ COPY . .
 RUN npm run build
 
 # ── Runner ─────────────────────────────────────────────────────────────────────
-FROM node:20-slim AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 

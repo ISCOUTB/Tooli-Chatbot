@@ -18,6 +18,14 @@ export function verifyMetaSignature(rawBody: Buffer | undefined, signature: stri
   return safeEqual(expected, signature.toLowerCase());
 }
 
+/**
+ * Compara un secreto compartido (Evolution, métricas) en tiempo constante.
+ * Un secreto vacío nunca abre la puerta.
+ */
+export function verifySharedSecret(given: unknown, secret: string): boolean {
+  return typeof given === 'string' && secret.length > 0 && safeEqual(given, secret);
+}
+
 /** Chatwoot v3.16 does not sign outgoing webhooks. Use an unguessable URL token. */
 export function verifyChatwootToken(token: unknown, secret: string): boolean {
   return typeof token === 'string' && secret.length >= 32 && safeEqual(token, secret);
@@ -26,17 +34,31 @@ export function verifyChatwootToken(token: unknown, secret: string): boolean {
 let warnedMissingMetaSecret = false;
 
 /**
- * Sin META_APP_SECRET se aceptan las entregas sin firma (como antes de esta
- * validación) para que desplegar sin el secreto no deje al bot sordo. En
- * cuanto se configura, toda entrega sin firma válida se rechaza.
+ * Sin META_APP_SECRET no hay forma de saber que una entrega viene de Meta.
+ * En desarrollo se aceptan (con aviso) para poder probar sin el secreto; en
+ * producción se rechazan, salvo que alguien lo pida a propósito con
+ * META_ALLOW_UNSIGNED=1 mientras configura el secreto.
  */
+export function metaUnsignedAllowed(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.META_ALLOW_UNSIGNED === '1';
+}
+
 export function requireMetaSignature(req: RawBodyRequest, res: Response, next: NextFunction): void {
   if (!config.metaCloud.appSecret) {
+    const allowed = metaUnsignedAllowed();
     if (!warnedMissingMetaSecret) {
       warnedMissingMetaSecret = true;
-      console.warn('[meta-webhook] META_APP_SECRET no configurado: se aceptan entregas SIN verificar la firma.');
+      console.warn(
+        allowed
+          ? '[meta-webhook] META_APP_SECRET no configurado: se aceptan entregas SIN verificar la firma.'
+          : '[meta-webhook] META_APP_SECRET no configurado en producción: se rechazan las entregas. Configúralo (o META_ALLOW_UNSIGNED=1 de forma temporal).'
+      );
     }
-    next();
+    if (allowed) {
+      next();
+      return;
+    }
+    res.status(503).json({ error: 'meta_app_secret_missing' });
     return;
   }
   const signature = req.header('x-hub-signature-256');
@@ -57,4 +79,24 @@ export function requireChatwootToken(req: Request, res: Response, next: NextFunc
     return;
   }
   next();
+}
+
+/**
+ * Token de métricas: METRICS_TOKEN (o WEBHOOK_SECRET si no se definió, para no
+ * romper despliegues viejos). Se prefiere la cabecera (`x-metrics-token` o
+ * `Authorization: Bearer`) porque la URL queda en los registros del proxy;
+ * `?token=` se sigue aceptando (Prometheus y la página del tablero lo usan).
+ */
+export function metricsTokensFrom(req: Pick<Request, 'headers' | 'query'>): unknown[] {
+  const auth = req.headers.authorization;
+  return [
+    req.headers['x-metrics-token'],
+    typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : undefined,
+    req.query.token,
+  ].filter(t => t !== undefined && t !== '');
+}
+
+/** Basta con que UNA de las fuentes traiga el token (un proxy puede añadir otro Bearer). */
+export function metricsAuthorized(req: Pick<Request, 'headers' | 'query'>, secret: string): boolean {
+  return metricsTokensFrom(req).some(t => verifySharedSecret(t, secret));
 }

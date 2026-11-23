@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import { config } from '../config';
-import { requireMetaSignature, verifyChatwootToken, verifyMetaSignature } from './webhookAuth';
+import { requireMetaSignature, verifyChatwootToken, verifyMetaSignature, verifySharedSecret } from './webhookAuth';
 import type { RawBodyRequest } from './webhookAuth';
 
 test('Meta signature checks the exact raw bytes and rejects forged deliveries', () => {
@@ -48,4 +48,37 @@ test('Chatwoot token requires a configured high entropy secret and exact match',
   assert.equal(verifyChatwootToken([token], token), false);
   assert.equal(verifyChatwootToken(token, ''), false);
   assert.equal(verifyChatwootToken('short', 'short'), false);
+});
+
+test('in production a missing META_APP_SECRET rejects deliveries unless explicitly allowed', () => {
+  const original = config.metaCloud.appSecret;
+  const env = { node: process.env.NODE_ENV, allow: process.env.META_ALLOW_UNSIGNED };
+  const run = () => {
+    let nextCalled = false;
+    let status: number | undefined;
+    const req = { rawBody: Buffer.from('{}'), header: () => undefined } as unknown as RawBodyRequest;
+    const res = { sendStatus: (s: number) => { status = s; }, status: (s: number) => { status = s; return res; }, json: () => res } as any;
+    requireMetaSignature(req, res, () => { nextCalled = true; });
+    return { nextCalled, status };
+  };
+  try {
+    config.metaCloud.appSecret = '';
+    process.env.NODE_ENV = 'production';
+    delete process.env.META_ALLOW_UNSIGNED;
+    assert.deepEqual(run(), { nextCalled: false, status: 503 });
+    process.env.META_ALLOW_UNSIGNED = '1';
+    assert.deepEqual(run(), { nextCalled: true, status: undefined });
+  } finally {
+    config.metaCloud.appSecret = original;
+    if (env.node === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = env.node;
+    if (env.allow === undefined) delete process.env.META_ALLOW_UNSIGNED; else process.env.META_ALLOW_UNSIGNED = env.allow;
+  }
+});
+
+test('shared secrets (Evolution, metrics) need an exact non-empty match', () => {
+  assert.equal(verifySharedSecret('s3creto-largo', 's3creto-largo'), true);
+  assert.equal(verifySharedSecret('s3creto-larg', 's3creto-largo'), false);
+  assert.equal(verifySharedSecret(undefined, 's3creto-largo'), false);
+  assert.equal(verifySharedSecret(['s3creto-largo'], 's3creto-largo'), false);
+  assert.equal(verifySharedSecret('', ''), false);
 });

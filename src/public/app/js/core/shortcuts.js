@@ -15,13 +15,13 @@ function esCampoDeTexto(el) {
 
 const ATAJOS = [
   { tecla: '/', desc: 'Buscar en la pantalla actual' },
-  { tecla: 'g', desc: 'Ir a… (luego i inicio, c conversaciones, p prospectos, r recordatorios, m métricas)' },
+  { tecla: 'g', desc: 'Ir a… (luego i inicio, c conversaciones, a agenda, p prospectos, r recordatorios, m métricas)' },
   { tecla: '?', desc: 'Ver esta lista' },
   { tecla: 'Esc', desc: 'Cerrar lo que esté abierto' },
 ];
 
 let esperandoIr = false;
-const DESTINOS_IR = { i: 'home', c: 'conversaciones', p: 'registros', r: 'recordatorios', m: 'metricas', e: 'evento-posgrado', s: 'health' };
+const DESTINOS_IR = { i: 'home', c: 'conversaciones', a: 'agenda', p: 'registros', r: 'recordatorios', m: 'metricas', e: 'evento-posgrado', s: 'health' };
 
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;

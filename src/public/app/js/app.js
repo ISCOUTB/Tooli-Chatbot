@@ -21,12 +21,15 @@ import { renderPosgrados } from './screens/posgrados.js';
 import { renderRegistros } from './screens/registros.js';
 import { renderEventoPosgrado } from './screens/evento.js';
 import { renderRecordatorios } from './screens/recordatorios.js';
+import { renderAgenda } from './screens/agenda.js';
 import { renderHealth } from './screens/health.js';
 import { renderUsuarios } from './screens/usuarios.js';
 import { renderActividad } from './screens/actividad.js';
 import { renderInformes } from './screens/informes.js';
 import { renderAsistencia } from './screens/asistencia.js';
 import { renderPlantillas } from './screens/plantillas.js';
+import { renderLlamadas } from './screens/llamadas.js';
+import { renderProbarBot } from './screens/probar-bot.js';
 
 registrarPantallas({
   home: renderHome,
@@ -38,12 +41,15 @@ registrarPantallas({
   registros: renderRegistros,
   'evento-posgrado': renderEventoPosgrado,
   recordatorios: renderRecordatorios,
+  agenda: renderAgenda,
   health: renderHealth,
   usuarios: renderUsuarios,
   actividad: renderActividad,
   informes: renderInformes,
   asistencia: renderAsistencia,
   plantillas: renderPlantillas,
+  llamadas: renderLlamadas,
+  'probar-bot': renderProbarBot,
 });
 
 init();

@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { POSGRADOS_URL, POSGRADOS_UTB, POSGRADOS_VIRTUALES_URL } from '../services/catalogoUtb';
+import { REGLA_AFINES } from '../services/aiAssistant';
+import { POSGRADOS_URL, POSGRADOS_UTB, POSGRADOS_VIRTUALES_URL, getPrograma } from '../services/catalogoUtb';
 import { TABLA_PREGRADO, recomendar } from './recomendacionPregrado';
 import {
   BOTONES_CONFIRMAR,
@@ -44,7 +45,7 @@ import {
   textoConfirmacion,
 } from './recomendacionView';
 import {
-  ASESOR_CON_AUTORIZACION, ASESOR_POR_AQUI, BOTONES_UTIL, contextoConversacion, esTextoLibre, parseUtil, pideLlamada, prefiereContactoSinCorreo,
+  ASESOR_CON_AUTORIZACION, ASESOR_POR_AQUI, BOTONES_UTIL, afinesParaIa, contextoConversacion, esTextoLibre, flyerEncajaConLaPersona, parseUtil, pideLlamada, prefiereContactoSinCorreo,
 } from './recomendacionView';
 import {
   BOTONES_FICHA, CIERRE_CON_FOTOS, formatearPlan, parseAccionFicha, pieFicha, pieFlyer, preguntaCostos,
@@ -481,5 +482,74 @@ describe('contexto de la conversación para la IA', () => {
   it('sin nada que contar no hay contexto', () => {
     assert.equal(contextoConversacion({}, true), undefined);
     assert.equal(contextoConversacion(null, true), undefined);
+    assert.equal(contextoConversacion({}, false, 'Hola, ¿qué especializaciones tienen?'), undefined);
+  });
+
+  // Con la carrera conocida, la IA elegía libre del catálogo: a un estudiante
+  // de Sistemas le salió la Especialización en Gestión de Negocios Internacionales.
+  it('con la carrera conocida, la IA recibe los posgrados afines por nivel y la orden de usar esos', () => {
+    const contexto = contextoConversacion({ relacion: 'estudiante_utb', pregradoId: 'ingenieria-de-sistemas-y-computacion', nivel: 'especializacion' }, false)!;
+    assert.match(contexto, /Pregrado: Ingeniería de Sistemas y Computación/);
+    assert.match(contexto, /Especializaciones: [^.]*Especialización en Ingeniería de Software/);
+    assert.match(contexto, /Maestrías: [^.]*Maestría en Ciberseguridad/);
+    assert.match(contexto, /Doctorados: [^.]*Doctorado en Ingeniería/);
+    assert.match(contexto, /recomienda solo/i);
+    assert.ok(!/Negocios Internacionales/.test(contexto), contexto);
+  });
+
+  it('también si la persona dice su carrera en la pregunta, aunque el bot todavía no la haya guardado', () => {
+    const texto = 'Soy estudiante de Ingeniería de Sistemas de la UTB, ¿qué especializaciones me recomiendan?';
+    const contexto = contextoConversacion({ relacion: 'estudiante_utb' }, false, texto)!;
+    assert.match(contexto, /Ingeniería de Sistemas y Computación/);
+    assert.match(contexto, /Especialización en Ingeniería de Software/);
+    assert.ok(!/Negocios Internacionales/.test(contexto));
+    // Lo que escribió la persona nunca llega tal cual al prompt.
+    assert.ok(!/recomiendan|estudiante de/i.test(contexto));
+  });
+
+  it('a Ingeniería Industrial le llegan la SST presencial y su gemela virtual', () => {
+    const afines = afinesParaIa({ pregradoId: 'ingenieria-industrial' })!;
+    assert.match(afines, /Especialización en Gerencia de la Seguridad y Salud en el Trabajo, Especialización en Gerencia de la Seguridad y Salud en el Trabajo \(virtual\)/);
+  });
+
+  it('si pide un nivel o una modalidad que no está en la lista, la IA dice qué hay en vez de decir que no hay nada', () => {
+    // Diseño no tiene doctorado afín.
+    const diseno = afinesParaIa({ pregradoId: 'diseno' })!;
+    assert.doesNotMatch(diseno, /Doctorados:/);
+    assert.match(diseno, /nivel o una modalidad/i);
+    assert.match(diseno, /no digas que la UTB no tiene/i);
+    assert.match(diseno, /cuáles de ese nivel o modalidad tiene la UTB/i);
+    assert.match(REGLA_AFINES, /modalidad/i);
+    assert.match(REGLA_AFINES, /no digas que no hay/i);
+  });
+
+  it('afinesParaIa es null sin carrera y sirve también para un pregrado de otra universidad', () => {
+    assert.equal(afinesParaIa({}), null);
+    assert.equal(afinesParaIa({ pregradoId: 'no-existe' }), null);
+    assert.match(afinesParaIa({ familiaId: 'salud' })!, /Gerencia de Servicios de Salud/);
+  });
+});
+
+describe('flyer del programa que consultó la IA', () => {
+  const NI = getPrograma('especializacion-en-gestion-de-negocios-internacionales')!;
+  const software = getPrograma('virtual-ingenieria-de-software')!;
+  const sistemas = { relacion: 'estudiante_utb', pregradoId: 'ingenieria-de-sistemas-y-computacion' };
+
+  it('no manda de primero un programa ajeno a la carrera que la persona no nombró', () => {
+    assert.equal(flyerEncajaConLaPersona(NI, sistemas, '¿Qué especializaciones me recomiendan?'), false);
+    assert.equal(flyerEncajaConLaPersona(NI, { relacion: 'estudiante_utb' },
+      'Soy estudiante de Ingeniería de Sistemas, ¿qué especializaciones me recomiendan?'), false);
+  });
+
+  it('sí lo manda si es afín, si la persona lo nombró o si ya se lo recomendaron', () => {
+    assert.equal(flyerEncajaConLaPersona(software, sistemas, '¿Qué especializaciones me recomiendan?'), true);
+    assert.equal(flyerEncajaConLaPersona(NI, sistemas, '¿Y cuánto cuesta la de negocios internacionales?'), true);
+    assert.equal(flyerEncajaConLaPersona(NI, { ...sistemas, recomendados: JSON.stringify([NI.id]) }, '¿cuánto cuesta?'), true);
+    assert.equal(flyerEncajaConLaPersona(NI, { pregradoId: 'marketing-y-transformacion-digital' }, '¿qué especializaciones hay?'), true);
+  });
+
+  it('sin carrera conocida no se bloquea (no hay con qué comparar)', () => {
+    assert.equal(flyerEncajaConLaPersona(NI, {}, '¿qué especializaciones hay?'), true);
+    assert.equal(flyerEncajaConLaPersona(NI, null, '¿qué especializaciones hay?'), true);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { filaDeRango } from './registroService';
+import { filaDeRango, pedidoNombreProspecto } from './registroService';
 
 describe('filaDeRango', () => {
   it('lee la fila que Sheets dice haber escrito', () => {
@@ -13,5 +13,15 @@ describe('filaDeRango', () => {
     assert.equal(filaDeRango(undefined), null);
     assert.equal(filaDeRango(''), null);
     assert.equal(filaDeRango('Registros'), null);
+  });
+});
+
+describe('pedidoNombreProspecto', () => {
+  it('cambiar el nombre escribe solo la columna B de esa fila: el correo y el programa no se tocan', () => {
+    assert.deepEqual(pedidoNombreProspecto(12, 'Laura Gómez'), { range: 'Registros!B12', values: [['Laura Gómez']] });
+  });
+
+  it('una fila inválida no escribe nada', () => {
+    for (const fila of [0, 1, 2.5, Number.NaN]) assert.throws(() => pedidoNombreProspecto(fila, 'Laura'), String(fila));
   });
 });

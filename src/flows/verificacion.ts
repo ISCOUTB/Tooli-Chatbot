@@ -120,6 +120,15 @@ export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
       return;
     }
   }
+  if (after === 'semestre' || after === 'turno' || after === 'recibo') {
+    const area = session?.data.originArea;
+    if (area === 'pregrado' || area === 'posgrado') {
+      await messaging.sendText({ to: from, text: '✅ Vinculé este WhatsApp con tu cuenta institucional verificada.' });
+      const { iniciarMiSemestre } = await import('./miSemestre');
+      await iniciarMiSemestre(from, area, after === 'semestre' ? undefined : after);
+      return;
+    }
+  }
   if (after === 'notas') {
     if (process.env.TOOLI_NOTAS_SSO_ENABLED !== '1') {
       const notasUrl = RECURSOS_ACADEMICOS.find((r) => r.id === 'notas')?.url ?? 'https://autoservicio4prod.utb.edu.co';
@@ -130,14 +139,11 @@ export async function handleVerifCodigo(ctx: FlowContext): Promise<void> {
       });
       return;
     }
-    await setSession(from, { step: 'notas_password', data: { ...session?.data, after: '' } });
-    await messaging.sendText({
-      to: from,
-      text:
-        '✅ ¡Identidad verificada!\n\n' +
-        'Ahora inicio sesión en Banner por ti. Escribe tu *contraseña institucional* ' +
-        '(la de Microsoft / correo @utb).\n\n⚠️ Solo se usa para esta consulta, *no se guarda*.',
-    });
+    // Camino A pide primero el consentimiento para recordar la sesión; camino B va directo a la contraseña.
+    const areaNotas = session?.data.originArea;
+    await messaging.sendText({ to: from, text: '✅ ¡Identidad verificada!' });
+    const { iniciarConsultaDeNotas } = await import('./notas');
+    await iniciarConsultaDeNotas(from, areaNotas === 'pregrado' || areaNotas === 'posgrado' ? areaNotas : undefined);
     return;
   }
 

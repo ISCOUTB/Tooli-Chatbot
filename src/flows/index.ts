@@ -15,18 +15,22 @@ import {
   handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
   handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
   handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
+  handleRecoContacto, handleRecoContactoRepetir, handleRecoLlamadaNumero, handleRecoLlamadaFranja,
   atenderRespuestaCampana,
   atenderUtil,
-  pedirConsentimiento,
+  pedirAsesorDesdePaso,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
-import { agradecer, atenderBaja, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta } from './conversacion';
+import {
+  agradecer, atenderBaja, atenderNombreEnPaso, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta,
+} from './conversacion';
 import {
   IMAGEN_NO, SALUDO_CORTO, SEGUIMOS, esAgradecimiento, esBaja, esConfusion, esPedidoAsesor, esRuido, esSaludo, pareceUnaPregunta, parseBoton,
   parseSugerencia,
 } from './conversacionView';
 import { registrarNoReconocido } from '../services/noReconocidoService';
 import { parseUtil, prefiereContactoSinCorreo } from './recomendacionView';
+import { PASOS_DE_CONTACTO, PASO_FRANJA, parseFranja, respondeAlPaso } from './contactoView';
 import type { Session } from '../services/session';
 import { config } from '../config';
 import { handleWithAgent } from './withAgent';
@@ -44,8 +48,10 @@ import {
 } from './agent';
 import { handleTiCollectEmail, handleTiCollectCodigo, handleTiCollectCedula } from './identity';
 import { handleVerifEmail, handleVerifCodigo } from './verificacion';
-import { handleNotasPassword, handleNotasMfa } from './notas';
+import { handleNotasPassword, handleNotasMfa, handleNotasConsentimiento } from './notas';
+import { handleSemestreMenu, handleSemestreCalculo, handleVincularCodigo, handleVincularCedula } from './miSemestre';
 import { handleEncuestaAtencion } from './encuestaAtencion';
+import { atenderAgenda } from './agendaFlowRuntime';
 
 const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   // ── Inicio: recomendación de posgrados según el pregrado ────────────────────
@@ -75,6 +81,11 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   reco_consentimiento: handleRecoConsentimiento,
   reco_nombre: handleRecoNombre,
   reco_correo: handleRecoCorreo,
+  // Cómo lo contacta el asesor: este chat, una llamada (número y franja) o el correo.
+  reco_contacto: handleRecoContacto,
+  reco_contacto_repetir: handleRecoContactoRepetir,
+  reco_llamada_numero: handleRecoLlamadaNumero,
+  reco_llamada_franja: handleRecoLlamadaFranja,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
   pregrado_explorar_area: handleExplorarArea,
@@ -94,6 +105,11 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   verif_codigo: handleVerifCodigo,
   notas_password: handleNotasPassword,
   notas_mfa: handleNotasMfa,
+  notas_consentimiento: handleNotasConsentimiento,
+  semestre_menu: handleSemestreMenu,
+  semestre_calculo: handleSemestreCalculo,
+  vincular_codigo: handleVincularCodigo,
+  vincular_cedula: handleVincularCedula,
   academico_menu: handleAcademicoMenu,
   academico_cuenta: handleAcademicAccount,
   academico_desvincular: handleAcademicUnlink,
@@ -120,13 +136,18 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
 const PASOS_DE_OPCION: ReadonlySet<string> = new Set([
   'reco_relacion', 'reco_nivel', 'reco_confirmar', 'reco_pregrado_grupo', 'reco_pregrado', 'reco_sin_coincidencia',
   'reco_resultados', 'reco_ficha', 'reco_ficha_elegir', 'reco_consentimiento',
+  'reco_contacto', 'reco_contacto_repetir', 'reco_llamada_franja',
 ]);
 /** Pasos del flujo de recomendación que esperan un texto (carrera, nombre, correo). */
-const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo']);
+const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo', 'reco_llamada_numero']);
 const DATO_QUE_FALTA: Record<string, string> = {
   reco_pregrado_externo: '✍️ Cuando quieras, escríbeme tu carrera.',
   reco_nombre: '✍️ Cuando quieras, escríbeme tu nombre completo para que el asesor te contacte.',
   reco_correo: '📧 Cuando quieras, escríbeme tu correo para que el asesor te contacte.',
+  reco_contacto: '👆 Cuando quieras, elige cómo te contactamos: por este chat, con una llamada o al correo.',
+  reco_contacto_repetir: '👆 Cuando quieras, dime si te contactamos igual que la vez pasada.',
+  reco_llamada_numero: '📞 Cuando quieras, dime a qué número te llamamos.',
+  reco_llamada_franja: '📞 Cuando quieras, dime en qué momento del día te llamamos.',
 };
 /** En recomendaciones y ficha, el texto libre ya lo responde la IA en la conversación. */
 const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_ficha']);
@@ -136,7 +157,7 @@ const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_fich
  * conversacional): BAJA, los botones de la conversación, pedir un asesor, un
  * "gracias" y una pregunta escrita. Así ningún paso responde "No reconocí" a eso.
  */
-async function atajos(from: string, text: string, session: Session | null): Promise<boolean> {
+async function atajos(from: string, text: string, session: Session | null): Promise<boolean | { text: string; session: Session }> {
   if (!config.conversacion.activa || !session) return false;
   const { step } = session;
   const data = session.data ?? {};
@@ -147,6 +168,17 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   }
   if (!PASOS_DE_OPCION.has(step) && !PASOS_DE_TEXTO.has(step)) return false;
   const sigue = DATO_QUE_FALTA[step] ?? '👆 Sigue con la opción de arriba o escríbeme tu pregunta.';
+  // "Me llamo Laura" o "quiero cambiar mi nombre": el nombre se cambia sin salir del paso. Lo que dijo
+  // después ("me llamo Laura, por acá está bien") sigue en el paso.
+  const nombre = await atenderNombreEnPaso(from, step, data, text, sigue);
+  if (nombre.atendido) return true;
+  if (nombre.texto !== text || nombre.data !== data) {
+    const conNombre: Session = { step, data: nombre.data };
+    const siguiente = await atajos(from, nombre.texto, conNombre);
+    return siguiente === false ? { text: nombre.texto, session: conNombre } : siguiente;
+  }
+  // "¿Me pueden llamar en la tarde?" o "al 300…" mientras elige cómo lo contactan: lo atiende el paso, no la IA.
+  if (PASOS_DE_CONTACTO.has(step) && respondeAlPaso(step, text)) return false;
   // Una foto no es la carrera, el nombre ni una opción.
   if (text === '__image__') {
     await registrarNoReconocido('imagen', 'una imagen');
@@ -167,6 +199,11 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   if (PASOS_DE_TEXTO.has(step)) {
     // "¿No me pueden contactar por acá? ¿Una llamada?" mientras pide el correo: lo atiende el paso, no la IA.
     if (step === 'reco_correo' && prefiereContactoSinCorreo(text)) return false;
+    // "Quiero hablar con un asesor" mientras pide el número o el correo es pedir el asesor, no una pregunta para la IA.
+    if (esPedidoAsesor(text)) {
+      await pedirAsesorDesdePaso(from, step, data, text);
+      return true;
+    }
     // "?" o "no entiendo" mientras pide la carrera, el nombre o el correo: no es una pregunta para la IA.
     if (esRuido(text) || esConfusion(text)) {
       await messaging.sendText({ to: from, text: `${esConfusion(text) ? 'Perdón si no fui claro 🙏' : SEGUIMOS}\n\n${sigue}` });
@@ -177,7 +214,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (esPedidoAsesor(text) && step !== 'reco_consentimiento') {
-    await pedirConsentimiento(from, data);
+    // En la pregunta del canal o de la franja no se le vuelve a preguntar lo mismo.
+    await pedirAsesorDesdePaso(from, step, data, text);
     return true;
   }
   if (await atenderSinPreguntaEnLista(from, data, text)) return true;
@@ -187,21 +225,47 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (pareceUnaPregunta(text) && !/^\d+$/.test(text.trim()) && !PASOS_CON_IA.has(step)) {
-    await responderPreguntaSuelta(from, data, text);
+    // En los pasos del canal de contacto, después de responder recuerda qué falta (sin esto, el texto genérico).
+    await responderPreguntaSuelta(from, data, text, DATO_QUE_FALTA[step]);
     return true;
   }
   return false;
 }
 
+/** Pasos de la recomendación donde «quiero un asesor» siempre se entiende, también con el flujo clásico. */
+function esPasoDelFlujoClasico(step: string): boolean {
+  return step !== 'reco_consentimiento' && (step === 'menu' || PASOS_DE_OPCION.has(step) || PASOS_DE_TEXTO.has(step));
+}
+
+/** Pasos de identidad y credenciales (académico y TI): la agenda nunca lee lo que se escribe en ellos. */
+export const PASOS_SIN_AGENDA: ReadonlySet<string> = new Set([
+  'notas_password', 'notas_mfa', 'notas_consentimiento', 'vincular_codigo', 'vincular_cedula',
+  'verif_email', 'verif_codigo', 'ti_collect_email', 'ti_collect_codigo', 'ti_collect_cedula',
+]);
+
 export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
+  // Agenda de asesores: «agendar», «mis citas», cancelar/reprogramar y los botones de la agenda.
+  // No en los pasos donde se escribe una contraseña, un código o la cédula: ese texto es del paso.
+  // «Agendar una cita» como franja de la llamada es del paso: así el asesor también recibe el lead.
+  const citaDeLaLlamada = session?.step === PASO_FRANJA && parseFranja(text) === 'cita';
+  if (!PASOS_SIN_AGENDA.has(session?.step ?? '') && !citaDeLaLlamada && await atenderAgenda(from, text, session)) return;
   // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
   if (await atenderRespuestaCampana(from, text, session)) return;
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.
   const util = parseUtil(text);
   if (util) return atenderUtil(from, util, session?.data ?? {}, session?.step);
-  if (await atajos(from, text, session)) return;
-  const step = session?.step ?? 'menu';
+  // Con el flujo clásico (FLUJO_CONVERSACIONAL apagado, lo de fábrica) los atajos no corren: pedir un asesor con
+  // palabras («quiero hablar con un asesor») caía en «No reconocí esa opción» en bucle. Pedir un asesor vale siempre.
+  if (!config.conversacion.activa && session && esPasoDelFlujoClasico(session.step) && esPedidoAsesor(text)) {
+    await pedirAsesorDesdePaso(from, session.step, session.data ?? {}, text);
+    return;
+  }
+  const atajo = await atajos(from, text, session);
+  if (atajo === true) return;
+  // Un atajo que atendió una parte ("me llamo Laura, …") deja el resto para el paso.
+  const ctx: FlowContext = atajo ? { from, text: atajo.text, session: atajo.session } : { from, text, session };
+  const step = ctx.session?.step ?? 'menu';
 
   // Con el inicio conversacional, el paso raíz lo atiende la IA con preguntas de botones.
   const handler = step === 'menu' && config.conversacion.activa ? handleConversacion : HANDLERS[step];
@@ -212,5 +276,5 @@ export async function handleMessage(from: string, text: string): Promise<void> {
     return;
   }
 
-  await handler({ from, text, session });
+  await handler(ctx);
 }

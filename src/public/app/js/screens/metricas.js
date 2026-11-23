@@ -75,6 +75,7 @@ const EVENT_META = {
   ai_reutilizada:            { label: 'Respuestas reutilizadas (sin gastar IA)', icon: '🔁', color: '#0f9d58' },
   ia_corregida:              { label: 'Programa o enlace de la IA corregido', icon: '🛠️', color: '#b45309' },
   conv_regreso:              { label: 'Volvió y retomó',        icon: '👋', color: '#2f6fd6' },
+  conv_cambio_nombre:        { label: 'Cambió su nombre',       icon: '✍️', color: '#2f6fd6' },
   conv_seguimiento:          { label: 'Seguimientos enviados',  icon: '⏰', color: '#2f6fd6' },
   conv_asesor_sugerido:      { label: 'La IA ofreció asesor',   icon: '🙋', color: '#2f6fd6' },
   reco_util_si:              { label: 'Le sirvió la recomendación', icon: '👍', color: '#2f6fd6' },
@@ -101,7 +102,7 @@ const EVENTOS_FLUJO = [
   'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide', 'reco_externo_sin_coincidencia', 'reco_resultados',
   'reco_mas_opciones', 'reco_ficha', 'reco_ia', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'reco_asesor',
   'reco_consentimiento_no', 'reco_lead_completado', 'agent_handoff', 'info_acepta', 'info_rechaza', 'info_baja',
-  'conv_seguimiento', 'conv_regreso', 'no_reconocido', 'incidencia', 'rate_limited',
+  'conv_seguimiento', 'conv_regreso', 'conv_cambio_nombre', 'no_reconocido', 'incidencia', 'rate_limited',
 ];
 
 /** Conteo de un evento por su detalle ("no_reconocido:paso:carrera") en todos los días del rango. */
@@ -204,7 +205,7 @@ async function renderMetricas(main) {
       const enRango = (x) => (x.fecha ?? '').slice(0, 10) >= desde;
 
       content.innerHTML = `
-        <div class="stats-grid stagger-in" style="margin-bottom:16px;">
+        <div class="stats-grid met-stats stagger-in" style="margin-bottom:16px;">
           <div class="stat-card"><div class="label">Conversaciones nuevas</div><div class="value">${escapeHtml(totals.conv_inicio ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Autorizaron sus datos</div><div class="value">${escapeHtml(totals.datos_acepta ?? 0)}</div></div>
           <div class="stat-card"><div class="label">Preguntas a la IA</div><div class="value">${escapeHtml(totals.ai_request ?? 0)}</div></div>
@@ -244,8 +245,8 @@ async function renderMetricas(main) {
             ${frecuentes.length === 0
               ? `<p style="color:var(--text-muted);text-align:center;padding:12px 0;">Todavía no hay preguntas guardadas.</p>`
               : frecuentes.slice(0, 15).map((x) => `
-                <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
-                  <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">«${escapeHtml(x.texto)}»</span>
                   <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(x.veces)} ${x.veces === 1 ? 'vez' : 'veces'}</span>
                 </div>`).join('')}
           </div>
@@ -259,9 +260,9 @@ async function renderMetricas(main) {
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que falló al atender a alguien (la IA, un audio, el asesor, el CRM…). Sin teléfonos ni mensajes.</p>
                 <div style="margin-bottom:6px;">${chips(erroresPorTipo, TIPO_INCIDENCIA)}</div>
                 ${incidencias.filter(enRango).slice(0, 30).map((x) => `
-                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
                     <span style="flex:none;font-size:12px;color:#c5221f;min-width:150px;">${escapeHtml(TIPO_INCIDENCIA[x.tipo] ?? x.tipo)}</span>
-                    <span style="flex:1;">${escapeHtml(x.detalle)}</span>
+                    <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">${escapeHtml(x.detalle)}</span>
                     <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
                   </div>`).join('')}
               </div>`}
@@ -275,9 +276,9 @@ async function renderMetricas(main) {
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que escribieron y el bot no reconoció, lo que la IA no supo responder, confusiones y quejas: para enseñárselo. Sin teléfonos; números largos y correos van tapados.</p>
                 <div style="margin-bottom:6px;">${chips(noEntendidoPorPaso, PASO_NO_RECONOCIDO)}</div>
                 ${noReconocidos.filter(enRango).slice(0, 30).map((x) => `
-                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
                     <span style="flex:none;font-size:12px;color:var(--text-muted);min-width:140px;">${escapeHtml(PASO_NO_RECONOCIDO[x.paso] ?? x.paso)}</span>
-                    <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                    <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">«${escapeHtml(x.texto)}»</span>
                     <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
                   </div>`).join('')}
               </div>`}
@@ -289,14 +290,19 @@ async function renderMetricas(main) {
       `;
 
       const topKeys = rows.slice(0, 4).map(([k]) => k);
-      const ticks = { color: '#94a3b8' };
+      // Ejes en el gris de texto del panel: #94a3b8 daba 2,6:1 sobre blanco.
+      const ticks = { color: '#64748b' };
       const grid = { color: '#e2e8f0' };
+      // La gráfica es un dibujo: un lector de pantalla oye qué series muestra y de qué días.
+      const descripcionGrafica = topKeys.length && dateKeys.length
+        ? `Tendencia diaria del ${fechaCorta(`${dateKeys[0]}T12:00:00`)} al ${fechaCorta(`${dateKeys[dateKeys.length - 1]}T12:00:00`)}: ${topKeys.map(k => eventMeta(k).label).join(', ')}.`
+        : 'Tendencia diaria: sin actividad en este rango.';
       const cargarGrafica = async () => {
         const wrap = content.querySelector('#metChartDailyWrap');
         if (!wrap) return;
         marcarCargando(wrap, true);
         destroyMetricsCharts();
-        wrap.innerHTML = '<canvas id="metChartDaily"></canvas>';
+        wrap.innerHTML = `<canvas id="metChartDaily" role="img" aria-label="${escapeHtml(descripcionGrafica)}"></canvas>`;
         try {
           await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js');
           if (!content.isConnected || seq !== loadSeq) return;

@@ -136,6 +136,18 @@ const VACIAS = new Set([
 ]);
 const palabras = (s: string) => normalizar(s).split(' ').filter((w) => w && !VACIAS.has(w));
 
+/**
+ * Palabras que nombran un área entera y no un programa: "sistemas" está en
+ * Ingeniería de Sistemas y en Sistemas Energéticos Sostenibles, "negocios" en
+ * tres posgrados distintos. Una sola de ellas no basta para elegir un programa
+ * (a un estudiante de Sistemas le llegó el flyer de un programa ajeno porque la
+ * IA consultó un nombre a medias).
+ */
+const DE_AREA = new Set([
+  'sistemas', 'sistema', 'gestion', 'gerencia', 'ingenieria', 'negocios', 'negocio',
+  'tecnologia', 'tecnologias', 'ciencia', 'ciencias', 'posgrado', 'posgrados', 'estudios',
+]);
+
 /** Siglas o nombres comunes que no comparten palabras con el nombre oficial. */
 const ALIAS: Record<string, readonly string[]> = {
   mba: ['maestria-en-administracion'],
@@ -156,7 +168,9 @@ function nivelPedido(consulta: string): NivelPrograma | null {
  * ("Maestría en Ciberseguridad", "MBA", "ingeniería de sistemas"). Todas las
  * palabras significativas de la consulta deben estar en el nombre; gana el
  * nombre más parecido y, a igualdad, el del nivel y la modalidad pedidos.
- * Devuelve [] si nada encaja, y varios si la consulta es ambigua.
+ * Devuelve [] si nada encaja, y varios si la consulta es ambigua. Una sola
+ * palabra de área ("Especialización en Sistemas", "Maestría en Gestión") no
+ * elige programa: da [] en vez de adivinar.
  */
 export function buscarPrograma(consulta: string, niveles?: readonly NivelPrograma[]): ProgramaUtb[] {
   const candidatos = PROGRAMAS_UTB.filter((p) => !niveles || niveles.includes(p.nivel));
@@ -171,6 +185,9 @@ export function buscarPrograma(consulta: string, niveles?: readonly NivelProgram
   const alias = n.split(' ').flatMap((w) => ALIAS[w] ?? []);
 
   const q = palabras(consulta);
+  // "sistemas" o "gestión" solas solo valen para un programa que se llame así,
+  // entero ("maestría de ingeniería" → Maestría en Ingeniería); si no, [].
+  const soloDeArea = q.length === 1 && DE_AREA.has(q[0]);
   const puntuados = candidatos
     .map((p) => {
       let score: number;
@@ -179,6 +196,7 @@ export function buscarPrograma(consulta: string, niveles?: readonly NivelProgram
         if (!q.length) return null;
         const nombre = new Set(palabras(p.nombre));
         if (!q.every((w) => nombre.has(w))) return null;
+        if (soloDeArea && nombre.size > 1) return null;
         score = q.length / nombre.size;
       }
       if (nivel && p.nivel === nivel) score += 1;
@@ -191,6 +209,32 @@ export function buscarPrograma(consulta: string, niveles?: readonly NivelProgram
   if (!puntuados.length) return [];
   const mejor = puntuados[0].score;
   return puntuados.filter((x) => x.score === mejor).slice(0, 3).map((x) => x.p);
+}
+
+/**
+ * Si un texto de la persona nombra un programa: por su sigla ("MBA") o por
+ * las palabras propias de su nombre ("negocios internacionales",
+ * "ciberseguridad"). Las palabras de área no bastan: "ingeniería de sistemas"
+ * no nombra la Especialización en Sistemas Energéticos. Sirve para no mandarle
+ * a alguien el flyer de un programa que ni pidió ni encaja con su carrera.
+ */
+export function textoNombraPrograma(texto: string, p: ProgramaUtb): boolean {
+  const n = normalizar(texto);
+  if (!n) return false;
+  const enTexto = new Set(n.split(' '));
+  if ([...enTexto].some((w) => (ALIAS[w] ?? []).includes(p.id))) return true;
+
+  const delNombre = palabras(nombreCorto(p));
+  const propias = delNombre.filter((w) => !DE_AREA.has(w));
+  const deArea = delNombre.filter((w) => DE_AREA.has(w));
+  // "Maestría en Ingeniería": solo palabras de área, se exige el nombre entero.
+  if (!propias.length) return ` ${n} `.includes(` ${normalizar(p.nombre)} `);
+  const presentes = delNombre.filter((w) => enTexto.has(w)).length;
+  // Una sola palabra propia ("internacionales") se acompaña de una de área ("negocios"),
+  // para no confundir "Estándares Internacionales" con "Negocios Internacionales".
+  if (propias.every((w) => enTexto.has(w))) return propias.length >= 2 || !deArea.length || deArea.some((w) => enTexto.has(w));
+  // Nombres largos dichos a medias: "sistemas energéticos" (2 de 3).
+  return presentes >= 2 && presentes / delNombre.length >= 0.6;
 }
 
 // ── Ficha para el asistente IA ──────────────────────────────────────────────

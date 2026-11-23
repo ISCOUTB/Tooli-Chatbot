@@ -1,8 +1,9 @@
 /**
  * Perfil de quien conversa con el flujo de posgrados. La sesión dura una hora;
  * el perfil, 90 días, para que quien vuelve no tenga que contestar todo de nuevo.
- * Solo guarda valores cerrados (relación, carrera, nivel), el nombre que dio y
- * si autorizó recibir información. Nunca lo que escribió.
+ * Solo guarda valores cerrados (relación, carrera, nivel), el nombre que dio,
+ * cómo prefiere que la contacten (canal, número y franja) y si autorizó recibir
+ * información. Nunca lo que escribió.
  */
 import Redis from 'ioredis';
 import { config } from '../config';
@@ -16,7 +17,7 @@ export const TTL_PERFIL_SEGUNDOS = 90 * 24 * 60 * 60;
 /** Lo que se recuerda entre conversaciones. */
 export const CAMPOS_PERFIL = [
   'relacion', 'pregradoId', 'familiaId', 'nivel', 'nivelListo', 'nombre', 'correo', 'datos', 'info', 'filaCrm', 'sinPregrado',
-  'pendiente', 'pendienteEn', 'programaInteres',
+  'pendiente', 'pendienteEn', 'programaInteres', 'contactoCanal', 'contactoTel', 'contactoFranja',
 ] as const;
 
 /**
@@ -30,8 +31,8 @@ export function pendienteVigente(perfil: Record<string, string>, ahora = Date.no
   return !!perfil.pendiente && Number.isFinite(desde) && desde > 0 && ahora - desde < PENDIENTE_VIGENTE_MS;
 }
 
-/** Lo que nunca se pierde al empezar de nuevo: el nombre y las autorizaciones. */
-export const CAMPOS_CONSENTIMIENTO = ['nombre', 'correo', 'datos', 'info', 'filaCrm'] as const;
+/** Lo que nunca se pierde al empezar de nuevo: el nombre, las autorizaciones y cómo contactarla. */
+export const CAMPOS_CONSENTIMIENTO = ['nombre', 'correo', 'datos', 'info', 'filaCrm', 'contactoCanal', 'contactoTel', 'contactoFranja'] as const;
 
 export function perfilDeDatos(data: Record<string, string>): Record<string, string> {
   const perfil: Record<string, string> = {};
@@ -83,12 +84,43 @@ export async function conLoRecordado(telefono: string, data: Record<string, stri
   return completo;
 }
 
-/** Suma datos al perfil sin borrar lo que ya tenía (solo con autorización de datos). */
-export async function completarPerfil(telefono: string, campos: Record<string, string>): Promise<void> {
-  const actual = (await leerPerfil(telefono)) ?? {};
-  const junto = { ...actual, ...Object.fromEntries(Object.entries(campos).filter(([, v]) => v)) };
+/**
+ * Suma `campos` a lo que ya tenía sin borrarlo (un valor vacío no pisa), salvo
+ * los de `vaciar`, que se quitan: al cambiar de la llamada al chat, el número y
+ * la franja de antes ya no aplican.
+ */
+export function juntarPerfil(
+  actual: Record<string, string>, campos: Record<string, string>, vaciar: readonly string[] = [],
+): Record<string, string> {
+  const junto: Record<string, string> = { ...actual, ...Object.fromEntries(Object.entries(campos).filter(([, v]) => v)) };
+  for (const campo of vaciar) delete junto[campo];
+  return junto;
+}
+
+/** Suma datos al perfil sin borrar lo que ya tenía (solo con autorización de datos); `vaciar` quita los que ya no aplican. */
+export async function completarPerfil(telefono: string, campos: Record<string, string>, vaciar: readonly string[] = []): Promise<void> {
+  const junto = juntarPerfil((await leerPerfil(telefono)) ?? {}, campos, vaciar);
   if (junto.datos !== 'si') return;
   await guardarPerfil(telefono, junto);
+}
+
+/** Cómo pidió que la contactaran: lo escribe solo el paso del asesor al conectar. */
+export const CAMPOS_CONTACTO = ['contactoCanal', 'contactoTel', 'contactoFranja'] as const;
+
+/**
+ * Lo que se guarda al recordar la sesión de la conversación: la sesión manda,
+ * pero el nombre, el correo y la fila del CRM que no trae se conservan, y el
+ * canal de contacto guardado no lo pisa una sesión que no lo tiene o que lo
+ * tiene a medio elegir (lo escribe `completarPerfil` al conectar con el asesor).
+ */
+export function sesionParaElPerfil(guardado: Record<string, string> | null, data: Record<string, string>): Record<string, string> {
+  const junto: Record<string, string> = { ...data };
+  if (!guardado) return junto;
+  for (const campo of ['nombre', 'correo', 'filaCrm'] as const) {
+    if (!junto[campo] && guardado[campo]) junto[campo] = guardado[campo];
+  }
+  if (guardado.contactoCanal) for (const campo of CAMPOS_CONTACTO) junto[campo] = guardado[campo] ?? '';
+  return junto;
 }
 
 export async function guardarPerfil(telefono: string, data: Record<string, string>): Promise<void> {

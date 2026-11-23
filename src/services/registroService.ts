@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { config } from '../config';
 import { maskEmail, maskPhone } from './logSafe';
 import { contactIdLabel } from './whatsappId';
+import { saltarEnSimulacion } from './simulacion';
 
 export interface RegistroProspecto {
   nombre: string;
@@ -29,6 +30,8 @@ export function filaDeRango(rango: string | null | undefined): number | null {
 
 /** Agrega el prospecto y devuelve la fila escrita, para completarla después sin duplicarla. */
 export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<number | null> {
+  // Sin fila: lo que viene después (completar o cambiar el nombre) tampoco escribe.
+  if (saltarEnSimulacion('Google Sheets', `No se agregó a la hoja de prospectos: ${data.nombre || 'sin nombre'} · ${data.programa || 'sin programa'} · ${data.area ?? 'Posgrado'}.`, data.whatsapp)) return null;
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) {
     console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — prospecto no persistido', {
@@ -83,6 +86,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
  * fila por persona en el CRM.
  */
 export async function actualizarRegistroProspecto(fila: number, data: RegistroProspecto): Promise<void> {
+  if (saltarEnSimulacion('Google Sheets', `No se completó la fila del prospecto: ${data.nombre || 'sin nombre'} · ${data.programa || 'sin programa'}.`, data.whatsapp)) return;
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId || !Number.isInteger(fila) || fila < 2) throw new Error('fila de registro inválida');
   const auth = new google.auth.GoogleAuth({
@@ -97,6 +101,36 @@ export async function actualizarRegistroProspecto(fila: number, data: RegistroPr
     requestBody: { values: [[data.nombre, data.email, contactIdLabel(data.whatsapp), data.programa ?? '', data.area ?? 'Posgrado']] },
   });
   console.log('[registro] prospecto completado en Sheets:', maskPhone(data.whatsapp), maskEmail(data.email));
+}
+
+/** Lo que se escribe al cambiar solo el nombre: la columna B de esa fila, nada más. */
+export function pedidoNombreProspecto(fila: number, nombre: string): { range: string; values: string[][] } {
+  if (!Number.isInteger(fila) || fila < 2) throw new Error('fila de registro inválida');
+  return { range: `Registros!B${fila}`, values: [[nombre]] };
+}
+
+/**
+ * Cambia solo el nombre (columna B) de una fila que ya existe. A diferencia de
+ * `actualizarRegistroProspecto`, no reescribe el correo ni el programa: la
+ * sesión puede no tenerlos y se borrarían de la hoja.
+ */
+export async function actualizarNombreProspecto(fila: number, nombre: string): Promise<void> {
+  if (saltarEnSimulacion('Google Sheets', `No se cambió el nombre en la hoja de prospectos (ahora sería «${nombre}»).`)) return;
+  const sheetId = config.google.registroPosgradoSheetId;
+  if (!sheetId) throw new Error('POSGRADO_REGISTRO_SHEET_ID no configurado');
+  const { range, values } = pedidoNombreProspecto(fila, nombre);
+  const auth = new google.auth.GoogleAuth({
+    credentials: config.google.serviceAccount,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range,
+    valueInputOption: 'RAW',
+    requestBody: { values },
+  });
+  console.log('[registro] nombre del prospecto cambiado en Sheets, fila', fila);
 }
 
 /**
