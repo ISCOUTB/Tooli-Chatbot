@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga, formDesdeDisponibilidad,
-  horaCorta, hoyBogota, lineaDelDia, lunesDe, parseFestivos, porMarcar, sumarDias,
+  horaCorta, hoyBogota, lineaDelDia, lunesDe, nombreDeCita, parseFestivos, porMarcar, sumarDias,
 } from './agenda.js';
 
 describe('fechas de Bogotá', () => {
@@ -112,5 +112,14 @@ describe('formulario de disponibilidad', () => {
     assert.deepEqual(r.validos, ['2026-12-08', '2026-12-25']);
     assert.deepEqual(r.invalidos, ['25/12/2026', '2026-02-30']);
     assert.deepEqual(parseFestivos('').validos, []);
+  });
+});
+
+describe('nombreDeCita', () => {
+  it('usa el nombre si lo hay y si no avisa que falta', () => {
+    assert.equal(nombreDeCita({ nombre: 'Carlos Pérez', telefonoMasc: '****0101' }), 'Carlos Pérez');
+    assert.equal(nombreDeCita({ telefonoMasc: '****0101' }), 'Sin nombre · ****0101');
+    assert.equal(nombreDeCita({ nombre: '   ', telefonoMasc: '****0101' }), 'Sin nombre · ****0101', 'un nombre en blanco no cuenta');
+    assert.equal(nombreDeCita({ nombre: null }), 'Sin nombre');
   });
 });

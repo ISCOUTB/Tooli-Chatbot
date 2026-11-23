@@ -1,7 +1,7 @@
 import { api } from '../core/api.js';
 import {
   AREAS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS, agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia,
-  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, parseFestivos,
+  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, nombreDeCita, parseFestivos,
   porMarcar, sumarDias,
 } from '../core/agenda.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
@@ -140,7 +140,7 @@ async function cargar() {
 
 function filaCita(c, { conAsesor }) {
   const meta = ESTADOS_CITA[c.estado] ?? ESTADOS_CITA.confirmada;
-  const persona = c.nombre ? escapeHtml(c.nombre) : escapeHtml(c.telefonoMasc);
+  const persona = escapeHtml(nombreDeCita(c));
   return `
     <button type="button" class="ag-cita ag-${escapeHtml(c.estado)}" data-cita="${escapeHtml(c.id)}">
       <span class="ag-hora">${escapeHtml(horaCorta(c.inicio))}<small>${escapeHtml(horaCorta(c.fin))}</small></span>
@@ -209,7 +209,7 @@ function detalleCita(c) {
   const meta = ESTADOS_CITA[c.estado] ?? ESTADOS_CITA.confirmada;
   const filas = [
     ['phone', 'WhatsApp', c.telefono ? `+${c.telefono}` : c.telefonoMasc],
-    ['user', 'Persona', c.nombre ?? '—'],
+    ['user', 'Persona', String(c.nombre ?? '').trim() || 'Sin nombre'],
     ['users', 'Asesor', nombreAsesor(c.asesor)],
     ['tag', 'Área', AREAS[c.area] ?? c.area],
     ['send', 'Origen', nombreCanal(c.canal)],
@@ -219,7 +219,7 @@ function detalleCita(c) {
   el.className = 'ag-detalle';
   el.innerHTML = `
     <div class="ag-detalle-cabecera">
-      <div><strong>${escapeHtml(c.nombre || c.telefonoMasc)}</strong><span>${escapeHtml(etiquetaDiaLarga(fechaDeIso(c.inicio)))} · ${escapeHtml(horaCorta(c.inicio))} – ${escapeHtml(horaCorta(c.fin))}</span></div>
+      <div><strong>${escapeHtml(nombreDeCita(c))}</strong><span>${escapeHtml(etiquetaDiaLarga(fechaDeIso(c.inicio)))} · ${escapeHtml(horaCorta(c.inicio))} – ${escapeHtml(horaCorta(c.fin))}</span></div>
       ${insignia(meta.label, meta.color)}
     </div>
     <dl class="perfil-datos">${filas.map(([i, k, v]) => `<div>${icon(i, 16)}<dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
@@ -243,7 +243,7 @@ function abrirCita(c) {
     groups.push([{ label: 'Cancelar cita', icon: icon('trash', 17), destructive: true, onClick: () => confirmarCancelacion(c) }]);
   }
   groups.push([{ label: 'Cerrar', cancel: true }]);
-  ActionSheet.open({ title: c.nombre || c.telefonoMasc, clase: 'perfil-sheet', contenido: detalleCita(c), groups });
+  ActionSheet.open({ title: nombreDeCita(c), clase: 'perfil-sheet', contenido: detalleCita(c), groups });
 }
 
 function confirmarCancelacion(c) {
@@ -359,7 +359,7 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
     ${mover ? '' : `<div class="field"><label for="agMotivo">Motivo (opcional)</label><textarea class="rem-input" id="agMotivo" rows="2" maxlength="300"></textarea></div>`}`;
   const m = abrirModal({
     titulo: mover ? 'Mover cita' : 'Nueva cita',
-    ayuda: mover ? `${cita.nombre || cita.telefonoMasc}: elige el nuevo horario.` : 'La persona recibe la confirmación por WhatsApp.',
+    ayuda: mover ? `${nombreDeCita(cita)}: elige el nuevo horario.` : 'La persona recibe la confirmación por WhatsApp.',
     cuerpo, etiquetaGuardar: mover ? 'Mover' : 'Agendar',
   });
   const selAsesor = m.overlay.querySelector('#agAsesorSel');

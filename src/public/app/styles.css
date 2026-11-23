@@ -623,6 +623,9 @@ tbody tr[data-longpress]:active { background: #f1f5f9; transform: scale(0.995); 
   .app { flex-direction: column; padding: var(--page-gutter); gap: 12px; }
   .sidebar { display: none; }
   .main { padding: 0 2px calc(var(--tab-bar-height) + var(--safe-bottom) + 22px); width: 100%; }
+  /* El foco y scrollIntoView dejan libre la barra de pestañas flotante: sin
+     esto un campo o un estado al pie quedaba debajo de ella. */
+  html { scroll-padding-bottom: calc(var(--tab-bar-height) + var(--safe-bottom) + 24px); }
 
   /* Tab bar flotante en píldora, centrada y separada del borde — igual al
      patrón de Renova (fixed, w-fit, rounded-full, glass, shadow), no una
@@ -2989,7 +2992,10 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 .ag-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 14px; }
 .ag-nav { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .ag-nav-btn { min-width: 44px; min-height: 44px; padding: 4px; }
-.ag-hoy { min-height: 40px; }
+.ag-hoy { min-height: 44px; }
+/* Mínimo táctil del panel (44 px) también en escritorio: el relleno de .btn
+   da 40-42 px. */
+.ag-acciones .btn, .voz-fila .btn, #vozRefrescar, .voz-devo .btn { min-height: 44px; }
 .ag-rango { margin-left: 8px; font-size: 15px; color: var(--text); }
 .ag-rango::first-letter, .ag-dia h3::first-letter { text-transform: uppercase; }
 .ag-filtro { margin-left: auto; min-width: 200px; }
@@ -3011,7 +3017,10 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 .ag-hora small { font-weight: 500; color: var(--text-muted); font-size: 11px; }
 .ag-cuerpo { min-width: 0; display: grid; gap: 2px; }
 .ag-cuerpo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.ag-cuerpo small { color: var(--text-muted); font-size: 12px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ag-cuerpo small { color: var(--text-muted); font-size: 12px; display: block; line-height: 1.45; }
+/* El ícono va en línea con el texto: con flex el texto entero bajaba de
+   renglón y el ícono quedaba solo arriba. */
+.ag-cuerpo small .icon-svg { display: inline-block; vertical-align: -1px; margin-right: 3px; }
 .ag-cuerpo em { font-style: normal; font-size: 13px; }
 .ag-mas { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(15, 118, 110, .1); color: var(--utb-accent-dark); }
 .ag-semana { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; align-items: start; }
@@ -3058,6 +3067,9 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
   .ag-excepcion { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ag-excepcion .rem-input:nth-of-type(5) { grid-column: 1 / -1; }
   .ag-cita, .ag-libre { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 8px; }
+  /* En el celular el nombre se parte en dos renglones antes que cortarse:
+     «Sin nombre · ****0101» perdía justo el número. */
+  .ag-cuerpo strong { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 }
 
 /* ===== Llamadas (línea de voz) ===== */

@@ -188,9 +188,17 @@ function parseFestivos(texto) {
   return { validos, invalidos };
 }
 
+/** Cómo se nombra a la persona de una cita. Sin nombre, el número enmascarado
+    solo («****0101») parece un dato roto: se dice que falta el nombre. */
+function nombreDeCita(c) {
+  const nombre = String(c?.nombre ?? '').trim();
+  if (nombre) return nombre;
+  return c?.telefonoMasc ? `Sin nombre · ${c.telefonoMasc}` : 'Sin nombre';
+}
+
 export {
   AREAS, DIAS_CORTOS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS,
   agruparPorDia, citasPorTramo, diaSemana, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga,
   fechaDeIso, fechaValida, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe,
-  parseFestivos, porMarcar, sumarDias,
+  nombreDeCita, parseFestivos, porMarcar, sumarDias,
 };
