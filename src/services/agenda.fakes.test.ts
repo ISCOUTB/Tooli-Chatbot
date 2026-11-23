@@ -13,7 +13,7 @@
  */
 
 import {
-  DepsAgenda, LUA_ASESOR_BORRADO, LUA_CAMBIAR_ESTADO, LUA_RENOMBRAR_ASESOR, LUA_RESERVAR, RedisAgenda, UsuarioAgenda,
+  DepsAgenda, LUA_ANOTAR_RECORDATORIOS, LUA_ASESOR_BORRADO, LUA_CAMBIAR_ESTADO, LUA_RENOMBRAR_ASESOR, LUA_RESERVAR, RedisAgenda, UsuarioAgenda,
 } from './agendaService';
 import type { HorarioEquipo } from './agendaLogica';
 
@@ -69,7 +69,17 @@ export class FakeRedis implements RedisAgenda {
     if (script === LUA_CAMBIAR_ESTADO) return this.cambiarEstado(keys, argv);
     if (script === LUA_RENOMBRAR_ASESOR) return this.renombrarAsesor(keys, argv);
     if (script === LUA_ASESOR_BORRADO) return this.asesorBorrado(keys, argv);
+    if (script === LUA_ANOTAR_RECORDATORIOS) return this.anotarRecordatorios(keys, argv);
     throw new Error('Script Lua desconocido para el doble');
+  }
+
+  private anotarRecordatorios(keys: string[], a: string[]): number {
+    if (this.strings.get(keys[0]) !== a[0]) return 0;
+    this.strings.set(keys[0], a[1]);
+    const previo = this.strings.get(keys[1]);
+    const viejos = previo ? (JSON.parse(previo) as string[]) : [];
+    this.strings.set(keys[1], JSON.stringify([...viejos, ...(JSON.parse(a[3]) as string[])]));
+    return 1;
   }
 
   private reservar(keys: string[], a: string[]): number {

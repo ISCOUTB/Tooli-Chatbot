@@ -373,6 +373,93 @@ describe('recordatorios 24 h y 1 h', () => {
   });
 });
 
+describe('recordatorios pendientes: se reintentan cuando la persona vuelve a escribir (ventana de Meta)', () => {
+  beforeEach(() => preparar());
+  const idDe = (r: unknown) => (r as { cita: { id: string } }).cita.id;
+  const enBogota = (iso: string) => { mundo.reloj.ahora = bog(iso); };
+
+  it('cada mensaje reabre la ventana: el de 24 h sale el miércoles y el de 1 h el jueves, sin repetirse', async () => {
+    mundo.adaptador.valor = 'meta';
+    const id = idDe(await reservar(TEL, fr('laura', '2026-11-26T10:00:00')));
+    assert.deepEqual((await ag.obtenerCita(id))?.recordatoriosPendientes, ['24h', '1h']);
+
+    // Lunes: la ventana se cierra el martes; los dos siguen fuera.
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0);
+    assert.equal(mundo.recordatorios.length, 0);
+
+    // Miércoles 08:00: el de 24 h (miércoles 10:00) ya cabe; el de 1 h (jueves 09:00) todavía no.
+    enBogota('2026-11-25T08:00:00');
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 1);
+    assert.deepEqual(mundo.recordatorios.map((r) => r.cuandoMs), [bog('2026-11-25T10:00:00')]);
+    let c = await ag.obtenerCita(id);
+    assert.deepEqual(c?.recordatorios, ['24h']);
+    assert.deepEqual(c?.recordatoriosPendientes, ['1h']);
+    assert.equal(c?.motivoSinRecordatorio, 'ventana');
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0, 'otro mensaje no lo repite');
+    assert.equal(mundo.recordatorios.length, 1);
+
+    // Jueves 08:00: sale el de 1 h y la cita queda completa.
+    enBogota('2026-11-26T08:00:00');
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 1);
+    c = await ag.obtenerCita(id);
+    assert.deepEqual(c?.recordatorios, ['24h', '1h']);
+    assert.equal(c?.recordatoriosPendientes, undefined);
+    assert.equal(c?.motivoSinRecordatorio, undefined);
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0);
+    assert.equal(mundo.recordatorios.length, 2);
+
+    // Al cancelar, los recordatorios reintentados también se cancelan.
+    assert.equal(await ag.cancelar(id, TEL), true);
+    assert.ok(mundo.recordatorios.every((r) => r.cancelado), 'ninguno queda huérfano');
+  });
+
+  it('lo que ya pasó no se programa tarde', async () => {
+    mundo.adaptador.valor = 'meta';
+    const id = idDe(await reservar(TEL, fr('laura', '2026-11-26T10:00:00')));
+    enBogota('2026-11-26T09:30:00');
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0);
+    assert.equal(mundo.recordatorios.length, 0);
+    assert.deepEqual((await ag.obtenerCita(id))?.recordatoriosPendientes, ['24h', '1h'], 'el panel sigue diciendo que no salieron');
+  });
+
+  it('una cita cancelada mientras se programaba no deja recordatorios vivos', async () => {
+    mundo.adaptador.valor = 'meta';
+    const id = idDe(await reservar(TEL, fr('laura', '2026-11-26T10:00:00')));
+    enBogota('2026-11-25T08:00:00');
+    const programar = mundo.deps.recordatorios.programar;
+    mundo.deps.recordatorios.programar = async (t, m, cuando) => {
+      const rid = await programar(t, m, cuando);
+      await ag.cancelar(id, TEL); // la persona cancela justo ahora
+      return rid;
+    };
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0);
+    assert.equal(mundo.recordatorios.length, 1);
+    assert.ok(mundo.recordatorios.every((r) => r.cancelado), 'el recién programado se canceló');
+    assert.equal((await ag.obtenerCita(id))?.estado, 'cancelada');
+  });
+
+  it('sin nada pendiente es un solo GET (no lee citas) y un BSUID nunca se reintenta', async () => {
+    await reservar(TEL, fr('laura', '2026-11-26T10:00:00')); // Evolution: los dos salen al reservar
+    const antes = mundo.recordatorios.length;
+    const evals = mundo.redis.evals;
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 0);
+    assert.equal(mundo.recordatorios.length, antes);
+    assert.equal(mundo.redis.evals, evals);
+    assert.equal(await ag.reintentarRecordatorios('CO.Ab12Cd34Ef56', mundo.reloj.ahora), 0);
+    assert.equal(await ag.reintentarRecordatorios('no es un teléfono', mundo.reloj.ahora), 0);
+  });
+
+  it('un fallo del programador al reservar también se reintenta en el siguiente mensaje', async () => {
+    const programar = mundo.deps.recordatorios.programar;
+    mundo.deps.recordatorios.programar = async () => { throw new Error('caído'); };
+    const id = idDe(await reservar(TEL, fr('laura', '2026-11-26T10:00:00')));
+    assert.equal((await ag.obtenerCita(id))?.motivoSinRecordatorio, 'error');
+    mundo.deps.recordatorios.programar = programar;
+    assert.equal(await ag.reintentarRecordatorios(TEL, mundo.reloj.ahora), 2);
+    assert.deepEqual((await ag.obtenerCita(id))?.recordatorios, ['24h', '1h']);
+  });
+});
+
 describe('acciones del panel', () => {
   beforeEach(() => preparar());
 

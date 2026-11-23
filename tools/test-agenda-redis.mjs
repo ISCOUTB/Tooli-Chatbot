@@ -122,6 +122,41 @@ try {
   assert.equal((await ag.obtenerCita(tomadas[0].id)).sinAsesor, true);
   assert.equal((await ag.obtenerCita(tomadas[0].id)).estado, 'confirmada');
   console.log('ok 8: borrar deja las citas futuras «sin asesor» a la vista del administrador');
+  // 9. Recordatorios reintentados con Meta (LUA_ANOTAR_RECORDATORIOS): se anotan con compare-and-set y suman ids.
+  let reloj = AHORA;
+  const recMeta = [];
+  const agMeta = crearAgenda({
+    redis,
+    ahora: () => reloj,
+    usuarios: { listar: async () => usuarios, obtener: async (u) => usuarios.find((x) => x.username === u.toLowerCase()) ?? null },
+    horarioEquipo: async () => null,
+    recordatorios: {
+      programar: async (telefono, mensaje, cuandoMs) => { recMeta.push({ cuandoMs, cancelado: false }); return `m${recMeta.length}`; },
+      cancelar: async (id) => { recMeta[Number(id.slice(1)) - 1].cancelado = true; },
+    },
+    adaptador: () => 'meta',
+    ultimoEntrante: async () => null,
+  });
+  await agMeta.guardarDisponibilidad('mario', { ...disp, activo: true });
+  const telMeta = '573007770000';
+  const jueves = { asesor: 'mario', asesorNombre: 'Mario', inicio: '2026-11-26T10:00:00-05:00', fin: '2026-11-26T10:30:00-05:00' };
+  const rm = await agMeta.reservar({ telefono: telMeta, area: 'posgrados', franja: jueves, canal: 'whatsapp' });
+  assert.equal(rm.ok, true, JSON.stringify(rm));
+  assert.deepEqual((await agMeta.obtenerCita(rm.cita.id)).recordatoriosPendientes, ['24h', '1h']);
+  assert.ok(await redis.get(`agenda:rec-pend:${telMeta}`), 'queda la marca de pendientes');
+  reloj = Date.parse('2026-11-25T08:00:00-05:00');
+  assert.equal(await agMeta.reintentarRecordatorios(telMeta, reloj), 1);
+  reloj = Date.parse('2026-11-26T08:00:00-05:00');
+  assert.equal(await agMeta.reintentarRecordatorios(telMeta, reloj), 1);
+  const completa = await agMeta.obtenerCita(rm.cita.id);
+  assert.deepEqual(completa.recordatorios, ['24h', '1h']);
+  assert.equal(completa.recordatoriosPendientes, undefined);
+  assert.deepEqual(JSON.parse(await redis.get(`agenda:rec:${rm.cita.id}`)), ['m1', 'm2'], 'los ids se suman en orden');
+  assert.equal(await redis.get(`agenda:rec-pend:${telMeta}`), null, 'sin pendientes, la marca se borra');
+  assert.ok((await redis.ttl(`agenda:cita:${rm.cita.id}`)) > 0, 'la cita conserva su vencimiento');
+  assert.equal(await agMeta.cancelar(rm.cita.id, telMeta), true);
+  assert.ok(recMeta.every((r) => r.cancelado), 'cancelar la cita cancela también los reintentados');
+  console.log('ok 9: los recordatorios pendientes se reintentan al escribir y se cancelan con la cita');
   console.log('TODAS LAS PRUEBAS CONTRA REDIS REAL PASARON');
 } catch (e) {
   fallo = true;

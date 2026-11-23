@@ -129,6 +129,8 @@ const K = {
   telZ: (t: string) => `agenda:tel:${t}`,
   todas: 'agenda:todas',
   rec: (id: string) => `agenda:rec:${id}`,
+  /** Marca: ese teléfono tiene citas con recordatorios por reintentar (vence con la última cita pendiente). */
+  recPend: (t: string) => `agenda:rec-pend:${t}`,
 };
 
 const MIN = 60_000;
@@ -251,6 +253,27 @@ return n
  * ARGV: 1 usuario, 2 prefijo de las citas, 3 ahora (ms)
  * Devuelve cuántas citas FUTURAS y confirmadas quedaron sin asesor.
  */
+/**
+ * Anota en la cita los recordatorios reintentados y suma sus ids a `agenda:rec:<id>`, en UN paso y solo si la cita
+ * sigue siendo la que se leyó (compare-and-set). Si en medio la cancelaron o la movieron, no toca nada y quien
+ * llama cancela lo que acababa de programar: así una cancelación nunca deja recordatorios huérfanos.
+ * KEYS: cita, rec. ARGV: json leído, json nuevo, ttl (s), ids nuevos (json).
+ */
+export const LUA_ANOTAR_RECORDATORIOS = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+local ids = cjson.decode(ARGV[4])
+local previo = redis.call('GET', KEYS[2])
+if previo then
+  local ok, viejos = pcall(cjson.decode, previo)
+  if ok and type(viejos) == 'table' then
+    for i = #viejos, 1, -1 do table.insert(ids, 1, viejos[i]) end
+  end
+end
+redis.call('SET', KEYS[2], cjson.encode(ids), 'EX', tonumber(ARGV[3]))
+return 1
+`;
+
 export const LUA_ASESOR_BORRADO = `
 redis.call('DEL', KEYS[1], KEYS[2])
 local n = 0
@@ -554,6 +577,8 @@ export function crearAgenda(deps: DepsAgenda) {
     if (sinRecordatorio.length) {
       cita.recordatoriosPendientes = (['24h', '1h'] as const).filter((t) => sinRecordatorio.includes(t));
       cita.motivoSinRecordatorio = motivo ?? 'error';
+      // Con la ventana cerrada o un fallo, el siguiente mensaje de la persona lo reintenta (`reintentarRecordatorios`).
+      if (cita.motivoSinRecordatorio !== 'sin_telefono') await marcarPendiente(cita.telefono, msDeIso(cita.inicio), ahoraMs);
     }
     if (!programados.length && !sinRecordatorio.length) return;
     try {
@@ -562,6 +587,93 @@ export function crearAgenda(deps: DepsAgenda) {
     } catch (err) {
       console.error('[agenda] no se pudo anotar los recordatorios en la cita:', describeError(err));
     }
+  }
+
+  async function marcarPendiente(telefono: string, hastaMs: number, ahoraMs: number): Promise<void> {
+    try {
+      const actual = Number(await redis.get(K.recPend(telefono))) || 0;
+      const hasta = Math.max(actual, hastaMs);
+      await redis.set(K.recPend(telefono), String(hasta), 'EX', Math.max(60, Math.ceil((hasta - ahoraMs) / 1000)));
+    } catch (err) {
+      console.error('[agenda] no se pudo marcar el recordatorio pendiente:', describeError(err));
+    }
+  }
+
+  /**
+   * La persona volvió a escribir por WhatsApp: su mensaje reabre la ventana de 24 h de Meta, así que se programan los
+   * recordatorios de sus citas que quedaron «sin recordatorio» (por la ventana o por un fallo del programador) y que
+   * ahora caben. Barato a propósito: sin la marca `rec-pend` es un solo GET por mensaje. Lo que ya pasó no se programa
+   * tarde (la cita sigue diciendo que no salió). Devuelve cuántos recordatorios se programaron.
+   */
+  async function reintentarRecordatorios(telefono: string, entranteMs: number): Promise<number> {
+    const tel = telefonoValido(telefono);
+    if (!tel || isBsuid(tel)) return 0;
+    if (!(await redis.get(K.recPend(tel)))) return 0;
+    const ahoraMs = deps.ahora();
+    const adaptador = deps.adaptador();
+    const miembros = await redis.zrangebyscore(K.telZ(tel), ahoraMs, '+inf');
+    const ids = miembros.map(parseMiembro).filter((m): m is Ocupado & { id: string } => !!m).map((m) => m.id);
+    const raws = ids.length ? await redis.mget(ids.map(K.cita)) : [];
+    let nuevos = 0;
+    let quedanHasta = 0;
+    for (const raw of raws) {
+      const cita = parseCita(raw);
+      if (!raw || !cita || cita.estado !== 'confirmada' || cita.telefono !== tel) continue;
+      const pendientes = cita.recordatoriosPendientes ?? [];
+      if (!pendientes.length || cita.motivoSinRecordatorio === 'sin_telefono') continue;
+      const inicioMs = msDeIso(cita.inicio);
+      const plan = planearRecordatorios({ inicioMs, ahoraMs, ultimoEntranteMs: entranteMs, adaptador });
+      if (plan.sinVentana.some((r) => pendientes.includes(r.tipo))) quedanHasta = Math.max(quedanHasta, inicioMs);
+      const hechos: Array<'24h' | '1h'> = [];
+      const idsNuevos: string[] = [];
+      for (const r of plan.programar.filter((x) => pendientes.includes(x.tipo))) {
+        try {
+          idsNuevos.push(await deps.recordatorios.programar(cita.telefono, textoRecordatorio(cita, r.tipo), r.cuandoMs));
+          hechos.push(r.tipo);
+        } catch (err) {
+          console.error('[agenda] no se pudo reintentar un recordatorio:', describeError(err));
+          quedanHasta = Math.max(quedanHasta, inicioMs);
+        }
+      }
+      if (!hechos.length) continue;
+      const restantes = pendientes.filter((t) => !hechos.includes(t));
+      const nueva: CitaAgenda = {
+        ...cita,
+        recordatorios: (['24h', '1h'] as const).filter((t) => hechos.includes(t) || (cita.recordatorios ?? []).includes(t)),
+      };
+      if (restantes.length) {
+        nueva.recordatoriosPendientes = restantes;
+      } else {
+        delete nueva.recordatoriosPendientes;
+        delete nueva.motivoSinRecordatorio;
+      }
+      const ttl = ttlSegundos(msDeIso(cita.fin), ahoraMs);
+      let anotada = false;
+      try {
+        anotada = Number(await redis.eval(
+          LUA_ANOTAR_RECORDATORIOS, 2, K.cita(cita.id), K.rec(cita.id), raw, JSON.stringify(nueva), ttl, JSON.stringify(idsNuevos),
+        )) === 1;
+      } catch (err) {
+        console.error('[agenda] no se pudo anotar el recordatorio reintentado:', describeError(err));
+      }
+      if (!anotada) {
+        // La cita cambió en medio (cancelada, movida): lo recién programado no debe salir.
+        for (const id of idsNuevos) {
+          await deps.recordatorios.cancelar(id).catch((err) => {
+            console.error('[agenda] no se pudo cancelar un recordatorio reintentado:', describeError(err));
+          });
+        }
+        continue;
+      }
+      nuevos += hechos.length;
+    }
+    try {
+      if (quedanHasta) await marcarPendiente(tel, quedanHasta, ahoraMs);
+      else await redis.del(K.recPend(tel));
+    } catch (err) {
+      console.error('[agenda] no se pudo actualizar la marca de pendientes:', describeError(err));
+    }
+    return nuevos;
   }
 
   async function cancelarRecordatorios(citaId: string): Promise<void> {
@@ -742,6 +854,7 @@ export function crearAgenda(deps: DepsAgenda) {
     obtenerCita, listarCitas,
     reservarPanel, moverPanel, cancelarPanel, marcarPanel,
     renombrarAsesor, asesorBorrado, citasSinAsesor,
+    reintentarRecordatorios,
   };
 }
 
@@ -803,6 +916,17 @@ function real(): AgendaServicio {
 export const agendaServicio: AgendaServicio = new Proxy({} as AgendaServicio, {
   get: (_t, prop: string) => (real() as unknown as Record<string, unknown>)[prop],
 });
+
+/**
+ * Llamado por cada mensaje entrante de WhatsApp (inboundProcessor), sin esperarlo: si la persona tenía citas
+ * «sin recordatorio», su mensaje reabre la ventana de Meta y se reintentan. Con la agenda apagada no hace nada.
+ */
+export function reintentarRecordatoriosAlEscribir(telefono: string): void {
+  if (!config.agenda.activa) return;
+  real().reintentarRecordatorios(telefono, Date.now()).catch((err) => {
+    console.error('[agenda] reintento de recordatorios falló:', describeError(err));
+  });
+}
 
 /** Lo que consumen WhatsApp y la voz: exactamente el contrato. */
 export const agenda: AgendaApi = {
