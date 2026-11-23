@@ -8,6 +8,8 @@ export interface SavioCourse {
 export interface SavioCoursesResult {
   accountFound: boolean;
   courses: SavioCourse[];
+  /** ID de Moodle del estudiante (solo si la cuenta existe). Sirve para consultar tareas. */
+  userId?: number;
 }
 
 export class SavioServiceError extends Error {
@@ -26,7 +28,8 @@ type FetchLike = typeof fetch;
 
 async function callSavio(
   token: string,
-  wsfunction: 'core_user_get_users_by_field' | 'core_enrol_get_users_courses',
+  wsfunction: 'core_user_get_users_by_field' | 'core_enrol_get_users_courses'
+    | 'mod_assign_get_assignments' | 'mod_assign_get_submission_status',
   params: Record<string, string>,
   fetchImpl: FetchLike,
 ): Promise<unknown> {
@@ -94,5 +97,79 @@ export async function getSavioCoursesForEmail(
       name: String((course as Record<string, unknown>).fullname).replace(/\s+/g, ' ').trim().slice(0, 120),
       url: `${SAVIO_ORIGIN}/course/view.php?id=${(course as Record<string, unknown>).id}`,
     }));
-  return { accountFound: true, courses: safeCourses };
+  return { accountFound: true, courses: safeCourses, userId: Number((exact[0] as Record<string, unknown>).id) };
+}
+
+export interface SavioTarea {
+  id: number;
+  titulo: string;
+  curso: string;
+  /** ISO 8601 (UTC) */
+  vence: string;
+}
+
+export interface SavioResumen extends SavioCoursesResult {
+  tareas: SavioTarea[];
+}
+
+/**
+ * Cursos y tareas próximas. Usa el mismo token de servicio de solo lectura:
+ * mod_assign_get_assignments (fechas de entrega por curso) y
+ * mod_assign_get_submission_status (para quitar las ya entregadas).
+ * Si el estado de entrega falla en una tarea, se conserva (mejor avisar de más).
+ * El servicio de Moodle debe permitir esas dos funciones además de las de cursos.
+ */
+export async function getSavioResumenForEmail(
+  email: string,
+  token: string,
+  fetchImpl: FetchLike = fetch,
+  ahora: Date = new Date(),
+  dias = 30,
+): Promise<SavioResumen> {
+  const base = await getSavioCoursesForEmail(email, token, fetchImpl);
+  if (!base.accountFound || !base.userId || base.courses.length === 0) return { ...base, tareas: [] };
+
+  const params: Record<string, string> = {};
+  base.courses.forEach((course, i) => { params[`courseids[${i}]`] = String(course.id); });
+  const payload = await callSavio(token, 'mod_assign_get_assignments', params, fetchImpl);
+  if (!isRecord(payload) || !Array.isArray(payload.courses)) throw new SavioServiceError();
+
+  const desde = Math.floor(ahora.getTime() / 1000);
+  const hasta = desde + dias * 86_400;
+  const candidatas: Array<SavioTarea & { assignId: number }> = [];
+  for (const curso of payload.courses) {
+    if (!isRecord(curso) || !Array.isArray(curso.assignments)) continue;
+    const nombreCurso = base.courses.find((c) => c.id === Number(curso.id))?.name
+      ?? (typeof curso.fullname === 'string' ? curso.fullname : 'Curso');
+    for (const tarea of curso.assignments) {
+      if (!isRecord(tarea) || !Number.isSafeInteger(tarea.id) || typeof tarea.name !== 'string') continue;
+      const due = Number(tarea.duedate);
+      if (!Number.isFinite(due) || due <= desde || due > hasta) continue;
+      candidatas.push({
+        id: Number(tarea.id), assignId: Number(tarea.id),
+        titulo: tarea.name.replace(/\s+/g, ' ').trim().slice(0, 120),
+        curso: nombreCurso,
+        vence: new Date(due * 1000).toISOString(),
+      });
+    }
+  }
+  candidatas.sort((a, b) => a.vence.localeCompare(b.vence));
+  const primeras = candidatas.slice(0, 10);
+  const pendientes = await Promise.all(primeras.map(async (t) => {
+    try {
+      const estado = await callSavio(token, 'mod_assign_get_submission_status', {
+        assignid: String(t.assignId), userid: String(base.userId),
+      }, fetchImpl);
+      const status = isRecord(estado) && isRecord(estado.lastattempt) && isRecord(estado.lastattempt.submission)
+        ? estado.lastattempt.submission.status : undefined;
+      return status === 'submitted' ? null : t;
+    } catch {
+      return t;
+    }
+  }));
+  return {
+    ...base,
+    tareas: pendientes.filter((t): t is SavioTarea & { assignId: number } => t !== null)
+      .map(({ id, titulo, curso, vence }) => ({ id, titulo, curso, vence })),
+  };
 }

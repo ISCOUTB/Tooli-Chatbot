@@ -9,6 +9,8 @@ const schema = z.object({
   EVOLUTION_API_INSTANCE: z.string().optional().default('tooli'),
   EVOLUTION_API_KEY: z.string().optional().default(''),
   WEBHOOK_SECRET: z.string(),
+  // Token propio para /metrics y /dashboard; si falta se usa WEBHOOK_SECRET.
+  METRICS_TOKEN: z.string().optional(),
   REDIS_URL: z.string().default('redis://redis:6379'),
   SESSION_TTL_SECONDS: z.string().default('3600'),
   // Cuántas personas atiende el bot a la vez (cada una en orden). Con 1, si 20 escriben juntas la última espera ~40 s.
@@ -21,6 +23,9 @@ const schema = z.object({
   FLUJO_CONVERSACIONAL: z.string().optional().default('false'),
   // Una sola vez, 3 horas después, a quien deja sin contestar una pregunta del flujo. 'false' lo apaga.
   SEGUIMIENTO_CONVERSACION: z.string().optional().default('true'),
+  // Agenda de asesores por WhatsApp y voz (ofrecer cita fuera de horario, «agendar», «mis citas»). APAGADA por
+  // defecto: lo nuevo se enciende a propósito con 'true'.
+  AGENDA_ACTIVA: z.string().optional().default('false'),
   // Recomendaciones y fichas con el flyer de cada posgrado (foto oficial + datos). 'false' vuelve al texto.
   FOTOS_PROGRAMAS: z.string().optional().default('true'),
   OPENAI_TRANSCRIBE_MODEL: z.string().optional().default('gpt-4o-mini-transcribe'),
@@ -76,6 +81,14 @@ const schema = z.object({
   // en Resend para producción (sin dominio solo se puede enviar al correo propio).
   RESEND_API_KEY: z.string().optional().default(''),
   MAIL_FROM: z.string().optional().default('onboarding@resend.dev'),
+  // ── Línea de voz (Telnyx Call Control v2) — sin estas llaves la línea queda apagada y solo corre el simulador ──
+  TELNYX_API_KEY: z.string().optional().default(''),
+  TELNYX_PUBLIC_KEY: z.string().optional().default(''),
+  TELNYX_CONNECTION_ID: z.string().optional().default(''),
+  TELNYX_PHONE_NUMBER: z.string().optional().default(''),
+  // Clave larga y aleatoria que va en la URL del webhook: /voice/telnyx/<clave>
+  VOICE_WEBHOOK_KEY: z.string().optional().default(''),
+  VOICE_AI_MODEL: z.string().optional().default('gpt-4o-mini'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -91,6 +104,7 @@ export const config = {
   port: parseInt(env.PORT),
   messagingAdapter: env.MESSAGING_ADAPTER,
   webhookSecret: env.WEBHOOK_SECRET,
+  metricsToken: env.METRICS_TOKEN || env.WEBHOOK_SECRET,
   evolutionApi: {
     baseUrl: env.EVOLUTION_API_BASE_URL ?? 'http://localhost:8080',
     instance: env.EVOLUTION_API_INSTANCE ?? 'tooli',
@@ -145,6 +159,9 @@ export const config = {
   seguimiento: {
     activo: env.SEGUIMIENTO_CONVERSACION !== 'false',
   },
+  agenda: {
+    activa: env.AGENDA_ACTIVA === 'true',
+  },
   fotos: {
     activas: env.FOTOS_PROGRAMAS !== 'false',
   },
@@ -174,5 +191,13 @@ export const config = {
   mail: {
     apiKey: env.RESEND_API_KEY ?? '',
     from: env.MAIL_FROM ?? 'onboarding@resend.dev',
+  },
+  voz: {
+    telnyxApiKey: env.TELNYX_API_KEY ?? '',
+    telnyxPublicKey: env.TELNYX_PUBLIC_KEY ?? '',
+    telnyxConnectionId: env.TELNYX_CONNECTION_ID ?? '',
+    telnyxPhoneNumber: env.TELNYX_PHONE_NUMBER ?? '',
+    webhookKey: env.VOICE_WEBHOOK_KEY ?? '',
+    aiModel: env.VOICE_AI_MODEL || 'gpt-4o-mini',
   },
 };

@@ -172,7 +172,7 @@ tableros en Grafana y reglas de alerta.
 
 | Capa | Tecnología |
 |---|---|
-| Runtime | Node.js 20 + TypeScript |
+| Runtime | Node.js 22 LTS + TypeScript |
 | Framework | Express.js |
 | Mensajería | Meta WhatsApp Cloud API |
 | Sesiones y estado | Redis (ioredis), con TTL |
@@ -192,7 +192,7 @@ tableros en Grafana y reglas de alerta.
 
 | Requisito | Para qué |
 |---|---|
-| Node.js 20 LTS y npm | Ejecutar el backend y las pruebas. |
+| Node.js 22 LTS (22.3 o más) y npm | Ejecutar el backend y las pruebas. |
 | Docker y Docker Compose | Levantar Redis en local, y el despliegue completo. |
 | Cuenta de servicio de Google | Leer y escribir las hojas de turnos y registros. |
 | Credenciales de Meta WhatsApp Cloud API | Recibir y enviar mensajes. Sin ellas el bot arranca, pero no conversa. |

@@ -1,0 +1,106 @@
+/** Prueba de la agenda contra un Redis REAL (los scripts Lua de verdad, no el doble de la suite).
+ *
+ * Levantar un Redis temporal y ejecutar:
+ *   docker run -d --rm --name agenda-redis-test -p 6391:6379 redis:7-alpine
+ *   REDIS_URL=redis://127.0.0.1:6391/15 node --env-file=.env.test --import tsx tools/test-agenda-redis.mjs
+ *   docker stop agenda-redis-test
+ *
+ * Nunca apunta a Redis de desarrollo ni producción. No envía WhatsApp ni toca otros servicios. */
+import assert from 'node:assert/strict';
+import Redis from 'ioredis';
+
+const TEST_URL = 'redis://127.0.0.1:6391/15';
+assert.equal(process.env.REDIS_URL, TEST_URL, 'Se requiere el Redis temporal dedicado (puerto 6391, base 15)');
+
+const redis = new Redis(TEST_URL);
+await redis.flushdb();
+const { crearAgenda } = await import('../src/services/agendaService.ts');
+
+const AHORA = Date.parse('2026-11-23T08:00:00-05:00');
+const usuarios = [
+  { username: 'laura', fullName: 'Laura Pérez', role: 'asesor' },
+  { username: 'mario', fullName: 'Mario Gómez', role: 'asesor' },
+];
+const recordatorios = [];
+const ag = crearAgenda({
+  redis,
+  ahora: () => AHORA,
+  usuarios: {
+    listar: async () => usuarios,
+    obtener: async (u) => usuarios.find((x) => x.username === u.toLowerCase()) ?? null,
+  },
+  horarioEquipo: async () => null,
+  recordatorios: {
+    programar: async (telefono, mensaje, cuandoMs) => { recordatorios.push({ telefono, cuandoMs, cancelado: false }); return `r${recordatorios.length}`; },
+    cancelar: async (id) => { recordatorios[Number(id.slice(1)) - 1].cancelado = true; },
+  },
+  adaptador: () => 'evolution',
+});
+
+const semana = [1, 2, 3, 4, 5].map((dia) => ({ dia, desde: '09:00', hasta: '12:00' }));
+const disp = { activo: true, areas: ['posgrados'], duracionMin: 30, pausaMin: 0, semana, excepciones: [] };
+await ag.guardarDisponibilidad('laura', disp);
+await ag.guardarDisponibilidad('mario', { ...disp, activo: false });
+
+const iso = (ms) => new Date(ms - 5 * 3600_000).toISOString().slice(0, 19) + '-05:00';
+const franja = (hora, min = 30) => {
+  const ini = Date.parse(`2026-11-24T${hora}:00-05:00`);
+  return { asesor: 'laura', asesorNombre: 'Laura', inicio: iso(ini), fin: iso(ini + min * 60_000) };
+};
+const reservar = (tel, f) => ag.reservar({ telefono: tel, area: 'posgrados', franja: f, canal: 'whatsapp' });
+
+let fallo = false;
+try {
+  // 1. 40 personas, misma franja, a la vez, contra Redis real.
+  const tels = Array.from({ length: 40 }, (_, i) => `5730011${String(10000 + i)}`);
+  const r = await Promise.all(tels.map((t) => reservar(t, franja('09:00'))));
+  assert.equal(r.filter((x) => x.ok).length, 1, 'solo una reserva gana la misma franja');
+  assert.equal(r.filter((x) => !x.ok && x.motivo === 'ocupada').length, 39);
+  assert.equal(await redis.zcard('agenda:asesor:laura'), 1);
+  console.log('ok 1: 40 reservas simultáneas de la misma franja -> 1 gana');
+
+  // 2. Franjas solapadas simultáneas (panel).
+  const solapadas = await Promise.all(['10:00', '10:10', '10:20', '10:29'].map((h, i) =>
+    ag.reservarPanel({ telefono: `5730022${1000 + i}`, area: 'posgrados', franja: franja(h) }, 'admin', true)));
+  assert.equal(solapadas.filter((x) => x.ok).length, 1);
+  console.log('ok 2: 4 reservas solapadas simultáneas -> 1 gana');
+
+  // 3. Límite por teléfono bajo concurrencia.
+  await ag.guardarConfig({ antelacionMin: 120, maxCitasFuturas: 1, diasVentana: 14, festivos: [] });
+  const lim = await Promise.all(['10:30', '11:00', '11:30'].map((h) => reservar('573003330000', franja(h))));
+  assert.equal(lim.filter((x) => x.ok).length, 1);
+  assert.equal(lim.filter((x) => !x.ok && x.motivo === 'limite').length, 2);
+  console.log('ok 3: límite por teléfono respetado bajo concurrencia');
+
+  // 4. Cancelar: ajeno no puede; tres a la vez solo cuentan una.
+  const ganadora = r.find((x) => x.ok).cita;
+  assert.equal(await ag.cancelar(ganadora.id, '573009999999'), false);
+  const c = await Promise.all([1, 2, 3].map(() => ag.cancelar(ganadora.id, ganadora.telefono)));
+  assert.equal(c.filter(Boolean).length, 1);
+  assert.equal((await ag.obtenerCita(ganadora.id)).estado, 'cancelada');
+  assert.equal((await reservar('573004440000', franja('09:00'))).ok, true, 'la franja cancelada se puede volver a reservar');
+  console.log('ok 4: cancelar solo para el dueño y una sola vez; la franja se libera');
+
+  // 5. Reprogramar sin chocar con la propia cita y recordatorios.
+  const nueva = await reservar('573005550000', franja('09:30'));
+  assert.equal(nueva.ok, true);
+  await ag.guardarConfig({ antelacionMin: 120, maxCitasFuturas: 1, diasVentana: 14, festivos: [] });
+  assert.equal((await ag.reprogramar(nueva.cita.id, '573005550000', franja('15:00'))).ok, false, 'disponibilidad 09-12: 15:00 no es una franja válida');
+  assert.deepEqual(await ag.reprogramar(nueva.cita.id, '573005550000', { asesor: 'laura', asesorNombre: 'Laura', inicio: lim.find((x) => x.ok).cita.inicio, fin: lim.find((x) => x.ok).cita.fin }), { ok: false, motivo: 'ocupada' }, 'una franja ya tomada no se concede');
+  assert.equal((await ag.obtenerCita(nueva.cita.id)).estado, 'confirmada', 'la cita original no se toca');
+  assert.equal((await ag.reprogramar(nueva.cita.id, '573005550000', franja('09:30'))).ok, true, 'al mismo horario, sin chocar con la propia cita (límite 1)');
+  assert.equal((await ag.citasDe('573005550000')).length, 1);
+  console.log('ok 5: reprogramar respeta franja real y no choca con el límite');
+
+  // 6. Los ZSET no se pierden: citasDe usa el índice del teléfono.
+  assert.equal((await ag.listarCitas({ desdeMs: Date.parse('2026-11-24T00:00:00-05:00'), hastaMs: Date.parse('2026-11-25T00:00:00-05:00') })).length >= 4, true);
+  console.log('ok 6: listarCitas del panel');
+  console.log('TODAS LAS PRUEBAS CONTRA REDIS REAL PASARON');
+} catch (e) {
+  fallo = true;
+  console.error('FALLÓ:', e);
+} finally {
+  await redis.flushdb();
+  redis.disconnect();
+}
+process.exit(fallo ? 1 : 0);

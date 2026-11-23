@@ -1131,6 +1131,178 @@ app.post('/api/tools/asistencia/eventos/:id/importar', (req, res) => {
   }
 });
 
+/* ===== Agenda de asesores (datos sintéticos en memoria) ===== */
+const AG_USUARIO = ROL === 'admin' ? mockAdminUsername : 'luis';
+const AG_ASESORES = [
+  { username: AG_USUARIO, nombre: ROL === 'admin' ? 'Ángel Acero' : 'Luis Pérez', role: ROL },
+  { username: 'laura', nombre: 'Laura Pérez', role: 'asesor' },
+];
+const AG_DISP = { activo: true, areas: ['posgrados', 'pregrado'], duracionMin: 30, pausaMin: 0,
+  semana: [1, 2, 3, 4, 5].flatMap(dia => [{ dia, desde: '09:00', hasta: '12:00' }, { dia, desde: '14:00', hasta: '17:00' }]),
+  excepciones: [{ desde: '2026-12-24', hasta: '2026-12-26', motivo: 'Vacaciones' }] };
+const AG_DISPS = { [AG_USUARIO]: structuredClone(AG_DISP), laura: { ...structuredClone(AG_DISP), areas: ['ti'] } };
+let AG_CONFIG = { antelacionMin: 120, maxCitasFuturas: 2, diasVentana: 14, festivos: ['2026-12-08'] };
+const agIso = (ms) => new Date(ms - 5 * 3600000).toISOString().slice(0, 19) + '-05:00';
+const agHoy = new Date(Date.now() - 5 * 3600000).toISOString().slice(0, 10);
+const agAt = (dias, hhmm) => Date.parse(new Date(Date.parse(agHoy + 'T00:00:00Z') + dias * 86400000).toISOString().slice(0, 10) + 'T' + hhmm + ':00-05:00');
+let agN = 0;
+const AG_CITAS = [
+  [0, '09:00', 'María José Restrepo', '573001234567', 'posgrados', AG_USUARIO, 'whatsapp', 'confirmada'],
+  [0, '10:30', 'Carlos Pérez', '573009876543', 'pregrado', AG_USUARIO, 'voz', 'confirmada'],
+  [0, '14:00', null, '573015550101', 'ti', 'laura', 'whatsapp', 'confirmada'],
+  [1, '09:30', 'Valentina Ortiz', '573021110022', 'posgrados', AG_USUARIO, 'panel', 'confirmada'],
+  [2, '15:00', 'Andrés Gómez', '573004440099', 'posgrados', AG_USUARIO, 'whatsapp', 'cancelada'],
+].map(([d, h, nombre, tel, area, asesor, canal, est]) => ({
+  id: 'cita_mock' + (++agN), telefono: tel, ...(nombre ? { nombre } : {}), area, asesor,
+  asesorNombre: AG_ASESORES.find(a => a.username === asesor).nombre,
+  inicio: agIso(agAt(d, h)), fin: agIso(agAt(d, h) + 1800000), canal, estado: est,
+}));
+const agPara = (c) => { const { telefono, ...r } = c; return { ...r, telefono, telefonoMasc: '****' + telefono.slice(-4), puedeEditar: ROL === 'admin' || c.asesor === AG_USUARIO }; };
+app.get('/api/tools/agenda/asesores', (_q, res) => j(res, { asesores: AG_ASESORES.map(a => ({ ...a, activo: AG_DISPS[a.username].activo, areas: AG_DISPS[a.username].areas, duracionMin: 30, esYo: a.username === AG_USUARIO, puedeEditar: ROL === 'admin' || a.username === AG_USUARIO })) }));
+app.get('/api/tools/agenda/disponibilidad/:u', (req, res) => j(res, { disponibilidad: AG_DISPS[req.params.u] }));
+app.put('/api/tools/agenda/disponibilidad/:u', (req, res) => { AG_DISPS[req.params.u] = req.body; j(res, { ok: true, disponibilidad: req.body }); });
+app.get('/api/tools/agenda/config', (_q, res) => j(res, { config: AG_CONFIG }));
+app.put('/api/tools/agenda/config', (req, res) => { AG_CONFIG = req.body; j(res, { ok: true, config: AG_CONFIG }); });
+app.get('/api/tools/agenda/citas', (req, res) => {
+  const desde = Date.parse(req.query.desde + 'T00:00:00-05:00'); const hasta = desde + Number(req.query.dias || 1) * 86400000;
+  j(res, { citas: AG_CITAS.filter(c => Date.parse(c.inicio) >= desde && Date.parse(c.inicio) < hasta && (!req.query.asesor || c.asesor === req.query.asesor)).map(agPara) });
+});
+app.get('/api/tools/agenda/franjas', (req, res) => {
+  const desde = Date.parse(req.query.desde + 'T00:00:00-05:00'); const franjas = [];
+  for (let d = 0; d < Number(req.query.dias || 1); d++) for (const h of ['09:00', '09:30', '10:00', '11:00', '14:30', '15:00']) {
+    const ini = Date.parse(new Date(desde + d * 86400000 + 5 * 3600000).toISOString().slice(0, 10) + 'T' + h + ':00-05:00');
+    if (ini > Date.now() && !AG_CITAS.some(c => c.asesor === req.query.asesor && c.estado === 'confirmada' && Date.parse(c.inicio) === ini)) franjas.push({ asesor: req.query.asesor, asesorNombre: req.query.asesor, inicio: agIso(ini), fin: agIso(ini + 1800000) });
+  }
+  j(res, { franjas });
+});
+app.post('/api/tools/agenda/citas', (req, res) => {
+  const b = req.body; const c = { id: 'cita_mock' + (++agN), telefono: b.telefono.replace(/\D/g, ''), nombre: b.nombre, area: b.area, asesor: b.asesor, asesorNombre: b.asesor, inicio: agIso(Date.parse(b.inicio)), fin: agIso(Date.parse(b.fin)), canal: 'panel', motivo: b.motivo, estado: 'confirmada' };
+  AG_CITAS.push(c); res.status(201).json({ ok: true, cita: agPara(c), aviso: { enviado: false, motivo: 'Sin ventana de 24 h (simulado)' } });
+});
+app.post('/api/tools/agenda/citas/:id/cancelar', (req, res) => { const c = AG_CITAS.find(x => x.id === req.params.id); if (!c) return res.status(404).json({ message: 'Esa cita ya no existe.' }); c.estado = 'cancelada'; j(res, { ok: true, cita: agPara(c), aviso: { enviado: true } }); });
+app.post('/api/tools/agenda/citas/:id/estado', (req, res) => { const c = AG_CITAS.find(x => x.id === req.params.id); c.estado = req.body.estado; j(res, { ok: true, cita: agPara(c) }); });
+app.post('/api/tools/agenda/citas/:id/mover', (req, res) => { const c = AG_CITAS.find(x => x.id === req.params.id); c.inicio = agIso(Date.parse(req.body.inicio)); c.fin = agIso(Date.parse(req.body.fin)); j(res, { ok: true, cita: agPara(c), aviso: { enviado: true } }); });
+
+/* ===== Línea de voz (Llamadas): rutas de /api/tools/voz/* =====
+   Las formas de respuesta salen de src/routes/tools/voz.ts y se arman con las MISMAS funciones puras de src/voice
+   (vista, devoluciones, ajustes). El simulador es el REAL (src/voice/simulador.ts) sobre un almacén en memoria, con
+   académico y agenda simulados y sin IA (entiende por reglas). Si tsx no carga, las rutas contestan 503.
+   Todos los datos son de ejemplo: teléfonos 57300555xxxx. */
+try {
+  require('tsx/cjs');
+  const { almacenMemoria } = require('../src/voice/almacen.ts');
+  const { AJUSTES_DEFECTO, VOCES, leerAjustes } = require('../src/voice/ajustes.ts');
+  const { crearSimulador } = require('../src/voice/simulador.ts');
+  const { vistaLlamada, vistaTranscripcion, costoMesUsd } = require('../src/voice/vista.ts');
+  const { pendingCallbacks, OUTCOME_WHY, buildWeeklyReport } = require('../src/voice/devoluciones.ts');
+  const { VOICE_COP_PER_USD } = require('../src/voice/caps.ts');
+  const { bogotaClock } = require('../src/voice/horario.ts');
+  const { DIALOGO_VACIO } = require('../src/voice/tipos.ts');
+  const almacen = almacenMemoria();
+  let ajustes = leerAjustes({ activo: true, numeroDesvio: '+573005550100', nombreAgente: 'Tooli', topeMinutosDia: 120, topeMinutosMes: 1500 }, AJUSTES_DEFECTO);
+  const simulador = crearSimulador({ almacen, ajustes: async () => ajustes, ia: null, secreto: 'mock-secreto-mock-secreto-mock-0123' });
+  const min = (n) => new Date(Date.now() - n * 60000);
+  const L = (r, t) => ({ r, t });
+  const SALUDO = 'Hola, gracias por llamar a Posgrados de la UTB. Te atiende Tooli, la asistente virtual. Esta llamada se transcribe para atenderte, y se guarda 180 días. Si prefieres hablar con un asesor, dilo cuando quieras. ¿En qué te ayudo?';
+  // [minutos atrás, teléfono, resultado, segundos, verificado, resumen, líneas]
+  const SEMILLA = [
+    [35, '573005550141', 'devolver_llamada', 74, false, 'Quiere saber si la Maestría en Gerencia se puede cursar virtual.', [L('a', SALUDO), L('c', 'Quiero información de la maestría en gerencia, pero prefiero que me llamen más tarde'), L('a', 'Claro, quedó anotado. Un asesor te devolverá la llamada en horario de oficina. Que tengas buen día.')]],
+    [190, '573005550142', 'cita', 212, true, 'Cita con posgrados mañana a las 9:00 a. m.', [L('a', SALUDO), L('c', 'Quiero hablar con un asesor de posgrados'), L('a', 'Con gusto. Tengo estas franjas: mañana a las 9:00 a. m., o mañana a las 10:30 a. m. ¿Cuál prefieres?'), L('c', 'La primera'), L('a', 'Listo, tu cita con posgrados quedó mañana a las 9:00 a. m. Te llegará la confirmación por WhatsApp.')]],
+    [420, '573005550143', 'consulta', 96, false, 'Costos y duración de la Especialización en Gestión de Proyectos.', [L('a', SALUDO), L('c', 'cuánto cuesta la especialización en gestión de proyectos'), L('a', 'Te cuento lo que tengo del programa. Si quieres el valor exacto de la matrícula, un asesor te lo confirma.'), L('c', 'gracias, eso era todo'), L('a', 'Con gusto. Que tengas un excelente día.')]],
+    [1500, '573005550144', 'colgo', 12, false, 'Colgó mientras la asistente saludaba.', [L('a', SALUDO)]],
+    [1560, '573005550145', 'sin_cupo', 0, false, null, [L('s', 'Sin minutos disponibles: la llamada se registró para devolverla.')]],
+    [1800, '573005550146', 'datos_estudiante', 188, true, 'Consultó su turno de matrícula (estudiante verificado).', [L('a', SALUDO), L('c', 'quiero saber cuándo me toca matricular'), L('a', 'Para eso necesito verificarte. ¿Me dices tu código estudiantil?'), L('c', 'T00012345'), L('s', 'Código enviado por WhatsApp (simulado)'), L('c', '123456'), L('a', 'Listo, quedaste verificado. Tu turno de matrícula es el 12 de enero a las 8:00 a. m.')]],
+    [2900, '573005550147', 'transferida', 143, false, 'Pasó a un asesor en vivo por una duda de admisión.', [L('a', SALUDO), L('c', 'necesito hablar con una persona'), L('a', 'Te paso con un asesor ahora mismo.'), L('s', 'Transferida al número de desvío.')]],
+    [4400, '573005550148', 'fuera_de_horario', 0, false, null, [L('s', 'Llamó fuera del horario de asesores.')]],
+    [5800, '573005550149', 'consulta', 120, false, 'Preguntó por becas de posgrado.', [L('a', SALUDO), L('c', 'tienen becas para posgrado'), L('a', 'Hay descuentos para egresados y convenios. Un asesor puede darte el detalle.')]],
+    [9000, '573005550150', 'silencio', 31, false, null, [L('a', SALUDO), L('a', '¿Sigues ahí?'), L('a', 'No te escucho, así que voy a colgar. Puedes volver a llamar cuando quieras.')]],
+    [14500, '573005550141', 'consulta', 88, false, 'Preguntó por el calendario de inscripciones.', [L('a', SALUDO), L('c', 'cuándo cierran las inscripciones'), L('a', 'Las inscripciones a posgrados cierran en enero. Confírmalo con un asesor.')]],
+    [20000, '573005550151', 'cita', 175, true, 'Cita con TI por la clave del correo institucional.', [L('a', SALUDO), L('c', 'no puedo entrar a mi correo'), L('a', 'Te agendo con soporte. Tengo mañana a las 2:00 p. m.'), L('c', 'sí'), L('a', 'Listo, quedó agendada.')]],
+  ];
+  const listo = (async () => {
+    for (const [atras, tel, resultado, seg, verif, resumen, lineas] of SEMILLA) {
+      const ahora = min(atras);
+      const r = await almacen.reservarLlamada({ proveedor: 'telnyx', proveedorCallId: 'mock-' + tel + '-' + atras, telefono: tel, simulada: false, soloRegistro: true, ahora, topes: { topeMinutosDia: 120, topeMinutosMes: 1500, maxMinutosLlamada: 10, retencionDias: 180 } });
+      if (!r.ok) continue;
+      const cobrados = seg > 0 ? Math.ceil(seg / 60) : 0;
+      await almacen.guardar({ ...r.llamada, estado: 'cerrada', resultado, contestada: seg > 0 ? ahora.toISOString() : null, cerrada: new Date(ahora.getTime() + seg * 1000).toISOString(), duracionSeg: seg, minutosCobrados: cobrados, costoUsd: Math.round(cobrados * 0.07 * 10000) / 10000, resumen, dialogo: { ...DIALOGO_VACIO, verificado: verif ? tel : null } });
+      let i = 0;
+      for (const l of lineas) await almacen.agregarLinea(r.llamada.id, { ...l, at: new Date(ahora.getTime() + 1000 * (i++ * 6)).toISOString() }, 180);
+    }
+    const { day, month } = bogotaClock(new Date());
+    await almacen.ajustarUso(day, month, 14);
+    await almacen.ajustarUso('mock', month, 184);
+  })();
+  const admin = () => ROL === 'admin';
+  const usuarioVoz = () => (ROL === 'admin' ? mockAdminUsername : 'luis');
+  const wrap = (fn) => async (req, res) => { try { await listo; await fn(req, res); } catch (e) { console.error('[mock voz]', e.message); res.status(500).json({ error: 'voz_error', message: 'No se pudo completar la operación de la línea de voz.' }); } };
+  const idOk = (id) => /^[0-9a-f-]{36}$/.test(id);
+  const CONEXION = { llaveApi: true, llavePublica: true, conexion: true, numero: '+57 601 555 0100', webhookListo: true, ia: false, modeloIa: 'gpt-4o-mini', academico: true, agenda: true };
+  const AVISOS = [
+    { at: min(35).toISOString(), texto: 'Llamada 573005550141: pidió que le devuelvan la llamada.' },
+    { at: min(1560).toISOString(), texto: 'Se acabaron los minutos del día: la llamada 573005550145 quedó para devolver.' },
+  ];
+  app.get('/api/tools/voz/estado', wrap(async (_q, res) => {
+    const ahora = new Date();
+    const uso = await almacen.uso(ahora);
+    const costo = costoMesUsd(await almacen.listar(1000), ahora);
+    res.json({
+      conexion: admin() ? CONEXION : { lista: CONEXION.llaveApi && CONEXION.llavePublica },
+      ajustes, voces: VOCES,
+      uso: { ...uso, topeDia: ajustes.topeMinutosDia, topeMes: ajustes.topeMinutosMes },
+      costoMes: { usd: costo, copAprox: Math.round((costo * VOICE_COP_PER_USD) / 100) * 100 },
+      avisos: AVISOS, admin: admin(),
+    });
+  }));
+  app.put('/api/tools/voz/ajustes', wrap(async (req, res) => {
+    if (!admin()) return res.status(403).json({ error: 'forbidden' });
+    ajustes = leerAjustes(req.body ?? {}, ajustes);
+    res.json({ ajustes });
+  }));
+  app.post('/api/tools/voz/probar', wrap(async (_q, res) => {
+    if (!admin()) return res.status(403).json({ error: 'forbidden' });
+    res.json(process.env.MOCK_VOZ_PROBAR_FALLA ? { ok: false, message: 'Telnyx rechazó la llave (401). Revisa TELNYX_API_KEY.' } : { ok: true, message: 'Conexión con Telnyx correcta (simulada): número +57 601 555 0100 activo.' });
+  }));
+  app.get('/api/tools/voz/llamadas', wrap(async (req, res) => {
+    const conSim = req.query.simuladas === '1';
+    const limite = Math.min(200, Math.max(1, Number(req.query.limite) || 50));
+    const rows = (await almacen.listar(500)).filter((l) => conSim || !l.simulada).slice(0, limite);
+    res.json({ llamadas: rows.map((l) => vistaLlamada(l, admin())) });
+  }));
+  app.get('/api/tools/voz/llamadas/:id', wrap(async (req, res) => {
+    const l = idOk(req.params.id) ? await almacen.leer(req.params.id) : null;
+    if (!l) return res.status(404).json({ error: 'not_found' });
+    res.json({ llamada: vistaLlamada(l, admin()), transcripcion: vistaTranscripcion(await almacen.transcripcion(l.id), l.simulada) });
+  }));
+  app.get('/api/tools/voz/devoluciones', wrap(async (_q, res) => {
+    const pend = pendingCallbacks(await almacen.listar(1000));
+    res.json({ devoluciones: pend.map((p) => ({ ...p, motivo: OUTCOME_WHY[p.outcome] ?? p.outcome })) });
+  }));
+  app.post('/api/tools/voz/devoluciones/:id/hecha', wrap(async (req, res) => {
+    const l = idOk(req.params.id) ? await almacen.leer(req.params.id) : null;
+    if (!l || l.simulada) return res.status(404).json({ error: 'not_found' });
+    const nota = typeof req.body?.nota === 'string' ? req.body.nota.replace(/[<>]/g, '').trim().slice(0, 300) : '';
+    await almacen.guardar({ ...l, devolucionHecha: new Date().toISOString(), devolucionNota: nota || null, devolucionPor: usuarioVoz() });
+    res.json({ ok: true });
+  }));
+  app.get('/api/tools/voz/reporte', wrap(async (_q, res) => res.json(buildWeeklyReport(await almacen.listar(2000)))));
+  const enviarSim = (res, r) => {
+    if (!r.ok) return res.status(r.motivo === 'tope_diario' ? 429 : r.motivo === 'no_encontrada' ? 404 : 409).json({ error: r.motivo });
+    res.json(r);
+  };
+  app.post('/api/tools/voz/simular', wrap(async (req, res) => enviarSim(res, await simulador.iniciar({ desdeNumeroDelEstudiante: req.body?.desdeNumeroDelEstudiante === true }))));
+  app.post('/api/tools/voz/simular/:id/decir', wrap(async (req, res) => {
+    const texto = typeof req.body?.texto === 'string' ? req.body.texto : '';
+    if (!idOk(req.params.id) || !texto.trim()) return res.status(400).json({ error: 'datos_invalidos' });
+    enviarSim(res, await simulador.decir(req.params.id, texto));
+  }));
+  app.post('/api/tools/voz/simular/:id/silencio', wrap(async (req, res) => idOk(req.params.id) ? enviarSim(res, await simulador.silencio(req.params.id)) : res.status(400).json({ error: 'datos_invalidos' })));
+  app.post('/api/tools/voz/simular/:id/colgar', wrap(async (req, res) => idOk(req.params.id) ? enviarSim(res, await simulador.colgar(req.params.id)) : res.status(400).json({ error: 'datos_invalidos' })));
+} catch (err) {
+  console.error('[mock voz] no se pudo cargar el simulador real:', err.message);
+  app.use('/api/tools/voz', (_q, res) => res.status(503).json({ error: 'voz_no_disponible', message: 'El mock no pudo cargar src/voice (¿falta tsx?).' }));
+}
+
 app.use('/app', express.static(path.join(__dirname, '..', 'src', 'public', 'app')));
 app.get('/favicon.ico', (_q, res) => res.sendFile(path.join(__dirname, '..', 'src', 'public', 'app', 'favicon.ico')));
 app.get('/', (_q, res) => res.redirect('/app/index.html'));

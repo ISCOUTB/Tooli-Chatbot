@@ -185,7 +185,7 @@ async function load() {
   destroyCharts();
 
   try {
-    const res = await fetch(`/dashboard/data?days=${days}&token=${encodeURIComponent(TOKEN)}`);
+    const res = await fetch(`/dashboard/data?days=${days}`, { headers: { 'x-metrics-token': TOKEN } });
     if (!res.ok) {
       dashboard.innerHTML = `<div class="error">Error ${res.status}: ${res.statusText}<br>¿Token correcto en la URL?</div>`;
       return;

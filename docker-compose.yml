@@ -170,7 +170,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - sed "s|__TOKEN__|${WEBHOOK_SECRET}|" /etc/prometheus/prometheus.yml.tpl > /tmp/prometheus.yml && exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d --web.enable-lifecycle
+      - sed "s|__TOKEN__|${METRICS_TOKEN:-${WEBHOOK_SECRET}}|" /etc/prometheus/prometheus.yml.tpl > /tmp/prometheus.yml && exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d --web.enable-lifecycle
     depends_on:
       - alertmanager
     networks:

@@ -27,6 +27,8 @@ import { inboundRouter } from './tools/inbound';
 import { atencionRouter } from './tools/atencion';
 import { inicioRouter } from './tools/inicio';
 import { asistenciaRouter } from './tools/asistencia';
+import { agendaRouter } from './tools/agenda';
+import { vozRouter } from './tools/voz';
 
 export const toolsRouter = Router();
 
@@ -50,3 +52,5 @@ toolsRouter.use(inboundRouter);
 toolsRouter.use(atencionRouter);
 toolsRouter.use(inicioRouter);
 toolsRouter.use(asistenciaRouter);
+toolsRouter.use(agendaRouter);
+toolsRouter.use(vozRouter);

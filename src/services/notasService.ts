@@ -23,15 +23,22 @@ export interface NotaCurso {
   notaFinal: string;
 }
 export type NotasLoginResult =
-  | { status: 'ok'; cursos: NotaCurso[] }
+  /** `estado`: sesión del navegador (cookies) en JSON, SOLO si se pidió exportarla (camino A). Es secreto: va cifrada o no va. */
+  | { status: 'ok'; cursos: NotaCurso[]; estado?: string }
   | { status: 'mfa'; prompt: string }
   | { status: 'error'; error: string };
+
+export interface OpcionesLogin {
+  /** Camino A: devolver la sesión del navegador para guardarla cifrada. La contraseña NUNCA se devuelve ni se guarda. */
+  exportarEstado?: boolean;
+}
 
 interface LiveSession {
   browser: Browser;
   context: BrowserContext;
   page: Page;
   timer: NodeJS.Timeout;
+  exportarEstado: boolean;
 }
 const sessions = new Map<string, LiveSession>();
 
@@ -92,7 +99,56 @@ async function scrapeNotas(page: Page): Promise<NotaCurso[]> {
   return cursos;
 }
 
-export async function startNotasLogin(id: string, email: string, password: string): Promise<NotasLoginResult> {
+/** Dominios a los que puede pertenecer una sesión guardada de Banner/Microsoft. */
+const LOGIN_MICROSOFT = /login\.microsoftonline\.com|login\.live\.com/i;
+
+/**
+ * Camino A: reutiliza una sesión guardada (cookies) para ejecutar `usar` sobre
+ * una página ya autenticada en Banner. No recibe contraseña. Si la sesión ya no
+ * vale (redirige al login) devuelve 'expirada' y el llamador debe borrarla.
+ */
+export async function usarSesionGuardada<T>(
+  estadoJson: string,
+  usar: (page: Page) => Promise<T>,
+): Promise<{ status: 'ok'; valor: T } | { status: 'expirada' } | { status: 'error' }> {
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const context = await browser.newContext({ storageState: JSON.parse(estadoJson), viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await page.goto(GRADES_URL, { waitUntil: 'networkidle', timeout: 30_000 });
+    if (LOGIN_MICROSOFT.test(page.url()) || new URL(page.url()).hostname !== 'ssbprod.utb.edu.co') {
+      return { status: 'expirada' };
+    }
+    return { status: 'ok', valor: await usar(page) };
+  } catch {
+    return { status: 'error' };
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+}
+
+/** Notas con una sesión guardada (camino A). */
+export async function consultarNotasConSesion(estadoJson: string) {
+  return usarSesionGuardada(estadoJson, scrapeNotas);
+}
+
+// SIN VERIFICAR contra el Banner real de la UTB: URL estándar de Banner 8 («Horario
+// detallado del estudiante»). Confirmar con una cuenta del equipo (docs/datos-academicos.md).
+const HORARIO_URL = 'https://ssbprod.utb.edu.co:8443/PROD/bwskfshd.P_CrseSchdDetl';
+
+/** HTML del horario con una sesión guardada (camino A); el parseo está en proveedores/bannerHorarioParser.ts. */
+export async function consultarHorarioHtmlConSesion(estadoJson: string) {
+  return usarSesionGuardada(estadoJson, async (page) => {
+    await page.goto(HORARIO_URL, { waitUntil: 'networkidle', timeout: 30_000 });
+    if (new URL(page.url()).hostname !== 'ssbprod.utb.edu.co') throw new Error('Portal de horario no autenticado');
+    return page.content();
+  });
+}
+
+export async function startNotasLogin(
+  id: string, email: string, password: string, opciones: OpcionesLogin = {},
+): Promise<NotasLoginResult> {
   await closeNotasSession(id);
   let browser: Browser | undefined;
   try {
@@ -115,7 +171,10 @@ export async function startNotasLogin(id: string, email: string, password: strin
     const state = await classifyAfterPassword(page);
 
     if (state === 'mfa') {
-      sessions.set(id, { browser, context, page, timer: setTimeout(() => closeNotasSession(id), SESSION_TTL_MS) });
+      sessions.set(id, {
+        browser, context, page, exportarEstado: Boolean(opciones.exportarEstado),
+        timer: setTimeout(() => closeNotasSession(id), SESSION_TTL_MS),
+      });
       return { status: 'mfa', prompt: 'Escribe el *código de verificación* (MFA) que te llegó por SMS o tu app.' };
     }
     if (state === 'error') {
@@ -128,9 +187,10 @@ export async function startNotasLogin(id: string, email: string, password: strin
     }
 
     const cursos = await scrapeNotas(page);
+    const estado = opciones.exportarEstado ? JSON.stringify(await context.storageState()) : undefined;
     await browser.close();
     return cursos.length
-      ? { status: 'ok', cursos }
+      ? { status: 'ok', cursos, ...(estado ? { estado } : {}) }
       : { status: 'error', error: 'No pude leer las notas del portal. Intenta más tarde.' };
   } catch {
     await browser?.close();
@@ -154,9 +214,10 @@ export async function submitNotasMfa(id: string, code: string): Promise<NotasLog
     }
 
     const cursos = await scrapeNotas(page);
+    const estado = s.exportarEstado ? JSON.stringify(await s.context.storageState()) : undefined;
     await closeNotasSession(id);
     return cursos.length
-      ? { status: 'ok', cursos }
+      ? { status: 'ok', cursos, ...(estado ? { estado } : {}) }
       : { status: 'error', error: 'No pude leer las notas del portal. Intenta más tarde.' };
   } catch {
     await closeNotasSession(id);

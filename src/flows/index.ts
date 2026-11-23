@@ -44,8 +44,10 @@ import {
 } from './agent';
 import { handleTiCollectEmail, handleTiCollectCodigo, handleTiCollectCedula } from './identity';
 import { handleVerifEmail, handleVerifCodigo } from './verificacion';
-import { handleNotasPassword, handleNotasMfa } from './notas';
+import { handleNotasPassword, handleNotasMfa, handleNotasConsentimiento } from './notas';
+import { handleSemestreMenu, handleSemestreCalculo, handleVincularCodigo, handleVincularCedula } from './miSemestre';
 import { handleEncuestaAtencion } from './encuestaAtencion';
+import { atenderAgenda } from './agendaFlowRuntime';
 
 const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   // ── Inicio: recomendación de posgrados según el pregrado ────────────────────
@@ -94,6 +96,11 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   verif_codigo: handleVerifCodigo,
   notas_password: handleNotasPassword,
   notas_mfa: handleNotasMfa,
+  notas_consentimiento: handleNotasConsentimiento,
+  semestre_menu: handleSemestreMenu,
+  semestre_calculo: handleSemestreCalculo,
+  vincular_codigo: handleVincularCodigo,
+  vincular_cedula: handleVincularCedula,
   academico_menu: handleAcademicoMenu,
   academico_cuenta: handleAcademicAccount,
   academico_desvincular: handleAcademicUnlink,
@@ -193,8 +200,17 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   return false;
 }
 
+/** Pasos de identidad y credenciales (académico y TI): la agenda nunca lee lo que se escribe en ellos. */
+export const PASOS_SIN_AGENDA: ReadonlySet<string> = new Set([
+  'notas_password', 'notas_mfa', 'notas_consentimiento', 'vincular_codigo', 'vincular_cedula',
+  'verif_email', 'verif_codigo', 'ti_collect_email', 'ti_collect_codigo', 'ti_collect_cedula',
+]);
+
 export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
+  // Agenda de asesores: «agendar», «mis citas», cancelar/reprogramar y los botones de la agenda.
+  // No en los pasos donde se escribe una contraseña, un código o la cédula: ese texto es del paso.
+  if (!PASOS_SIN_AGENDA.has(session?.step ?? '') && await atenderAgenda(from, text, session)) return;
   // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
   if (await atenderRespuestaCampana(from, text, session)) return;
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.

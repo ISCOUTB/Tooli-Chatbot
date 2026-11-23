@@ -25,6 +25,9 @@ export interface TurnoInfo {
   turno: string;
   fecha: string;
   hora: string;
+  /** Columnas I y J de la hoja (fecha y hora límite), cuando existen. */
+  fechaLimite?: string;
+  horaLimite?: string;
 }
 
 function buildAuth() {
@@ -61,5 +64,7 @@ export async function consultarTurno(codigoEstudiante: string): Promise<TurnoInf
     turno:    fila[COL.turno]    ?? '',
     fecha:    fila[COL.fechaTurno] ?? '',
     hora:     fila[COL.horaTurno]  ?? '',
+    ...(fila[COL.fechaLimite] ? { fechaLimite: String(fila[COL.fechaLimite]) } : {}),
+    ...(fila[COL.horaLimite] ? { horaLimite: String(fila[COL.horaLimite]) } : {}),
   };
 }

@@ -14,8 +14,10 @@ const NAV_SECTIONS = [
   { title: 'Atender', routes: [
     { route: 'atencion', icon: 'headset', label: 'Atención' },
     { route: 'conversaciones', icon: 'message', label: 'Conversaciones' },
+    { route: 'agenda', icon: 'calendar', label: 'Agenda' },
     { route: 'recordatorios', icon: 'clock', label: 'Recordatorios' },
     { route: 'plantillas', icon: 'megaphone', label: 'Plantillas' },
+    { route: 'llamadas', icon: 'phone', label: 'Llamadas' },
   ] },
   { title: 'Prospectos', routes: [
     { route: 'registros', icon: 'users', label: 'CRM' },

@@ -143,7 +143,18 @@ export async function sendMenuClasico(to: string): Promise<void> {
   });
 }
 
+/** Estudiantes verificados ven «Mi semestre» donde un aspirante ve «Cómo inscribirme» (el límite de WhatsApp es 10 filas). */
+async function esEstudianteVerificado(to: string): Promise<boolean> {
+  try {
+    const { isVerified } = await import('../services/identityService');
+    return await isVerified(to);
+  } catch {
+    return false;
+  }
+}
+
 export async function sendMenuPosgrado(to: string): Promise<void> {
+  const verificado = await esEstudianteVerificado(to);
   await messaging.sendList({
     to,
     title: '🎓 Posgrados UTB',
@@ -162,7 +173,9 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
           { id: '6', title: '🧾 Recibo matrícula',    description: 'Descarga el PDF de tu recibo de pago' },
           { id: '7', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '8', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
-          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
+          verificado
+            ? { id: '10', title: '📅 Mi semestre', description: 'Notas, horario, tareas, turno y recibo' }
+            : { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Pregrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },
@@ -171,6 +184,7 @@ export async function sendMenuPosgrado(to: string): Promise<void> {
 }
 
 export async function sendMenuPregrado(to: string): Promise<void> {
+  const verificado = await esEstudianteVerificado(to);
   await messaging.sendList({
     to,
     title: '🏫 Pregrado UTB',
@@ -189,7 +203,9 @@ export async function sendMenuPregrado(to: string): Promise<void> {
           { id: '6', title: '👤 Hablar con asesor',   description: 'Conecta con el equipo de admisiones' },
           { id: '7', title: '🎒 Mi vida académica',   description: 'Horario, Savio, calendario y becas' },
           { id: '8', title: '🧭 Explorar carreras',    description: 'Conoce las áreas y carreras sin registrarte' },
-          { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
+          verificado
+            ? { id: '10', title: '📅 Mi semestre', description: 'Notas, horario, tareas, turno y recibo' }
+            : { id: '9', title: '📝 Cómo inscribirme',     description: 'Requisitos y pasos oficiales de admisión' },
           { id: '0', title: '🔙 Cambiar a Posgrado',  description: 'Volver a elegir Pregrado o Posgrado' },
         ],
       },

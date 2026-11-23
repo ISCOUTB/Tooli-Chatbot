@@ -1,8 +1,9 @@
 import { setSession } from '../services/session';
 import { track } from '../services/metrics';
-import { FlowContext, messaging, sendMenu, sendMenuClasico, sendMenuPosgrado, sendMenuPregrado, sendAreaPrompt } from './shared';
+import { FlowContext, messaging, normalize, sendMenu, sendMenuClasico, sendMenuPosgrado, sendMenuPregrado, sendAreaPrompt } from './shared';
 import { parseGlobalCommand } from './commands';
 import { iniciarConsultaDeNotas } from './notas';
+import { iniciarMiSemestre } from './miSemestre';
 import { sendCategoriasMenu } from './programas';
 import { sendMenuAcademico } from './academico';
 import { academicLookupEnabled, sendAcademicPortal } from './academicLookup';
@@ -68,6 +69,12 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
 
   if (await salirDeMenuDeArea(from, text)) return;
 
+  // 10 — Mi semestre (solo aparece para estudiantes verificados; también se puede escribir)
+  if (input === '10' || normalize(input) === 'mi semestre') {
+    await iniciarMiSemestre(from, 'posgrado');
+    return;
+  }
+
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
     await iniciarConsultaDeNotas(from, 'posgrado');
@@ -112,25 +119,13 @@ export async function handleMenuPosgrado(ctx: FlowContext): Promise<void> {
   // 5 — Turno de matrícula
   if (input === '5') {
     if (!academicLookupEnabled()) return sendAcademicPortal(from, 'turno', { originArea: 'posgrado' });
-    await setSession(from, { step: 'esperando_codigo', data: { originArea: 'posgrado' } });
-    await messaging.sendText({
-      to: from,
-      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
-    });
-    return;
+    return iniciarMiSemestre(from, 'posgrado', 'turno');
   }
 
   // 6 — Recibo de matrícula
   if (input === '6') {
     if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', { originArea: 'posgrado' });
-    await setSession(from, { step: 'recibo_codigo', data: { originArea: 'posgrado' } });
-    await messaging.sendText({
-      to: from,
-      text:
-        'Para descargar tu recibo necesito tus credenciales del portal.\n\n' +
-        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
-    });
-    return;
+    return iniciarMiSemestre(from, 'posgrado', 'recibo');
   }
 
   // 7 — Hablar con asesor (handoff por área: TI / Admisiones Posgrados)
@@ -167,6 +162,12 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   const input = text.trim();
 
   if (await salirDeMenuDeArea(from, text)) return;
+
+  // 10 — Mi semestre (solo aparece para estudiantes verificados; también se puede escribir)
+  if (input === '10' || normalize(input) === 'mi semestre') {
+    await iniciarMiSemestre(from, 'pregrado');
+    return;
+  }
 
   // 1 — Ver notas (verifica identidad por OTP la primera vez)
   if (input === '1') {
@@ -206,25 +207,13 @@ export async function handleMenuPregrado(ctx: FlowContext): Promise<void> {
   // 4 — Turno de matrícula
   if (input === '4') {
     if (!academicLookupEnabled()) return sendAcademicPortal(from, 'turno', { originArea: 'pregrado' });
-    await setSession(from, { step: 'esperando_codigo', data: { originArea: 'pregrado' } });
-    await messaging.sendText({
-      to: from,
-      text: 'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
-    });
-    return;
+    return iniciarMiSemestre(from, 'pregrado', 'turno');
   }
 
   // 5 — Recibo de matrícula
   if (input === '5') {
     if (!academicLookupEnabled()) return sendAcademicPortal(from, 'recibo', { originArea: 'pregrado' });
-    await setSession(from, { step: 'recibo_codigo', data: { originArea: 'pregrado' } });
-    await messaging.sendText({
-      to: from,
-      text:
-        'Para descargar tu recibo necesito tus credenciales del portal.\n\n' +
-        'Por favor escribe tu *código estudiantil*.\n_Ejemplo: T12345678_\n\nEscribe *menu* para cancelar.',
-    });
-    return;
+    return iniciarMiSemestre(from, 'pregrado', 'recibo');
   }
 
   // 6 — Hablar con asesor

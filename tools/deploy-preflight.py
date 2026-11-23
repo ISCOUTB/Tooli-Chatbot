@@ -22,8 +22,11 @@ def read_env(path):
 def check_secrets(env):
     errors = []
     if env.get('MESSAGING_ADAPTER', 'evolution') == 'meta' and not env.get('META_APP_SECRET'):
-        # No bloquea: sin el secreto el webhook acepta entregas sin firma, como antes.
-        print('AVISO: falta META_APP_SECRET; los mensajes de Meta se aceptarán sin verificar la firma.', file=sys.stderr)
+        if env.get('META_ALLOW_UNSIGNED') == '1':
+            print('AVISO: falta META_APP_SECRET y META_ALLOW_UNSIGNED=1; los mensajes de Meta se aceptan sin verificar la firma.', file=sys.stderr)
+        else:
+            # En producción el bot rechaza las entregas sin el secreto: desplegar así lo dejaría sordo.
+            errors.append('Falta META_APP_SECRET: en producción el webhook de Meta rechaza las entregas sin firma. Configúralo (o META_ALLOW_UNSIGNED=1 de forma temporal).')
     if env.get('CHATWOOT_API_TOKEN') and len(env.get('CHATWOOT_WEBHOOK_TOKEN', '')) < 32:
         errors.append('CHATWOOT_WEBHOOK_TOKEN debe tener al menos 32 caracteres y estar configurado en Chatwoot.')
     if len(env.get('JWT_SECRET', '')) < 32:

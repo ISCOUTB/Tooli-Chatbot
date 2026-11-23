@@ -85,6 +85,12 @@ export type MetricEvent =
   // Notas
   | 'notas_consultadas'
   | 'notas_no_encontradas'
+  | 'notas_sesion_guardada'
+  // Datos académicos: Mi semestre, código estudiantil, avisos
+  | 'academico_semestre'
+  | 'codigo_vinculado'
+  | 'codigo_vinculo_fallido'
+  | 'avisos_academicos_enviados'
   // Recomendación de posgrados según el pregrado
   | 'reco_inicio'
   | 'reco_relacion_estudiante_utb'

@@ -2,7 +2,7 @@
 // app (HTML/CSS) cargue rápido y siga disponible con mala conexión o sin
 // internet — nunca cachear /api/* ni el login, porque esos datos deben ser
 // siempre frescos y la sesión depende de cookies validadas por el servidor.
-const CACHE_NAME = 'tooli-asesores-shell-v4';
+const CACHE_NAME = 'tooli-asesores-shell-v5';
 const CACHE_PREFIX = 'tooli-asesores-shell-';
 const SHELL_URLS = ['/app/index.html', '/app/styles.css', '/app/inicio.css', '/app/js/app.js'];
 // El panel dejó de ser un único archivo: ahora son módulos ES bajo /app/js/.

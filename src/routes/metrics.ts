@@ -3,6 +3,7 @@ import path from 'path';
 import { getMetrics } from '../services/metrics';
 import { getMetricsText, getMetricsContentType } from '../services/promMetrics';
 import { config } from '../config';
+import { metricsAuthorized } from '../middleware/webhookAuth';
 
 export const dashboardRouter = Router();
 export const promRouter = Router();
@@ -23,8 +24,7 @@ function lastNDays(n: number): string[] {
 }
 
 function checkAuth(req: Request, res: Response): boolean {
-  const token = req.query.token ?? req.headers['x-metrics-token'];
-  if (token !== config.webhookSecret) {
+  if (!metricsAuthorized(req, config.metricsToken)) {
     res.sendStatus(401);
     return false;
   }
