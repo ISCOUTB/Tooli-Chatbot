@@ -388,6 +388,16 @@ describe('llamada con voz: la boca (speechSynthesis)', () => {
     assert.equal(synth.habladas[0].lang, 'es-CO', 'sin voz, español de Colombia');
   });
 
+  it('callar suelta la frase aunque el navegador no avise que la cortó', async () => {
+    const reloj = relojFalso();
+    const synth = { ...sintesisFalsa(), cancel() {} };
+    const boca = crearBoca({ synth, Utterance: UtteranceFalsa, relojes: reloj });
+    const fin = boca.hablar('Una frase larga.', null);
+    boca.callar();
+    assert.equal(await fin, 'cortada');
+    assert.equal(boca.hablando, false);
+  });
+
   it('si el navegador nunca avisa el final, no se queda colgada', async () => {
     const reloj = relojFalso();
     const synth = sintesisFalsa();
@@ -567,6 +577,30 @@ describe('llamada con voz: la llamada entera', () => {
     assert.equal(m.boca.dichas.length, dichas, 'no dice nada más');
   });
 
+  it('tocar Llamar dos veces no abre dos llamadas', async () => {
+    const m = montar();
+    m.llamada.iniciar();
+    m.llamada.iniciar();
+    assert.equal(m.api.de('iniciar').length, 1);
+    await m.api.responder('iniciar', resp([decir('Hola, buenas tardes.')]));
+    m.llamada.iniciar();
+    assert.equal(m.api.de('iniciar').length, 1, 'ni con la llamada en curso');
+  });
+
+  it('colgar mientras pasa con el asesor no vuelve a colgar en el servidor', async () => {
+    const m = await enEscucha();
+    m.oido.alFinal('quiero hablar con un asesor');
+    await m.reloj.avanzar(1000);
+    await m.api.responder('decir', resp([decir('Te paso con un asesor ahora mismo.'), { tipo: 'transferir', a: '+573005550100' }], { estado: 'cerrada' }));
+    await m.boca.terminarTodo();
+    assert.equal(m.e.fase, 'transfiriendo');
+    m.llamada.colgar();
+    assert.equal(m.e.fase, 'terminada');
+    assert.equal(m.api.de('colgar').length, 0);
+    await m.reloj.avanzar(5000);
+    assert.equal(m.e.motivoFin, 'colgaste', 'el temporizador de la transferencia ya no cambia nada');
+  });
+
   it('colgar mientras todavía está llamando cuelga en cuanto el servidor contesta', async () => {
     const m = montar();
     m.llamada.iniciar();
@@ -621,6 +655,7 @@ describe('llamada con voz: la llamada entera', () => {
     m.oido.alFinal('gracias, eso era todo');
     await m.reloj.avanzar(1000);
     await m.api.responder('decir', resp([decir('Con gusto. Que tengas buen día.'), { tipo: 'colgar' }], { estado: 'cerrada' }));
+    assert.equal(m.oido.encendido, false, 'el micrófono no se abre para la despedida');
     m.oido.alParcial('chao');
     assert.equal(m.e.fase, 'hablando');
     assert.equal(m.boca.callada, 0);

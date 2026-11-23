@@ -394,8 +394,7 @@ export function crearLlamadaVoz({
       oido.apagar();
       Object.assign(e, { fase: 'transfiriendo', transferirA: terminal.a ?? null, persona: '' });
       emitir();
-      const g = gen;
-      t.transferir = relojes.esperar(() => { if (g === gen) cerrar('transferida'); }, transferirMs);
+      t.transferir = relojes.esperar(() => cerrar('transferida'), transferirMs); // colgar antes lo cancela (pararTodo)
       return;
     }
     cerrar('colgo');
@@ -485,7 +484,7 @@ export function crearLlamadaVoz({
 
   function alSilencio() {
     t.silencio = null;
-    if (e.fase !== 'escuchando' || e.persona || acumulado) return;
+    if (e.fase !== 'escuchando') return;
     silencios++;
     pensar(() => api.silencio(e.llamadaId));
   }
@@ -549,7 +548,7 @@ export function crearLlamadaVoz({
   oido.alError = (codigo) => {
     if (terminada()) return;
     const id = e.llamadaId;
-    const colgarEnServidor = id && e.fase !== 'llamando' && !terminal;
+    const colgarEnServidor = id && !terminal; // sin id todavía llama; con terminal, ya colgó el servidor
     cerrar('error', ERROR_DE_OIDO[codigo] ?? 'reconocimiento');
     if (colgarEnServidor) Promise.resolve(api.colgar(id)).catch(() => {});
   };
@@ -557,7 +556,7 @@ export function crearLlamadaVoz({
   function colgarPor(motivo, opciones) {
     if (terminada()) return;
     const id = e.llamadaId;
-    const colgarEnServidor = id && e.fase !== 'llamando' && !terminal;
+    const colgarEnServidor = id && !terminal; // sin id todavía llama; con terminal, ya colgó el servidor
     cerrar(motivo);
     if (!colgarEnServidor) return;
     const pedido = opciones ? api.colgar(id, opciones) : api.colgar(id);
