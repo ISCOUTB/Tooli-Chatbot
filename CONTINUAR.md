@@ -4,6 +4,25 @@ Issue guía: [#25](https://github.com/ISCOUTB/Tooli-Chatbot/issues/25). Cada iss
 
 Lo que se hizo el 23-nov, commit por commit, y lo que queda: [`HANDOFF.md`](HANDOFF.md).
 
+## 23-nov en la tarde (Ángel): rama `flujo/listo-para-probar`, encima de `integracion`
+
+Sale de `e92abc8` (lo de Manuel). **1.595 pruebas, 0 fallan, 7 saltadas; tsc y lint limpios; Redis real: 13 de voz e identidad y 9 de agenda.** Objetivo: dejar listo probar las llamadas y todo el flujo de WhatsApp.
+
+- **«Probar el bot» (panel, solo administradores):** simulador de WhatsApp con el flujo REAL. Números `570000xxxxxx` que nunca salen a Meta; Sheets, HubSpot, Chatwoot, CRM, métricas y correos se saltan y se muestran como notas 🧪. Guía y 12 conversaciones de prueba: [`docs/simulador-whatsapp.md`](docs/simulador-whatsapp.md). Se recorrió contra el backend real con Redis.
+- **Voz, antes de la primera llamada real** (revisión independiente con pruebas de concepto, `src/voice/revision23nov*.test.ts`):
+  - sin bucle de transferencias si el asesor no contesta al cierre de la llamada;
+  - un 500 de Telnyx después de reservar ya no deja la llamada sin contestar; el reintento de una frase no corre el turno dos veces;
+  - colgar mientras se reserva una cita ya no pierde el aviso;
+  - el asesor timbra 20 s (`timeout_secs`), antes de que conteste su buzón;
+  - la pata del asesor que solo timbró no se cobra;
+  - el tope diario de códigos se distingue de la espera corta (`tope_dia`: «podrás intentarlo mañana»);
+  - «Tooli» se pronuncia «Túli».
+- **Agenda:** los recordatorios que no cabían en la ventana de 24 h se reintentan cuando la persona vuelve a escribir (`agenda:rec-pend:<tel>`, Lua `LUA_ANOTAR_RECORDATORIOS`).
+- **WhatsApp:** pedir un asesor con palabras funciona también con el flujo clásico y en el chat con la IA; decir el canal durante el consentimiento ya no repite el mensaje largo; el consentimiento ya no dice que el correo es obligatorio.
+- **Diseño:** Llamadas, Agenda y Métricas con contraste AA, objetivos de 44 px, foco atrapado en los diálogos y 320 px sin cortes (68/68 en el QA). Capturas antes y después, fuera del repo.
+
+**Ojo antes de probar en el VPS:** los atajos de la conversación (no repetir lo dicho, cambiar el nombre, #29-#31) solo corren con `FLUJO_CONVERSACIONAL=true`, y por defecto viene en `false`. Revisar qué tiene el `.env` del VPS. El recuadro «Cómo está el bot» de *Probar el bot* lo muestra.
+
 ## Estado
 Todo está unido en `integracion` (PR #40 hacia `main`): **1.547 pruebas, 0 fallan, 7 saltadas; tsc y lint limpios.** Las pruebas contra Redis real también pasan (12 de identidad y voz, 8 de agenda).
 
