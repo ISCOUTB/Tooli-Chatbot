@@ -20,7 +20,7 @@ import { NIVELES_POSGRADO, ProgramaUtb, buscarPrograma, getPrograma } from '../s
 import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaService';
 import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
-import { guardarRegistroProspecto } from '../services/registroService';
+import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../services/registroService';
 import {
   completarPerfil, conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento,
 } from '../services/perfilService';
@@ -43,7 +43,8 @@ import {
   correoAnotado, datoPersonal, esConfusion, esEspera, esQueja, esRuido, BOTONES_TECNICO, BotonId, DATOS_RECHAZADOS, IA_NO_DISPONIBLE, INSTRUCCION_SUGERENCIAS,
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
-  TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, datosAceptados, detectarPerfil, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
+  TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, cambioDeNombre, carreraAnotada, datosAceptados, datosDeLaFrase,
+  nombreCambiado, soloCuentaDatos, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
   parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, IMAGEN_NO, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
@@ -77,6 +78,53 @@ async function perfilGuardado(from: string): Promise<SessionData | null> {
 async function guardarSesion(from: string, data: SessionData): Promise<void> {
   await setSession(from, { step: 'menu', data });
   await recordarPerfil(from, data);
+}
+
+interface LoQueDijo {
+  data: SessionData;
+  /** Lo nuevo que reconoció y conviene confirmar (la carrera, para que la corrija si no es). */
+  avisos: string[];
+  /** Cambió algo de lo que se sabía. */
+  novedad: boolean;
+  /** Dijo su relación con la UTB en la frase. */
+  relacion: boolean;
+  /** Dijo solo qué nivel busca ("una especialización"). */
+  buscaNivel: boolean;
+}
+
+/**
+ * Lo que la persona contó de sí en una frase (relación con la UTB, carrera,
+ * nivel, «virtual») se suma a lo que ya se sabía: así nunca se le vuelve a
+ * preguntar algo que ya dijo. Lo dicho después corrige lo de antes.
+ */
+function conLoQueDijo(data: SessionData, texto: string, pendiente: string): LoQueDijo {
+  const dicho = datosDeLaFrase(texto);
+  const nuevo: SessionData = { ...data };
+  const avisos: string[] = [];
+  // Una pregunta ("¿hay descuento para egresados de la UTB?") no corrige la relación que ya dijo; solo la llena.
+  const esPregunta = texto.includes('?') || pareceUnaPregunta(texto);
+  if (dicho.relacion && (!data.relacion || !esPregunta)) nuevo.relacion = dicho.relacion;
+  // Mientras se pide la carrera, la respuesta la atiende atenderPregrado, con su propia confirmación.
+  if (dicho.carrera && pendiente !== 'pregrado') {
+    if (dicho.carrera.tipo === 'utb' && dicho.carrera.pregradoId !== data.pregradoId) {
+      Object.assign(nuevo, { pregradoId: dicho.carrera.pregradoId, familiaId: '', sinPregrado: '' });
+      avisos.push(carreraAnotada(getPrograma(dicho.carrera.pregradoId)?.nombre ?? 'tu carrera', false));
+    } else if (dicho.carrera.tipo === 'familia' && dicho.carrera.familiaId !== data.familiaId) {
+      const familiaId = dicho.carrera.familiaId;
+      Object.assign(nuevo, { familiaId, pregradoId: '', sinPregrado: '' });
+      avisos.push(carreraAnotada(FAMILIAS_EXTERNAS.find((f) => f.id === familiaId)?.etiqueta ?? 'tu carrera', true));
+    }
+  }
+  if (dicho.buscaNivel) {
+    // "Una especialización": busca ese nivel y quiere ayuda para elegir. "Posgrado" a secas no fija nivel.
+    nuevo.modo = 'elegir';
+    if (dicho.buscaNivel.nivel) Object.assign(nuevo, { nivel: dicho.buscaNivel.nivel, nivelListo: '1' });
+    if (dicho.buscaNivel.virtual) nuevo.pideVirtual = '1';
+  } else if (dicho.nivel && data.nivelListo !== '1') {
+    Object.assign(nuevo, { nivel: dicho.nivel, nivelListo: '1' });
+  }
+  const novedad = Object.keys(nuevo).some((k) => (nuevo[k] ?? '') !== (data[k] ?? ''));
+  return { data: nuevo, avisos, novedad, relacion: nuevo.relacion !== data.relacion || (!!dicho.relacion && !esPregunta), buscaNivel: !!dicho.buscaNivel };
 }
 
 /** La carrera de la última vez, para recordársela a quien vuelve. */
@@ -248,6 +296,11 @@ async function atenderBoton(from: string, data: SessionData, boton: BotonId): Pr
       await registrarDecision(from, 'si');
       const autorizado: SessionData = { ...data, datos: 'si', info: 'si', registro: 'datos' };
       if (data.nombre) return registrarSuscripcion(from, autorizado, data.nombre);
+      // "Hola, me llamo Laura, …" en el primer mensaje: el nombre ya está, no se vuelve a pedir.
+      const dicho = data.preguntaInicial ? cambioDeNombre(data.preguntaInicial) : null;
+      if (dicho && 'nombre' in dicho) {
+        return registrarSuscripcion(from, { ...autorizado, preguntaInicial: dicho.resto.slice(0, 500) }, dicho.nombre);
+      }
       return preguntar(from, autorizado, 'nombre_info');
     }
     case 'conv_datos_no':
@@ -294,10 +347,14 @@ async function pedirAutorizacion(from: string, data: SessionData, texto: string)
 /** Después de decidir: responde lo que había preguntado o empieza con la primera pregunta. */
 async function seguirTrasAutorizar(from: string, data: SessionData): Promise<void> {
   const pregunta = data.preguntaInicial ?? '';
-  const sigue: SessionData = { ...data, preguntaInicial: '', registro: '', pendiente: '' };
+  let sigue: SessionData = { ...data, preguntaInicial: '', registro: '', pendiente: '' };
   if (pregunta) {
     if (esPedidoAsesor(pregunta)) return pedirConsentimiento(from, sigue);
-    return responderConIa(from, sigue, pregunta);
+    // El primer mensaje solo contaba datos ("estudio derecho en la UTB"): se anotan y se sigue sin la IA.
+    const dicho = conLoQueDijo(sigue, pregunta, '');
+    if (!dicho.novedad || !(dicho.buscaNivel || soloCuentaDatos(pregunta))) return responderConIa(from, sigue, pregunta);
+    if (dicho.avisos.length) await messaging.sendText({ to: from, text: dicho.avisos.join('\n') });
+    sigue = dicho.data;
   }
   if (!sigue.relacion && !sigue.modo) return preguntar(from, sigue, 'tiene_programa');
   return continuar(from, sigue);
@@ -344,6 +401,52 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
   }
   await messaging.sendText({ to: from, text: alEmpezar ? datosAceptados(nombre) : infoAceptada(nombre) });
   return seguirTrasAutorizar(from, { ...data, datos: 'si', info: 'si', nombre, filaCrm });
+}
+
+// ── Cambio de nombre ────────────────────────────────────────────────────────
+
+/**
+ * Cambia el nombre en cualquier momento. Con autorización de datos queda en el
+ * perfil, en una nota de la ficha del CRM y en la fila de la hoja de registros;
+ * sin ella, solo en esta conversación. Devuelve los datos nuevos y el mensaje
+ * corto que lo confirma, o null si ya lo atendió el registro (primera vez).
+ */
+async function cambiarNombre(from: string, data: SessionData, nombre: string): Promise<{ data: SessionData; aviso: string } | null> {
+  const anterior = data.nombre ?? '';
+  // Autorizó, pero nunca alcanzó a dar el nombre: este es su registro.
+  if (data.datos === 'si' && data.info === 'si' && !anterior && !data.filaCrm) {
+    await registrarSuscripcion(from, { ...data, pendiente: '' }, nombre);
+    return null;
+  }
+  const nuevo: SessionData = { ...data, nombre };
+  const aviso = nombreCambiado(nombre, anterior);
+  if (data.datos !== 'si' || anterior === nombre) return { data: nuevo, aviso };
+  try {
+    await agregarNota(from, `✏️ Cambió su nombre en el chat: «${anterior || 'sin nombre'}» → «${nombre}».`, AUTOR_BOT);
+  } catch (err) {
+    console.error('[conversacion] no se pudo anotar el cambio de nombre:', describeExternalError(err));
+    await registrarIncidencia('crm', 'No se pudo anotar en la ficha del CRM un cambio de nombre', err);
+  }
+  const fila = Number(data.filaCrm);
+  if (Number.isInteger(fila) && fila >= 2) {
+    try {
+      await actualizarRegistroProspecto(fila, {
+        nombre, email: data.correo ?? '', whatsapp: from, programa: programaInteresLead(data), area: 'Posgrado',
+      });
+    } catch (err) {
+      console.error('[conversacion] no se pudo actualizar la fila del CRM:', describeExternalError(err));
+      await registrarIncidencia('crm', 'No se pudo cambiar el nombre en la hoja del CRM', err);
+    }
+  }
+  return { data: nuevo, aviso };
+}
+
+/** Tras cambiar el nombre: lo confirma y repite lo que estaba pendiente. */
+async function seguirTrasNombre(from: string, data: SessionData, aviso: string): Promise<void> {
+  const pendiente = (data.pendiente ?? '') as Pendiente | '';
+  if (pendiente && PREGUNTAS[pendiente]) return preguntar(from, data, pendiente, aviso);
+  await guardarSesion(from, data);
+  await messaging.sendText({ to: from, text: aviso });
 }
 
 // ── Carrera escrita ─────────────────────────────────────────────────────────
@@ -414,14 +517,12 @@ function historial(data: SessionData): ChatTurn[] {
  * viva: un "no" escrito después todavía la contesta. Al turno siguiente se repite.
  */
 async function responderConIa(from: string, data: SessionData, texto: string, saludo?: string): Promise<void> {
-  const perfil = detectarPerfil(texto);
-  const conPerfil: SessionData = {
-    ...data,
-    ...(perfil.relacion && !data.relacion ? { relacion: perfil.relacion } : {}),
-    ...(perfil.nivel && data.nivelListo !== '1' ? { nivel: perfil.nivel, nivelListo: '1' } : {}),
-  };
+  // Lo que contó de sí mientras pregunta ("soy egresado de sistemas, ¿cuánto cuesta…?") también se anota.
+  const dicho = conLoQueDijo(data, texto, data.pendiente ?? '');
+  const conPerfil: SessionData = dicho.data;
 
   if (saludo) await messaging.sendText({ to: from, text: saludo });
+  if (dicho.avisos.length) await messaging.sendText({ to: from, text: dicho.avisos.join('\n') });
   // Quien todavía no tiene pregrado pregunta por carreras: la IA de admisiones sabe de eso.
   const area = conPerfil.sinPregrado === '1' ? 'admisiones' : 'posgrados';
   await track('ai_request', { area });
@@ -721,41 +822,108 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
   const boton = parseBoton(text);
   if (boton) return atenderBoton(from, data, boton);
 
-  const pendiente = (data.pendiente ?? '') as Pendiente | '';
-  const escrita = interpretarRespuestaEscrita(pendiente, text);
-  if (escrita && 'boton' in escrita) return atenderBoton(from, data, escrita.boton);
-  if (escrita && 'nivel' in escrita) {
-    return continuar(from, { ...data, nivel: escrita.nivel, nivelListo: '1', ...(escrita.virtual ? { pideVirtual: '1' } : {}) });
-  }
+  let pendiente = (data.pendiente ?? '') as Pendiente | '';
+  let texto = text;
 
-  // Un saludo con una pregunta pendiente la repite: no es el nombre ni la carrera.
-  if (pendiente && session && esSaludo(text) && pendiente !== 'datos') {
-    return preguntar(from, data, pendiente, saludoCortoRegreso(data.nombre));
-  }
-  // Ruido, espera, confusión, quejas y datos sueltos: no son nombre ni carrera, ni van a la IA.
-  if (await atenderSinPregunta(from, data, text, pendiente)) return;
-
-  if (pendiente === 'nombre_info' && !pareceUnaPregunta(text)) {
-    const nombre = limpiarNombre(text);
-    if (!nombre) {
+  // Pidió cambiar el nombre y se le preguntó cuál: lo escrito es el nombre nuevo.
+  if (pendiente === 'nombre_nuevo') {
+    const antes = (data.pendienteAntes ?? '') as Pendiente | '';
+    const dicho = cambioDeNombre(text);
+    const nombre = dicho && 'nombre' in dicho ? dicho.nombre : pareceUnaPregunta(text) ? null : limpiarNombre(text);
+    if (nombre) {
+      const cambio = await cambiarNombre(from, { ...data, pendiente: antes, pendienteAntes: '' }, nombre);
+      if (cambio) return seguirTrasNombre(from, cambio.data, cambio.aviso);
+      return;
+    }
+    if (!pareceUnaPregunta(text)) {
       await messaging.sendText({ to: from, text: PEDIR_NOMBRE_VALIDO });
       return;
     }
-    return registrarSuscripcion(from, data, nombre);
+    // Una pregunta en vez del nombre: se responde y se sigue con lo de antes.
+    data.pendiente = antes;
+    data.pendienteAntes = '';
+    pendiente = antes;
   }
 
-  if (pendiente === 'pregrado' && !pareceUnaPregunta(text)) {
-    const n = text.trim().toLowerCase();
+  // "Me llamo Laura", "ese no es mi nombre, soy Laura": el nombre se cambia en cualquier momento.
+  // Al pedir el nombre para el registro lo atiende ese paso, y antes de autorizar no se toma.
+  const nombreDicho = pendiente !== 'nombre_info' && pendiente !== 'datos' && data.datos ? cambioDeNombre(text) : null;
+  if (nombreDicho && 'pedir' in nombreDicho) return preguntar(from, { ...data, pendienteAntes: pendiente }, 'nombre_nuevo');
+  if (nombreDicho) {
+    const cambio = await cambiarNombre(from, data, nombreDicho.nombre);
+    if (!cambio) return;
+    if (!nombreDicho.resto) return seguirTrasNombre(from, cambio.data, cambio.aviso);
+    // "Me llamo Laura, estudio derecho": se confirma el nombre y se sigue con lo demás.
+    await messaging.sendText({ to: from, text: cambio.aviso });
+    Object.assign(data, cambio.data);
+    texto = nombreDicho.resto;
+  }
+
+  // Lo que cuenta de sí (relación, carrera, nivel) se anota en cualquier respuesta: no se vuelve a preguntar.
+  const dicho = pendiente === 'datos' ? { data, avisos: [], novedad: false, relacion: false, buscaNivel: false } : conLoQueDijo(data, texto, pendiente);
+  const conDicho = dicho.data;
+  const confirmar = async () => {
+    if (dicho.avisos.length) await messaging.sendText({ to: from, text: dicho.avisos.join('\n') });
+  };
+
+  const escrita = interpretarRespuestaEscrita(pendiente, texto);
+  // "Egresado de otra universidad": la relación dicha vale más que el botón que parece.
+  if (dicho.relacion && (pendiente === 'estudia_utb' || pendiente === 'egresado') && !pareceUnaPregunta(texto)) {
+    await confirmar();
+    return continuar(from, { ...conDicho, pendiente: '' });
+  }
+  if (escrita && 'boton' in escrita) {
+    await confirmar();
+    return atenderBoton(from, conDicho, escrita.boton);
+  }
+  if (escrita && 'nivel' in escrita) {
+    await confirmar();
+    return continuar(from, { ...conDicho, nivel: escrita.nivel, nivelListo: '1', ...(escrita.virtual ? { pideVirtual: '1' } : {}) });
+  }
+
+  // Un saludo con una pregunta pendiente la repite: no es el nombre ni la carrera.
+  if (pendiente && session && esSaludo(texto) && pendiente !== 'datos') {
+    return preguntar(from, data, pendiente, saludoCortoRegreso(data.nombre));
+  }
+  // Ruido, espera, confusión, quejas y datos sueltos: no son nombre ni carrera, ni van a la IA.
+  if (await atenderSinPregunta(from, data, texto, pendiente)) return;
+
+  if (pendiente === 'nombre_info' && !pareceUnaPregunta(texto)) {
+    const presentado = cambioDeNombre(texto);
+    const nombre = presentado && 'nombre' in presentado ? presentado.nombre : limpiarNombre(texto);
+    if (!nombre) {
+      // "Estudio derecho" en vez del nombre: se anota la carrera y se vuelve a pedir el nombre.
+      if (dicho.novedad) {
+        await confirmar();
+        return preguntar(from, conDicho, 'nombre_info');
+      }
+      await messaging.sendText({ to: from, text: PEDIR_NOMBRE_VALIDO });
+      return;
+    }
+    await confirmar();
+    return registrarSuscripcion(from, conDicho, nombre);
+  }
+
+  if (pendiente === 'pregrado' && !pareceUnaPregunta(texto)) {
+    const n = texto.trim().toLowerCase();
     if (n === 'lista' && data.relacion && data.relacion !== 'externo') {
       await setSession(from, { step: 'reco_pregrado_grupo', data: { relacion: data.relacion } });
       await enviarGrupos(from);
       return;
     }
-    return atenderPregrado(from, data, text);
+    // Lo demás que dijo junto a la carrera ("estudio derecho en la UTB") también queda.
+    return atenderPregrado(from, conDicho, texto);
+  }
+
+  // Contó algo de sí sin preguntar nada ("estudio sistemas", "busco una maestría"): se anota y se
+  // sigue con lo que falta, sin la IA.
+  if (dicho.novedad && (dicho.buscaNivel || soloCuentaDatos(texto))) {
+    await confirmar();
+    return continuar(from, { ...conDicho, pendiente: '' });
   }
 
   // Un saludo suelto al empezar: presentación y primera pregunta. Quien vuelve retoma.
-  if (esSaludo(text)) {
+  if (esSaludo(texto)) {
     if (pendiente === 'datos') return preguntar(from, data, 'datos');
     const carrera = perfil ? carreraDe(perfil) : null;
     if (perfil && carrera) return ofrecerRetomar(from, data, carrera);
@@ -768,5 +936,6 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     // Ya venía conversando: se presenta otra vez y recuerda de qué puede preguntar, sin la IA.
     return saludarEnConversacion(from, data);
   }
-  return responderConIa(from, data, text, saludo);
+  // A la IA va con lo que ya se sabía: responderConIa anota (y confirma) lo que la frase trae.
+  return responderConIa(from, data, texto, saludo);
 }
