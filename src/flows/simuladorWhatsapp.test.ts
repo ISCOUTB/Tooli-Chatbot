@@ -100,6 +100,19 @@ describe('simulador de WhatsApp con el flujo real', { skip: SIN_MOCKS }, () => {
     assert.notEqual(JSON.parse(RedisMemoria.datos.get(`session:${SIM}`) ?? '{}').step, 'menu', r);
   });
 
+  it('en el consentimiento, «por llamada» se anota y al autorizar no se vuelve a preguntar el canal', async () => {
+    for (const t of ['hola', 'quiero hablar con un asesor']) await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, t));
+    assert.match(JSON.stringify(sim.buzon.sacar(SIM)), /necesito tu nombre/);
+    await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, 'por llamada'));
+    const r = JSON.stringify(sim.buzon.sacar(SIM));
+    assert.doesNotMatch(r, /necesito tu nombre/, 'no repite el mismo mensaje largo');
+    assert.match(r, /[Ll]lamada/, r);
+    assert.match(r, /autoriz/, r);
+    await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, 'Sí, autorizo'));
+    const despues = JSON.stringify(sim.buzon.sacar(SIM));
+    assert.doesNotMatch(despues, /Cómo prefieres que te contacte/, despues);
+  });
+
   it('un número real NUNCA se captura: el mismo mensaje sale por el adaptador real', async () => {
     await handleMessage(REAL, 'hola');
     assert.ok(alAdaptadorReal.length > 0);

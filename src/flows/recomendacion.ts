@@ -1046,6 +1046,23 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
     await enviarAcciones(from, data);
     return;
   }
+  // Dijo cómo quiere que lo contacten («por llamada», «en la tarde», un correo) en vez de Sí/No: se anota (con «No» se
+  // borra, como arriba) y se pide solo la autorización, corta. Al autorizar no se le vuelve a preguntar el canal.
+  const pedido = parseCanal(text);
+  if (pedido) {
+    const previo = canalPedido(data);
+    const junto: ContactoEscrito = previo && previo.canal === pedido.canal ? { ...previo, ...pedido } : pedido;
+    await setSession(from, { step: 'reco_consentimiento', data: { ...data, canalPedido: JSON.stringify(junto) } });
+    const como = junto.canal === 'llamada' ? '📞 por llamada' : junto.canal === 'correo' ? '📧 por correo' : '💬 por este chat';
+    await messaging.sendButtons({
+      to: from,
+      title: '👤 Hablar con un asesor',
+      description: `👍 Anotado: ${como}.\n\nSolo me falta tu autorización: 🔒 ¿autorizas que un asesor de la UTB te contacte y el tratamiento de tus datos personales conforme a la *Ley 1581 de 2012*?`,
+      footer: 'Tus datos se usan solo para fines de admisión',
+      buttons: [...BOTONES_CONSENTIMIENTO],
+    });
+    return;
+  }
   await messaging.sendButtons({
     to: from,
     title: '👤 Hablar con un asesor',
