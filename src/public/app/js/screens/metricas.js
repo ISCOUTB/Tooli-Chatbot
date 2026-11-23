@@ -75,6 +75,7 @@ const EVENT_META = {
   ai_reutilizada:            { label: 'Respuestas reutilizadas (sin gastar IA)', icon: '🔁', color: '#0f9d58' },
   ia_corregida:              { label: 'Programa o enlace de la IA corregido', icon: '🛠️', color: '#b45309' },
   conv_regreso:              { label: 'Volvió y retomó',        icon: '👋', color: '#2f6fd6' },
+  conv_cambio_nombre:        { label: 'Cambió su nombre',       icon: '✍️', color: '#2f6fd6' },
   conv_seguimiento:          { label: 'Seguimientos enviados',  icon: '⏰', color: '#2f6fd6' },
   conv_asesor_sugerido:      { label: 'La IA ofreció asesor',   icon: '🙋', color: '#2f6fd6' },
   reco_util_si:              { label: 'Le sirvió la recomendación', icon: '👍', color: '#2f6fd6' },
@@ -101,7 +102,7 @@ const EVENTOS_FLUJO = [
   'reco_relacion_externo', 'reco_pregrado_utb', 'reco_externo_coincide', 'reco_externo_sin_coincidencia', 'reco_resultados',
   'reco_mas_opciones', 'reco_ficha', 'reco_ia', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'reco_asesor',
   'reco_consentimiento_no', 'reco_lead_completado', 'agent_handoff', 'info_acepta', 'info_rechaza', 'info_baja',
-  'conv_seguimiento', 'conv_regreso', 'no_reconocido', 'incidencia', 'rate_limited',
+  'conv_seguimiento', 'conv_regreso', 'conv_cambio_nombre', 'no_reconocido', 'incidencia', 'rate_limited',
 ];
 
 /** Conteo de un evento por su detalle ("no_reconocido:paso:carrera") en todos los días del rango. */
