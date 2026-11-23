@@ -80,8 +80,8 @@ before(async () => {
     ...perfil,
     leerPerfil: async (t: string) => perfiles.get(t) ?? null,
     guardarPerfil: guardar,
-    completarPerfil: async (t: string, c: Record<string, string>) => {
-      const junto = { ...(perfiles.get(t) ?? {}), ...c };
+    completarPerfil: async (t: string, c: Record<string, string>, vaciar: readonly string[] = []) => {
+      const junto = perfil.juntarPerfil(perfiles.get(t) ?? {}, c, vaciar);
       if (junto.datos === 'si') await guardar(t, junto);
     },
     conLoRecordado: async (_t: string, d: Record<string, string>) => d,
@@ -510,5 +510,35 @@ describe('el flyer solo va si encaja con la persona', { skip: SIN_MOCKS }, () =>
     contextosIa.length = 0;
     await escribir('¿qué maestrías me recomiendas para mi carrera?');
     assert.match(contextosIa[0] ?? '', /afines/i, String(contextosIa[0]));
+  });
+});
+
+describe('el perfil no pierde cómo pidió que la contactaran', { skip: SIN_MOCKS }, () => {
+  const CONTACTO = { contactoCanal: 'llamada', contactoTel: '3015551234', contactoFranja: 'tarde', correo: 'ana@x.com' };
+
+  it('una sesión sin los campos contacto* no los borra del perfil al conversar', async () => {
+    perfiles.set(TEL, { datos: 'si', info: 'si', nombre: 'Ana', filaCrm: '7', ...CONTACTO });
+    decisiones.set(TEL, 'si');
+    // Una sesión que empezó antes de que el perfil guardara el canal (o que lo perdió en otro paso).
+    sesiones.set(TEL, { step: 'menu', data: { datos: 'si', info: 'si', nombre: 'Ana', filaCrm: '7', relacion: 'externo' } });
+    await escribir('¿cuánto cuesta la maestría en finanzas?');
+    assert.equal(preguntasIa.length, 1);
+    const p = perfiles.get(TEL) ?? {};
+    assert.deepEqual(
+      { contactoCanal: p.contactoCanal, contactoTel: p.contactoTel, contactoFranja: p.contactoFranja, correo: p.correo }, CONTACTO,
+      JSON.stringify(p),
+    );
+    // Al pedir asesor, se ofrece «igual que la vez pasada».
+    const r = await escribir('quiero hablar con un asesor');
+    assert.match(ultimo(r), /igual que la vez pasada: 📞 llamada a \*301 555 1234\* en la tarde/, JSON.stringify(r));
+  });
+
+  it('un canal a medio elegir en la sesión no pisa el del perfil', async () => {
+    perfiles.set(TEL, { datos: 'si', info: 'si', nombre: 'Ana', ...CONTACTO });
+    decisiones.set(TEL, 'si');
+    sesiones.set(TEL, { step: 'reco_llamada_numero', data: { datos: 'si', info: 'si', nombre: 'Ana', contactoCanal: 'llamada', contactoTel: '', contactoFranja: '' } });
+    // Un botón de la conversación desde el paso del número guarda la sesión en el perfil.
+    await escribir('conv_seguir');
+    assert.equal(perfiles.get(TEL)?.contactoTel, '3015551234', JSON.stringify(perfiles.get(TEL)));
   });
 });

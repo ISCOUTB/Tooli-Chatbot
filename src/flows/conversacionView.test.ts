@@ -510,6 +510,16 @@ describe('conversación: lo que trae una frase escrita', () => {
   });
 });
 
+describe('conversación: pedir el asesor diciendo el canal', () => {
+  it('«quiero que un asesor me escriba por aquí» es pedir el asesor', () => {
+    for (const t of ['quiero que un asesor me escriba por aquí', 'que un asesor me escriba a mi correo ana@x.com', 'que una asesora me llame',
+      'llámenme al 300 222 3344']) {
+      assert.ok(esPedidoAsesor(t), t);
+    }
+    assert.ok(!esPedidoAsesor('quiero que me expliquen la maestría'));
+  });
+});
+
 describe('conversación: cambiar el nombre', () => {
   it('reconoce el nombre nuevo en las formas en que se dice', () => {
     for (const [t, nombre] of [

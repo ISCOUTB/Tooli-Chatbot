@@ -551,6 +551,8 @@ const PEDIDOS_ASESOR: readonly RegExp[] = [
   new RegExp(String.raw`\b(hablar|comunicarme|contactar|contactarme|chatear|conversar|pasame|paseme|comuniqueme|comunicame)${ARTICULO} ${PERSONA}\b`),
   new RegExp(String.raw`\b(quiero|necesito|deseo|prefiero)( (hablar|comunicarme|chatear))?${ARTICULO} ${PERSONA}\b`),
   /\bque me (llamen|llame|contacten|contacte|escriba|escriban)\b/,
+  // "Quiero que un asesor me escriba por aquí", "que un asesor me llame".
+  new RegExp(String.raw`\bque${ARTICULO} ${PERSONA} me (llame|llamen|escriba|escriban|contacte|contacten|atienda)\b`),
   /\bme (pueden|puede|podrian|podria) (llamar|contactar)\b/,
   /\b(llamenme|llamame|contactenme|contactame)\b/,
 ];

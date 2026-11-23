@@ -18,7 +18,7 @@ import {
   handleRecoContacto, handleRecoContactoRepetir, handleRecoLlamadaNumero, handleRecoLlamadaFranja,
   atenderRespuestaCampana,
   atenderUtil,
-  pedirConsentimiento,
+  pedirAsesorDesdePaso,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
 import {
@@ -199,6 +199,11 @@ async function atajos(from: string, text: string, session: Session | null): Prom
   if (PASOS_DE_TEXTO.has(step)) {
     // "¿No me pueden contactar por acá? ¿Una llamada?" mientras pide el correo: lo atiende el paso, no la IA.
     if (step === 'reco_correo' && prefiereContactoSinCorreo(text)) return false;
+    // "Quiero hablar con un asesor" mientras pide el número o el correo es pedir el asesor, no una pregunta para la IA.
+    if (esPedidoAsesor(text)) {
+      await pedirAsesorDesdePaso(from, step, data, text);
+      return true;
+    }
     // "?" o "no entiendo" mientras pide la carrera, el nombre o el correo: no es una pregunta para la IA.
     if (esRuido(text) || esConfusion(text)) {
       await messaging.sendText({ to: from, text: `${esConfusion(text) ? 'Perdón si no fui claro 🙏' : SEGUIMOS}\n\n${sigue}` });
@@ -209,7 +214,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (esPedidoAsesor(text) && step !== 'reco_consentimiento') {
-    await pedirConsentimiento(from, data);
+    // En la pregunta del canal o de la franja no se le vuelve a preguntar lo mismo.
+    await pedirAsesorDesdePaso(from, step, data, text);
     return true;
   }
   if (await atenderSinPreguntaEnLista(from, data, text)) return true;

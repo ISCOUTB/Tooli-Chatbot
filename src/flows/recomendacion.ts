@@ -30,12 +30,14 @@ import { handleChattingWithAI } from './aiChat';
 import { atenderAgenda } from './agendaFlowRuntime';
 import { isBsuid } from '../services/whatsappId';
 import {
-  BOTONES_CANAL, BOTONES_NUMERO, BOTONES_REPETIR, CORREO_NO_VALIDO, Contacto, ContactoEscrito, NUMERO_NO_VALIDO, PASO_CANAL,
-  PASO_FRANJA, PASO_NUMERO, PASO_REPETIR, PEDIR_NUMERO, PIE_CANAL, PREGUNTA_FRANJA, PREGUNTA_FRANJA_CON_CITA, PREGUNTA_NUMERO,
+  BOTONES_CANAL, BOTONES_NUMERO, BOTONES_REPETIR, CORREO_NO_VALIDO, CUANDO_SI, Contacto, ContactoEscrito, Franja, NUMERO_NO_VALIDO,
+  PASO_CANAL, PASO_FRANJA, PASO_NUMERO, PASO_REPETIR, PASOS_DE_CONTACTO, PEDIR_NUMERO, PIE_CANAL, PREGUNTA_NUMERO,
   REPETIR_CANAL, TITULO_CONTACTO, avisoContacto, camposContacto, contactoAnterior, contactoListo, correoEnTexto, esElMismoCorreo,
-  etiquetaContacto, filasFranja, lineaContacto, parseCanal, parseFranja, parseNumero, parseRepetir, pedirCorreo, pedirNombreTrasCanal,
-  preguntaCanal, preguntaRepetir, telefonoColombiano, traeNumero,
+  etiquetaContacto, filasFranja, franjaFueraDeHorario, franjasDelHorario, lineaContacto, noPuedeAhora, parseCanal, parseDia, parseFranja,
+  parseNumero, parseRepetir, pedirCorreo, pedirNombreTrasCanal, preguntaCanal, preguntaFranja, preguntaRepetir, telefonoColombiano,
+  traeNumero,
 } from './contactoView';
+import { CONFIG_ATENCION_DEFAULT, obtenerConfigAtencionCacheada, textoHorario } from '../services/atencionEquipoService';
 import { enviarFlyerPrograma, esperarFlyers, fotosDisponibles } from './fotosPrograma';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
@@ -743,9 +745,18 @@ const correoValido = (correo?: string) => (correo && CORREO_REGEX.test(correo) ?
  * correo) solo confirma "igual que la vez pasada". El nombre se pide al final
  * si falta. Con `intro`, va en el mismo mensaje que la pregunta.
  */
-async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string): Promise<void> {
+async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string, pedido?: ContactoEscrito | null): Promise<void> {
+  // "Quiero que un asesor me escriba por aquí", "llámenme al 300…": el canal ya lo dijo, no se le pregunta.
+  if (pedido) {
+    if (intro && pedido.canal !== 'chat') await messaging.sendText({ to: from, text: intro });
+    return aplicarCanal(from, { ...data, consentimiento: 'Sí', canalPedido: '' }, pedido);
+  }
   const autorizado = await conContactoRecordado(from, { ...data, consentimiento: 'Sí' });
-  const previo = contactoAnterior(autorizado, from);
+  const anterior = contactoAnterior(autorizado, from);
+  // Una franja en que el equipo ya no llama (la noche) no se ofrece repetir.
+  const { disponibles } = await horarioDeLlamadas();
+  const previo = anterior?.franja && anterior.franja !== 'cita' && !disponibles.includes(anterior.franja)
+    ? { ...anterior, franja: undefined } : anterior;
   if (!previo) return preguntarCanal(from, autorizado, intro);
   await setSession(from, { step: PASO_REPETIR, data: autorizado });
   await messaging.sendButtons({
@@ -789,7 +800,9 @@ function salirDelAsesor(from: string, data: SessionData): () => Promise<void> {
 
 /** Lo elegido (botón o escrito) lleva a lo que falta: el correo, el número, la franja o el nombre. */
 async function aplicarCanal(from: string, data: SessionData, e: ContactoEscrito): Promise<void> {
-  const base: SessionData = { ...data, contactoCanal: e.canal, contactoTel: '', contactoFranja: '', contactoPideNumero: '', pideLlamada: '' };
+  const base: SessionData = {
+    ...data, contactoCanal: e.canal, contactoTel: '', contactoFranja: '', contactoDia: '', contactoPideNumero: '', pideLlamada: '',
+  };
   if (e.canal === 'chat') return completarContacto(from, base, { canal: 'chat' });
   if (e.canal === 'correo') {
     if (e.correo) return completarContacto(from, base, { canal: 'correo', correo: e.correo });
@@ -799,11 +812,17 @@ async function aplicarCanal(from: string, data: SessionData, e: ContactoEscrito)
   }
   // Un WhatsApp sin teléfono (BSUID) no tiene "este número": se le pide uno.
   const telefono = e.telefono ?? (e.mismoNumero && !isBsuid(from) ? 'este' : '');
-  return seguirLlamada(from, { ...base, pideLlamada: '1', contactoTel: telefono, contactoFranja: e.franja ?? '' });
+  return seguirLlamada(from, { ...base, pideLlamada: '1', contactoTel: telefono, contactoFranja: e.franja ?? '', contactoDia: e.dia ?? '' });
+}
+
+/** El horario en que llama el equipo (por defecto de lunes a viernes, de 8 a 18) y las franjas que alcanza. */
+async function horarioDeLlamadas(): Promise<{ disponibles: Franja[]; texto: string }> {
+  const horario = await obtenerConfigAtencionCacheada().then((c) => c.horario).catch(() => CONFIG_ATENCION_DEFAULT.horario);
+  return { disponibles: franjasDelHorario(horario), texto: textoHorario(horario) };
 }
 
 /** La llamada necesita el número y la franja (o la cita, con la agenda encendida). */
-async function seguirLlamada(from: string, data: SessionData): Promise<void> {
+async function seguirLlamada(from: string, data: SessionData, aviso?: string): Promise<void> {
   if (!data.contactoTel) {
     await setSession(from, { step: PASO_NUMERO, data });
     if (isBsuid(from) || data.contactoPideNumero === '1') {
@@ -816,16 +835,22 @@ async function seguirLlamada(from: string, data: SessionData): Promise<void> {
     return;
   }
   const conAgenda = config.agenda.activa;
-  const franja = data.contactoFranja === 'cita' && !conAgenda ? '' : data.contactoFranja;
+  const horario = await horarioDeLlamadas();
+  const pedida = (data.contactoFranja ?? '') as Franja | '';
+  // La noche (o lo que quede fuera del horario del equipo) no se promete: se dice y se pregunta otra.
+  const fuera = !!pedida && pedida !== 'cita' && !horario.disponibles.includes(pedida);
+  const franja = (pedida === 'cita' && !conAgenda) || fuera ? '' : pedida;
   if (!franja) {
+    const dia = data.contactoDia === 'manana' || data.contactoDia === 'pasado' ? data.contactoDia : undefined;
+    const pregunta = fuera && pedida ? franjaFueraDeHorario(pedida, horario.texto) : preguntaFranja(conAgenda, horario.texto, dia);
     await setSession(from, { step: PASO_FRANJA, data: { ...data, contactoFranja: '' } });
     await messaging.sendList({
       to: from,
       title: '📞 Llamada',
-      description: conAgenda ? PREGUNTA_FRANJA_CON_CITA : PREGUNTA_FRANJA,
+      description: aviso ? `${aviso}\n\n${pregunta}` : pregunta,
       footer: 'También puedes escribirlo',
       buttonText: 'Elegir',
-      sections: [{ title: '¿Cuándo te llamamos?', rows: filasFranja(conAgenda) }],
+      sections: [{ title: '¿Cuándo te llamamos?', rows: filasFranja(conAgenda, horario.disponibles) }],
     });
     return;
   }
@@ -892,9 +917,10 @@ export async function handleRecoLlamadaNumero(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
   if (await comandos(from, text, () => preguntarCanal(from, data))) return;
-  // "Al mismo, en la tarde": la franja que venga en la respuesta también queda.
+  // "Al mismo, en la tarde" o "a este, mañana": la franja y el día que vengan en la respuesta también quedan.
   const franja = parseFranja(text);
-  const conFranja: SessionData = franja && franja !== 'cita' ? { contactoFranja: franja } : {};
+  const dia = parseDia(text);
+  const conFranja: SessionData = { ...(franja && franja !== 'cita' ? { contactoFranja: franja } : {}), ...(dia ? { contactoDia: dia } : {}) };
   const r = parseNumero(text);
   if (r && 'telefono' in r) return seguirLlamada(from, { ...data, contactoTel: r.telefono, contactoPideNumero: '', ...conFranja });
   if (r && 'este' in r && !isBsuid(from)) return seguirLlamada(from, { ...data, contactoTel: 'este', contactoPideNumero: '', ...conFranja });
@@ -913,11 +939,17 @@ export async function handleRecoLlamadaFranja(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
   if (await comandos(from, text, () => preguntarCanal(from, data))) return;
-  // Un número escrito aquí corrige al que se llama.
+  // Un número escrito aquí corrige al que se llama; "mañana" anota el día y vuelve a preguntar la franja.
   const telefono = telefonoColombiano(text);
-  const datos = telefono ? { ...data, contactoTel: telefono } : data;
-  const franja = parseFranja(text);
+  const dia = parseDia(text);
+  const datos: SessionData = { ...data, ...(telefono ? { contactoTel: telefono } : {}), ...(dia ? { contactoDia: dia } : {}) };
+  let franja = parseFranja(text);
+  // "Mañana" otra vez, con el día ya anotado: ahora es la franja de la mañana.
+  if (!franja && dia === 'manana' && data.contactoDia === 'manana') franja = 'manana';
   if (franja && (franja !== 'cita' || config.agenda.activa)) return seguirLlamada(from, { ...datos, contactoFranja: franja });
+  // "No puedo hablar ahora": no es una franja ni otro canal; se pregunta cuándo sí.
+  if (noPuedeAhora(text)) return seguirLlamada(from, datos, CUANDO_SI);
+  if (dia) return seguirLlamada(from, datos);
   const otroCanal = parseCanal(text);
   if (otroCanal && otroCanal.canal !== 'llamada') return aplicarCanal(from, data, otroCanal);
   if (!telefono) await registrarNoReconocido(PASO_FRANJA, text);
@@ -930,13 +962,19 @@ async function volverALaConversacion(from: string, data: SessionData, texto: str
   await messaging.sendText({ to: from, text: texto });
 }
 
-export async function pedirConsentimiento(from: string, datosSesion: SessionData): Promise<void> {
+/**
+ * Pide el asesor. `texto` es el pedido escrito: si ya dice el canal ("que me
+ * escriban por aquí", "llámenme al 300…", "a mi correo ana@x.com"), no se le
+ * pregunta; sin autorización todavía, el canal espera en la sesión.
+ */
+export async function pedirConsentimiento(from: string, datosSesion: SessionData, texto?: string): Promise<void> {
   await track('reco_asesor', { area: 'posgrados' });
   // Una sesión reiniciada no trae la autorización ni el nombre: se recuperan si ya se dieron.
   const data = await conLoRecordado(from, datosSesion).catch(() => datosSesion);
+  const pedido = texto ? parseCanal(texto) : null;
   // Quien autorizó el tratamiento de sus datos al empezar no tiene que autorizar de nuevo.
-  if (data.datos === 'si') return pedirDatosDeContacto(from, data, ASESOR_CON_AUTORIZACION);
-  await setSession(from, { step: 'reco_consentimiento', data });
+  if (data.datos === 'si') return pedirDatosDeContacto(from, data, ASESOR_CON_AUTORIZACION, pedido);
+  await setSession(from, { step: 'reco_consentimiento', data: { ...data, canalPedido: pedido ? JSON.stringify(pedido) : '' } });
   await messaging.sendButtons({
     to: from,
     title: '👤 Hablar con un asesor',
@@ -944,6 +982,39 @@ export async function pedirConsentimiento(from: string, datosSesion: SessionData
     footer: 'Tus datos se usan solo para fines de admisión',
     buttons: [...BOTONES_CONSENTIMIENTO],
   });
+}
+
+/** El canal que dijo al pedir el asesor antes de autorizar sus datos. */
+function canalPedido(data: SessionData): ContactoEscrito | null {
+  try {
+    const e = JSON.parse(data.canalPedido || 'null') as ContactoEscrito | null;
+    return e && ['chat', 'llamada', 'correo'].includes(e.canal) ? e : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pasos del asesor: el canal, el número, la franja, el correo y el nombre. */
+const PASOS_DEL_ASESOR: ReadonlySet<string> = new Set([...PASOS_DE_CONTACTO, 'reco_correo', 'reco_nombre']);
+
+/**
+ * "Quiero hablar con un asesor" estando ya en los pasos del asesor: no se le
+ * vuelve a preguntar lo mismo (el círculo que arregló 92a0f9a). Si dijo el
+ * canal, ese; si estaba eligiendo la franja de la llamada, el asesor llama
+ * apenas pueda; si no, por este chat, que es lo inmediato. En el paso del
+ * nombre solo falta el nombre. Fuera de esos pasos es un pedido de asesor normal.
+ */
+export async function pedirAsesorDesdePaso(from: string, step: string, data: SessionData, texto: string): Promise<void> {
+  if (!PASOS_DEL_ASESOR.has(step)) return pedirConsentimiento(from, data, texto);
+  if (step === 'reco_nombre') {
+    await messaging.sendText({ to: from, text: '👤 ¡Ya casi! Para pasarte con el asesor solo me falta tu *nombre completo* ✍️' });
+    return;
+  }
+  const autorizado: SessionData = { ...data, consentimiento: 'Sí' };
+  const pedido = parseCanal(texto);
+  if (pedido) return aplicarCanal(from, autorizado, pedido);
+  if (data.contactoCanal === 'llamada' && data.contactoTel) return seguirLlamada(from, { ...autorizado, contactoFranja: 'cualquiera' });
+  return aplicarCanal(from, autorizado, { canal: 'chat' });
 }
 
 /** Al paso anterior al consentimiento: la ficha si estaba viendo una, si no las recomendaciones. */
@@ -960,11 +1031,13 @@ export async function handleRecoConsentimiento(ctx: FlowContext): Promise<void> 
   const respuesta = parseSiNo(text);
   if (respuesta === 'si') {
     await registrarDecision(from, 'si');
-    // Si ya dio su nombre al aceptar recibir información, solo falta el correo.
-    return pedirDatosDeContacto(from, { ...data, datos: 'si' });
+    // El canal que dijo al pedir el asesor ("llámenme al 300…") no se le vuelve a preguntar.
+    return pedirDatosDeContacto(from, { ...data, datos: 'si', canalPedido: '' }, undefined, canalPedido(data));
   }
   if (respuesta === 'no') {
     await track('reco_consentimiento_no', { area: 'posgrados' });
+    // Sin autorización no se guarda el número ni el correo que traía el pedido.
+    delete data.canalPedido;
     if (!data.recomendados) {
       return volverALaConversacion(from, data, 'Entendido, no guardaré tus datos 👍\n\nPuedes seguir preguntándome lo que quieras.');
     }
@@ -1089,7 +1162,10 @@ async function registrarLeadYConectar(from: string, data: SessionData, c: Contac
   await track('reco_lead_completado', { area: 'posgrados' });
   // Nombre y correo quedan en el perfil (con autorización) para no volver a pedirlos.
   if (data.datos === 'si') {
-    await completarPerfil(from, { nombre, correo, datos: 'si', ...camposDePerfil(c) }).catch((err) =>
+    // Lo que ya no aplica (el número y la franja de una llamada anterior, si ahora es por chat) se vacía.
+    const contacto = camposDePerfil(c);
+    const vaciar = Object.entries(contacto).filter(([, v]) => !v).map(([k]) => k);
+    await completarPerfil(from, { nombre, correo, datos: 'si', ...contacto }, vaciar).catch((err) =>
       console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
   }
   await conectarConAsesorPosgrado(from, {

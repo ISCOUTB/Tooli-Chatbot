@@ -45,6 +45,8 @@ const hubspot: Array<Record<string, unknown>> = [];
 const agenda: Array<{ text: string; session: { step: string; data?: Record<string, string> } | null }> = [];
 const preguntasIa: string[] = [];
 let fueraDeHorario = false;
+/** Hasta qué hora llama el equipo (el horario por defecto es de 8 a 18). */
+let horarioHasta = '18:00';
 
 let handleMessage: typeof import('./index').handleMessage;
 let config: typeof import('../config').config;
@@ -75,14 +77,17 @@ before(async () => {
     ...atencion,
     dentroDeHorarioAsync: async () => !fueraDeHorario,
     textoProximaAtencion: async () => 'lunes 8:00 a. m.',
+    obtenerConfigAtencionCacheada: async () => ({
+      ...atencion.CONFIG_ATENCION_DEFAULT, horario: { ...atencion.CONFIG_ATENCION_DEFAULT.horario, hasta: horarioHasta },
+    }),
   } });
   // Perfil en memoria con la misma regla del real: sin autorización no se guarda nada.
   mock.module('../services/perfilService', { namedExports: {
     ...perfil,
     leerPerfil: async (t: string) => perfiles.get(t) ?? null,
     guardarPerfil: async (t: string, d: Record<string, string>) => { perfiles.set(t, perfil.perfilDeDatos(d)); },
-    completarPerfil: async (t: string, campos: Record<string, string>) => {
-      const junto = { ...(perfiles.get(t) ?? {}), ...Object.fromEntries(Object.entries(campos).filter(([, v]) => v)) };
+    completarPerfil: async (t: string, campos: Record<string, string>, vaciar: readonly string[] = []) => {
+      const junto = perfil.juntarPerfil(perfiles.get(t) ?? {}, campos, vaciar);
       if (junto.datos === 'si') perfiles.set(t, perfil.perfilDeDatos(junto));
     },
     conLoRecordado: async (_t: string, d: Record<string, string>) => d,
@@ -136,6 +141,7 @@ beforeEach(() => {
   enviados.length = 0; conversaciones.length = 0; sesiones.clear(); perfiles.clear(); notas.length = 0;
   etiquetasCrm.length = 0; filasHoja.length = 0; hubspot.length = 0; agenda.length = 0; preguntasIa.length = 0;
   fueraDeHorario = false;
+  horarioHasta = '18:00';
   if (config) config.agenda.activa = false;
 });
 
@@ -205,7 +211,7 @@ describe('canal de contacto: la persona elige cómo la contacta el asesor', { sk
     await decir('es el 301-555-1234');
     const lista = ultimo();
     assert.equal(lista.tipo, 'lista');
-    assert.deepEqual(ids(lista), ['contacto_franja_manana', 'contacto_franja_tarde', 'contacto_franja_noche', 'contacto_franja_cualquiera']);
+    assert.deepEqual(ids(lista), ['contacto_franja_manana', 'contacto_franja_tarde', 'contacto_franja_cualquiera'], 'sin noche: el equipo llama de 8 a 18');
     assert.doesNotMatch(todo(), /agenda|cita/i, 'con la agenda apagada no se menciona');
     enviados.length = 0;
     await decir('contacto_franja_tarde');
@@ -273,8 +279,8 @@ describe('canal de contacto: contestar escribiendo', { skip: SIN_MOCKS }, () => 
     await decir('¿me pueden llamar al 300 222 3344?');
     assert.equal(preguntasIa.length, 0);
     assert.equal(paso(), 'reco_llamada_franja');
-    await decir('a las 7 pm');
-    assert.match(alAsesor().initialMessage, /Pidió llamada al \+57 300 222 3344 en la noche/);
+    await decir('a las 3 pm');
+    assert.match(alAsesor().initialMessage, /Pidió llamada al \+57 300 222 3344 en la tarde/);
   });
 
   it('"a mi correo ana@x.com" trae el correo: no lo vuelve a pedir', async () => {
@@ -400,17 +406,17 @@ describe('canal de contacto: quien ya eligió no vuelve a responder lo mismo', {
   it('la llamada de la vez pasada (perfil) se repite con un "sí"; "de otra forma" vuelve a los tres canales', async () => {
     // Primera vez: llamada a otro número en la noche.
     await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
-    await decir('llámenme al 301 555 1234 en la noche');
-    assert.match(alAsesor().initialMessage, /\+57 301 555 1234 en la noche/);
+    await decir('llámenme al 301 555 1234 en la tarde');
+    assert.match(alAsesor().initialMessage, /\+57 301 555 1234 en la tarde/);
     assert.equal(perfiles.get(TEL)?.contactoTel, '3015551234');
 
     // Vuelve otro día: la sesión empieza de cero, el perfil lo recuerda.
     conversaciones.length = 0;
     enviados.length = 0;
     await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
-    assert.match(String(ultimo().msg.description), /📞 llamada a \*301 555 1234\* en la noche/);
+    assert.match(String(ultimo().msg.description), /📞 llamada a \*301 555 1234\* en la tarde/);
     await decir('sí');
-    assert.match(alAsesor().initialMessage, /\+57 301 555 1234 en la noche/);
+    assert.match(alAsesor().initialMessage, /\+57 301 555 1234 en la tarde/);
 
     conversaciones.length = 0;
     await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
@@ -450,5 +456,171 @@ describe('canal de contacto: sesiones viejas', { skip: SIN_MOCKS }, () => {
     assert.equal(paso(), 'reco_contacto');
     assert.equal(sesiones.get(TEL)?.data.nombre, 'Luis Gómez');
     assert.equal(conversaciones.length, 0);
+  });
+});
+
+// ── Lo que encontró la revisión (23-nov) ────────────────────────────────────
+
+describe('canal de contacto: lo que encontró la revisión', { skip: SIN_MOCKS }, () => {
+  it('«me llamo Laura, por acá está bien» cambia el nombre y conecta por este chat, no por llamada', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('me llamo Laura, por acá está bien');
+    const c = alAsesor();
+    assert.match(c.initialMessage, /Prefiere que le escriban por este chat/);
+    assert.match(c.initialMessage, /Laura/);
+    assert.equal(perfiles.get(TEL)?.nombre, 'Laura');
+  });
+
+  it('«no puedo contestar llamadas» no es pedir una llamada', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('no puedo contestar llamadas');
+    assert.match(alAsesor().initialMessage, /por este chat/);
+  });
+
+  it('«llámenme mañana» es el día: pregunta la franja y al asesor le llega «mañana (día)»', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llámenme mañana a este número');
+    assert.equal(paso(), 'reco_llamada_franja', todo());
+    assert.equal(conversaciones.length, 0, 'todavía falta la franja');
+    await decir('en la tarde');
+    assert.match(alAsesor().initialMessage, /Pidió llamada al \+573001112233 \(este WhatsApp\) mañana \(día\) en la tarde/);
+    assert.match(todo(), /te llamará a este número mañana en la tarde/);
+  });
+
+  it('«mañana» dos veces en la franja: la segunda es la mañana', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llamada', 'a este', 'mañana');
+    assert.equal(paso(), 'reco_llamada_franja');
+    await decir('mañana');
+    assert.match(alAsesor().initialMessage, /mañana \(día\) en la mañana/);
+  });
+
+  it('«no puedo hablar ahora» en la franja no es «a cualquier hora»', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llamada', 'a este', 'no puedo hablar ahora');
+    assert.equal(conversaciones.length, 0, todo());
+    assert.equal(paso(), 'reco_llamada_franja');
+  });
+
+  it('la noche no se ofrece ni se promete: el equipo llama de 8 a 18; si la piden, se dice con amabilidad', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llamada', 'a este');
+    assert.ok(!ids(ultimo()).includes('contacto_franja_noche'));
+    for (const noche of ['en la noche', 'a las 7 pm', 'contacto_franja_noche']) {
+      enviados.length = 0;
+      await decir(noche);
+      assert.equal(conversaciones.length, 0, noche);
+      assert.equal(paso(), 'reco_llamada_franja', noche);
+      assert.match(todo(), /lunes a viernes de 8:00 a 18:00/, noche);
+      assert.doesNotMatch(todo(), /te llamará[^\n]*noche/, noche);
+    }
+    await decir('en la tarde');
+    assert.match(alAsesor().initialMessage, /en la tarde/);
+  });
+
+  it('«llámenme al 300… en la noche» de una vez: se aclara el horario y se pregunta la franja', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llámenme al 301 555 1234 en la noche');
+    assert.equal(conversaciones.length, 0);
+    assert.equal(paso(), 'reco_llamada_franja');
+    assert.match(todo(), /de 8:00 a 18:00/);
+  });
+
+  it('si el equipo llama hasta las 20:00, la noche sí se ofrece', async () => {
+    horarioHasta = '20:00';
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llamada', 'a este');
+    assert.ok(ids(ultimo()).includes('contacto_franja_noche'));
+    await decir('en la noche');
+    assert.match(alAsesor().initialMessage, /en la noche/);
+  });
+
+  for (const pasoTexto of ['reco_llamada_numero', 'reco_correo']) {
+    it(`«quiero hablar con un asesor» en ${pasoTexto} es pedir el asesor, no una pregunta para la IA`, async () => {
+      await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+      await decir(pasoTexto === 'reco_correo' ? 'contacto_correo' : 'contacto_llamada');
+      if (pasoTexto === 'reco_llamada_numero') await decir('contacto_tel_otro');
+      assert.equal(paso(), pasoTexto);
+      await decir('quiero hablar con un asesor');
+      assert.equal(preguntasIa.length, 0, 'no va a la IA');
+      assert.match(alAsesor().initialMessage, /por este chat/);
+    });
+  }
+
+  it('«quiero hablar con un asesor» eligiendo la franja: la llamada queda para cuando pueda', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llamada', 'a este', 'quiero hablar con un asesor');
+    assert.equal(preguntasIa.length, 0);
+    assert.match(alAsesor().initialMessage, /Pidió llamada al \+573001112233 \(este WhatsApp\), a cualquier hora/);
+  });
+
+  it('«quiero hablar con un asesor» en la pregunta del canal no repite la pregunta: pasa por este chat', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('quiero hablar con un asesor');
+    assert.match(alAsesor().initialMessage, /por este chat/);
+  });
+
+  it('cambiar de la llamada al chat limpia el número y la franja del perfil', async () => {
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('llámenme al 301 555 1234 en la tarde');
+    assert.equal(perfiles.get(TEL)?.contactoFranja, 'tarde');
+    conversaciones.length = 0;
+    await autoriza({ nombre: 'Ana Pérez', datos: 'si' });
+    await decir('contacto_otro', 'contacto_chat');
+    alAsesor();
+    assert.equal(perfiles.get(TEL)?.contactoCanal, 'chat');
+    assert.equal(perfiles.get(TEL)?.contactoTel, undefined, JSON.stringify(perfiles.get(TEL)));
+    assert.equal(perfiles.get(TEL)?.contactoFranja, undefined, JSON.stringify(perfiles.get(TEL)));
+  });
+});
+
+describe('canal de contacto: el canal dicho al pedir el asesor (de 92a0f9a)', { skip: SIN_MOCKS }, () => {
+  /** Ya autorizó y dio su nombre al empezar: está conversando. */
+  function conversando(): void {
+    sesiones.set(TEL, { step: 'menu', data: { datos: 'si', info: 'si', nombre: 'Ana Pérez', filaCrm: '5' } });
+  }
+
+  it('«quiero que un asesor me escriba por aquí» conecta por este chat sin preguntar el canal', async () => {
+    conversando();
+    await decir('quiero que un asesor me escriba por aquí');
+    assert.ok(!enviados.some((e) => ids(e).includes('contacto_llamada')), 'no pregunta el canal');
+    assert.match(alAsesor().initialMessage, /por este chat/);
+    assert.equal(hubspot.length, 0, 'sin correo no va a HubSpot');
+  });
+
+  it('«llámenme al 300 222 3344» se salta el canal y el número: solo pregunta la franja', async () => {
+    conversando();
+    await decir('llámenme al 300 222 3344');
+    assert.equal(paso(), 'reco_llamada_franja');
+    await decir('en la mañana');
+    assert.match(alAsesor().initialMessage, /Pidió llamada al \+57 300 222 3344 en la mañana/);
+  });
+
+  it('«que un asesor me escriba a mi correo ana@x.com» conecta por correo y va a HubSpot', async () => {
+    conversando();
+    await decir('que un asesor me escriba a mi correo ana@x.com');
+    assert.equal(alAsesor().customAttributes.email_prospecto, 'ana@x.com');
+    assert.equal(hubspot[0]?.email, 'ana@x.com');
+  });
+
+  it('sin autorización todavía, el canal dicho espera a que autorice; si no autoriza, se olvida', async () => {
+    sesiones.set(TEL, { step: 'menu', data: { nombre: 'Ana Pérez' } });
+    await decir('llámenme al 300 222 3344');
+    assert.equal(paso(), 'reco_consentimiento');
+    await decir('sí');
+    assert.equal(paso(), 'reco_llamada_franja', 'no vuelve a preguntar el canal ni el número');
+    assert.equal(sesiones.get(TEL)?.data.contactoTel, '3002223344');
+
+    sesiones.set(TEL, { step: 'menu', data: { nombre: 'Ana Pérez' } });
+    await decir('llámenme al 300 222 3344', 'no');
+    assert.equal(sesiones.get(TEL)?.data.canalPedido, undefined);
+    assert.equal(conversaciones.length, 0);
+  });
+
+  it('«quiero hablar con un asesor» sin canal pregunta el canal, con «💬 Por este chat» primero', async () => {
+    conversando();
+    await decir('quiero hablar con un asesor');
+    assert.equal(paso(), 'reco_contacto');
+    assert.deepEqual(ids(ultimo()), ['contacto_chat', 'contacto_llamada', 'contacto_correo']);
   });
 });

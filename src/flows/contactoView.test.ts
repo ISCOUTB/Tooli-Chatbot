@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BOTONES_CANAL, avisoContacto, contactoAnterior, contactoListo, correoEnTexto, describirContacto, filasFranja, lineaContacto,
-  parseCanal, parseFranja, parseNumero, parseRepetir, respondeAlPaso, telefonoColombiano,
+  BOTONES_CANAL, avisoContacto, camposContacto, contactoAnterior, contactoListo, correoEnTexto, describirContacto, filasFranja,
+  franjasDelHorario, lineaContacto, parseCanal, parseDia, parseFranja, parseNumero, parseRepetir, respondeAlPaso, telefonoColombiano,
 } from './contactoView';
 
 const TEL = '573001112233';
@@ -28,7 +28,16 @@ describe('parseCanal: respuestas escritas', () => {
     ['al celular', { canal: 'llamada' }],
     ['llámenme pero no hoy', { canal: 'llamada' }],
     ['mejor una llamada en la tarde', { canal: 'llamada', franja: 'tarde' }],
-    ['llámame mañana en la noche', { canal: 'llamada', franja: 'noche' }],
+    ['llámame mañana en la noche', { canal: 'llamada', franja: 'noche', dia: 'manana' }],
+    ['llámenme mañana', { canal: 'llamada', dia: 'manana' }],
+    ['me pueden llamar pasado mañana en la tarde', { canal: 'llamada', franja: 'tarde', dia: 'pasado' }],
+    // «Me llamo…», «me llamaron» o no poder contestar no son pedir una llamada.
+    ['me llamo Laura, por acá está bien', { canal: 'chat' }],
+    ['no puedo contestar llamadas', { canal: 'chat' }],
+    ['no puedo hablar ahora', { canal: 'chat' }],
+    ['no puedo contestar llamadas, mejor por correo', { canal: 'correo' }],
+    ['que me llame un asesor', { canal: 'llamada' }],
+    ['¿me pueden llamar?', { canal: 'llamada' }],
     ['llámenme a este mismo número', { canal: 'llamada', mismoNumero: true }],
     ['al 300 123 4567', { canal: 'llamada', telefono: '3001234567' }],
     ['+57 300 123 4567', { canal: 'llamada', telefono: '3001234567' }],
@@ -59,7 +68,8 @@ describe('parseCanal: respuestas escritas', () => {
 
   it('lo que no dice un canal no se adivina', () => {
     for (const t of ['contáctenme', 'sí', 'ok', 'buenas tardes', 'cuando sea', '😀', '', '__image__', 'ana@x', '3001234',
-      'mi cédula es 1045678901', '1234567890', 'me pueden contactar', 'espera']) {
+      'mi cédula es 1045678901', '1234567890', 'me pueden contactar', 'espera', 'me llamo Laura', 'me llamaron ayer',
+      'me llamó la atención la maestría']) {
       assert.equal(parseCanal(t), null, t);
     }
   });
@@ -83,7 +93,10 @@ describe('telefonoColombiano y correoEnTexto', () => {
 
 describe('parseFranja', () => {
   const casos: Array<[string, ReturnType<typeof parseFranja>]> = [
-    ['en la tarde', 'tarde'], ['tardecita', 'tarde'], ['más tarde', 'tarde'], ['mañana', 'manana'],
+    ['en la tarde', 'tarde'], ['tardecita', 'tarde'], ['más tarde', 'tarde'], ['en la mañana', 'manana'], ['por la mañana', 'manana'],
+    ['mañana por la mañana', 'manana'], ['mañana temprano', 'manana'],
+    // «Mañana» a secas es el día, no la franja; «no puedo hablar ahora» no es «a cualquier hora».
+    ['mañana', null], ['llámenme mañana', null], ['no puedo hablar ahora', null], ['ahora no puedo', null], ['ahora mismo', 'cualquiera'],
     ['mañana en la tarde', 'tarde'], ['temprano', 'manana'], ['noche', 'noche'], ['a las 3 pm', 'tarde'],
     ['10am', 'manana'], ['9:30 a.m.', 'manana'], ['7 pm', 'noche'], ['12 pm', 'tarde'], ['al medio día', 'tarde'],
     ['después del trabajo', 'noche'], ['cuando sea', 'cualquiera'], ['me da igual', 'cualquiera'],
@@ -159,5 +172,37 @@ describe('lo que leen el asesor y la persona', () => {
     assert.deepEqual(contactoListo({ contactoCanal: 'llamada', contactoTel: 'este', contactoFranja: 'tarde' }),
       { canal: 'llamada', telefono: 'este', franja: 'tarde' });
     assert.equal(contactoListo({ contactoCanal: 'correo' }), null);
+  });
+});
+
+describe('el día y el horario del equipo', () => {
+  it('«mañana» a secas es el día; «la mañana» es la franja', () => {
+    assert.equal(parseDia('llámenme mañana'), 'manana');
+    assert.equal(parseDia('mañana en la tarde'), 'manana');
+    assert.equal(parseDia('pasado mañana'), 'pasado');
+    assert.equal(parseDia('en la mañana'), null);
+    assert.equal(parseDia('por las mañanas'), null);
+    assert.equal(parseDia('en la tarde'), null);
+  });
+
+  it('solo se ofrecen las franjas del horario del equipo (8 a 18 por defecto: sin noche)', () => {
+    assert.deepEqual(franjasDelHorario({ desde: '08:00', hasta: '18:00' }), ['manana', 'tarde', 'cualquiera']);
+    assert.deepEqual(franjasDelHorario({ desde: '08:00', hasta: '20:00' }), ['manana', 'tarde', 'noche', 'cualquiera']);
+    assert.deepEqual(franjasDelHorario({ desde: '13:00', hasta: '18:00' }), ['tarde', 'cualquiera']);
+    const filas = filasFranja(false, ['manana', 'tarde', 'cualquiera']).map((f) => f.id);
+    assert.deepEqual(filas, ['contacto_franja_manana', 'contacto_franja_tarde', 'contacto_franja_cualquiera']);
+  });
+
+  it('el día pedido llega al asesor y a la persona', () => {
+    const c = { canal: 'llamada' as const, telefono: '3015551234', franja: 'tarde' as const, dia: 'manana' as const };
+    assert.equal(lineaContacto(c, TEL), '📞 Pidió llamada al +57 301 555 1234 mañana (día) en la tarde');
+    assert.match(avisoContacto(c, null), /te llamará a \*301 555 1234\* mañana en la tarde/);
+    assert.match(describirContacto(c), /mañana en la tarde/);
+  });
+
+  it('cambiar de canal limpia el número, la franja y el día de la llamada', () => {
+    assert.deepEqual(camposContacto({ canal: 'chat' }), {
+      contactoCanal: 'chat', contactoTel: '', contactoFranja: '', contactoDia: '', pideLlamada: '',
+    });
   });
 });

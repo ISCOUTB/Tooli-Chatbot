@@ -22,7 +22,7 @@ import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { actualizarNombreProspecto, guardarRegistroProspecto } from '../services/registroService';
 import {
-  completarPerfil, conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento,
+  completarPerfil, conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, sesionParaElPerfil, soloConsentimiento,
 } from '../services/perfilService';
 import { decisionGuardada, registrarDecision } from '../services/consentimientoService';
 import { describeExternalError } from '../services/logSafe';
@@ -56,8 +56,11 @@ import {
 async function recordarPerfil(from: string, data: SessionData): Promise<void> {
   try {
     // Sin autorización de datos no se recuerda nada; si la negó, se borra lo que hubiera.
-    if (data.datos === 'si') await guardarPerfil(from, { ...data, pendienteEn: data.pendiente ? String(Date.now()) : '' });
-    else if (data.datos === 'no') await guardarPerfil(from, {});
+    if (data.datos === 'si') {
+      // Lo que la sesión no trae (el canal de contacto, el correo) no se borra del perfil.
+      const guardado = await leerPerfil(from).catch(() => null);
+      await guardarPerfil(from, { ...sesionParaElPerfil(guardado, data), pendienteEn: data.pendiente ? String(Date.now()) : '' });
+    } else if (data.datos === 'no') await guardarPerfil(from, {});
   } catch (err) {
     console.error('[conversacion] no se pudo guardar el perfil:', describeExternalError(err));
     await registrarIncidencia('datos', 'No se pudo guardar el perfil de una persona (Redis)', err);
@@ -349,7 +352,7 @@ async function seguirTrasAutorizar(from: string, data: SessionData): Promise<voi
   const pregunta = data.preguntaInicial ?? '';
   let sigue: SessionData = { ...data, preguntaInicial: '', registro: '', pendiente: '' };
   if (pregunta) {
-    if (esPedidoAsesor(pregunta)) return pedirConsentimiento(from, sigue);
+    if (esPedidoAsesor(pregunta)) return pedirConsentimiento(from, sigue, pregunta);
     // El primer mensaje solo contaba datos ("estudio derecho en la UTB"): se anotan y se sigue sin la IA.
     const dicho = conLoQueDijo(sigue, pregunta, '');
     if (!dicho.novedad || !(dicho.buscaNivel || soloCuentaDatos(pregunta))) return responderConIa(from, sigue, pregunta);
@@ -860,7 +863,8 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
 
   const comando = parseGlobalCommand(text);
   if (comando === 'menu' || comando === 'salir') return reiniciar(from, data);
-  if (esPedidoAsesor(text)) return pedirConsentimiento(from, { ...data, pendiente: '' });
+  // "Quiero que un asesor me escriba por aquí", "llámenme al 300…": el canal que diga ya no se pregunta.
+  if (esPedidoAsesor(text)) return pedirConsentimiento(from, { ...data, pendiente: '' }, text);
   if (esBaja(text)) return atenderBaja(from, data);
 
   // Las salidas del menú anterior ("Busco pregrado", "Otras gestiones") siguen sirviendo.

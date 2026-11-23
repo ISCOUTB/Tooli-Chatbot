@@ -12,12 +12,15 @@ import { CORREO_REGEX, type Boton, type FilaLista } from './recomendacionView';
 
 export type CanalContacto = 'chat' | 'llamada' | 'correo';
 export type Franja = 'manana' | 'tarde' | 'noche' | 'cualquiera' | 'cita';
+/** El día que pidió la llamada ("llámenme mañana"): no es la franja de la mañana. */
+export type Dia = 'manana' | 'pasado';
 
 /** Lo que se sabe de cómo quiere que la contacten. `telefono` vacío o 'este' = este mismo WhatsApp. */
 export interface Contacto {
   canal: CanalContacto;
   telefono?: string;
   franja?: Franja;
+  dia?: Dia;
   correo?: string;
 }
 
@@ -28,10 +31,12 @@ export interface ContactoEscrito {
   telefono?: string;
   mismoNumero?: boolean;
   franja?: Franja;
+  dia?: Dia;
 }
 
 const CANALES: ReadonlySet<string> = new Set(['chat', 'llamada', 'correo']);
 const FRANJAS: ReadonlySet<string> = new Set(['manana', 'tarde', 'noche', 'cualquiera', 'cita']);
+const DIAS: ReadonlySet<string> = new Set(['manana', 'pasado']);
 
 // ── Pasos ───────────────────────────────────────────────────────────────────
 
@@ -77,16 +82,55 @@ export const PEDIR_NUMERO = '✍️ Escríbeme el número al que te llamamos, po
 export const NUMERO_NO_VALIDO =
   '🤔 Ese número no parece de Colombia. Escríbelo con sus 10 dígitos, por ejemplo: *300 123 4567*, o escribe *por acá* y el asesor te escribe por este chat.';
 
-export const PREGUNTA_FRANJA = '¿En qué momento del día te queda mejor que te llamemos?';
-export const PREGUNTA_FRANJA_CON_CITA = '¿En qué momento del día te queda mejor que te llamemos? O agenda una cita con día y hora exactos.';
+/** Horario en que llama el equipo (el de `atencionEquipoService`; por defecto de 8:00 a 18:00). */
+export interface HorarioLlamadas {
+  desde: string;
+  hasta: string;
+}
 
-/** La cita solo aparece con la agenda de asesores encendida. */
-export function filasFranja(conAgenda: boolean): FilaLista[] {
+/**
+ * Las franjas que el equipo alcanza a atender: la mañana si empieza antes del
+ * mediodía, la tarde si sigue después, la noche solo si llama después de las 18.
+ */
+export function franjasDelHorario(h: HorarioLlamadas): Franja[] {
   return [
-    { id: 'contacto_franja_manana', title: '🌅 En la mañana' },
-    { id: 'contacto_franja_tarde', title: '🌇 En la tarde' },
-    { id: 'contacto_franja_noche', title: '🌙 En la noche' },
-    { id: 'contacto_franja_cualquiera', title: '🕐 Cuando sea' },
+    ...(h.desde < '12:00' ? ['manana' as const] : []),
+    ...(h.hasta > '12:00' && h.desde < '18:00' ? ['tarde' as const] : []),
+    ...(h.hasta > '18:00' ? ['noche' as const] : []),
+    'cualquiera',
+  ];
+}
+
+const TODAS_LAS_FRANJAS: readonly Franja[] = ['manana', 'tarde', 'noche', 'cualquiera'];
+
+const DIA_TEXTO: Record<Dia, string> = { manana: 'mañana', pasado: 'pasado mañana' };
+
+/** La pregunta de la franja, con el horario del equipo (y el día, si ya lo dijo). */
+export function preguntaFranja(conAgenda: boolean, horario: string, dia?: Dia): string {
+  const anotado = dia ? `📅 Anotado: *${DIA_TEXTO[dia]}*.\n\n` : '';
+  const cita = conAgenda ? ' O agenda una cita con día y hora exactos.' : '';
+  return `${anotado}¿En qué momento del día te queda mejor que te llamemos?${cita}\n\n_Los asesores llaman de ${horario}._`;
+}
+
+/** Pidió una franja en que el equipo no llama (la noche): se le dice con amabilidad y se ofrecen las que hay. */
+export function franjaFueraDeHorario(franja: Franja, horario: string): string {
+  const cuando = franja !== 'cita' && franja !== 'cualquiera' ? FRANJA_TEXTO[franja] : 'a esa hora';
+  return `🙏 Los asesores llaman de ${horario}, así que ${cuando} no alcanzan a llamarte. ¿En qué otro momento del día te queda bien?`;
+}
+
+/** Dijo que ahora no puede: no es una franja, se le pregunta cuándo sí. */
+export const CUANDO_SI = 'Tranquilo(a), no tiene que ser ahora 🙂 ¿En qué momento del día te queda bien que te llamemos?';
+
+/** Solo las franjas que el equipo atiende; la cita solo con la agenda de asesores encendida. */
+export function filasFranja(conAgenda: boolean, disponibles: readonly Franja[] = TODAS_LAS_FRANJAS): FilaLista[] {
+  const filas: Array<FilaLista & { franja: Franja }> = [
+    { franja: 'manana', id: 'contacto_franja_manana', title: '🌅 En la mañana' },
+    { franja: 'tarde', id: 'contacto_franja_tarde', title: '🌇 En la tarde' },
+    { franja: 'noche', id: 'contacto_franja_noche', title: '🌙 En la noche' },
+    { franja: 'cualquiera', id: 'contacto_franja_cualquiera', title: '🕐 Cuando sea' },
+  ];
+  return [
+    ...filas.filter((f) => disponibles.includes(f.franja)).map(({ id, title }) => ({ id, title })),
     ...(conAgenda ? [{ id: 'contacto_franja_cita', title: '📅 Agendar una cita', description: 'Eliges el día y la hora exactos' }] : []),
   ];
 }
@@ -126,13 +170,17 @@ function numeroParaLaPersona(c: Contacto): string {
   return esEste(c.telefono) ? 'este número' : `*${formatearTelefono(c.telefono!)}*`;
 }
 
+/** " mañana en la tarde", " en la tarde", " mañana": el día y la franja, para la persona. */
+function cuandoParaLaPersona(c: Contacto, conCualquiera = true): string {
+  const dia = c.dia ? ` ${DIA_TEXTO[c.dia]}` : '';
+  const franja = c.franja && c.franja !== 'cita' && (conCualquiera || c.franja !== 'cualquiera') ? ` ${FRANJA_TEXTO[c.franja]}` : '';
+  return `${dia}${franja}`;
+}
+
 /** "llamada a este número en la tarde", "correo a *ana@x.com*", "por este chat". */
 export function describirContacto(c: Contacto): string {
   if (c.canal === 'correo') return `📧 correo a *${c.correo}*`;
-  if (c.canal === 'llamada') {
-    const cuando = c.franja && c.franja !== 'cita' ? ` ${FRANJA_TEXTO[c.franja]}` : '';
-    return `📞 llamada a ${numeroParaLaPersona(c)}${cuando}`;
-  }
+  if (c.canal === 'llamada') return `📞 llamada a ${numeroParaLaPersona(c)}${cuandoParaLaPersona(c)}`;
   return '💬 por este chat';
 }
 
@@ -145,8 +193,10 @@ export function lineaContacto(c: Contacto, from: string): string {
   if (c.canal === 'llamada') {
     const numero = esEste(c.telefono) ? `${contactIdLabel(from)} (este WhatsApp)` : `+57 ${formatearTelefono(c.telefono!)}`;
     if (c.franja === 'cita') return `📞 Pidió llamada al ${numero}; está agendando la cita en la agenda de asesores`;
-    if (c.franja === 'cualquiera') return `📞 Pidió llamada al ${numero}, a cualquier hora`;
-    return c.franja ? `📞 Pidió llamada al ${numero} ${FRANJA_TEXTO[c.franja]}` : `📞 Pidió llamada al ${numero}`;
+    // "mañana (día)": que el asesor no lo confunda con la franja de la mañana.
+    const dia = c.dia ? ` ${DIA_TEXTO[c.dia]} (día)` : '';
+    if (c.franja === 'cualquiera') return `📞 Pidió llamada al ${numero}${dia}, a cualquier hora`;
+    return `📞 Pidió llamada al ${numero}${dia}${c.franja ? ` ${FRANJA_TEXTO[c.franja]}` : ''}`;
   }
   return '💬 Prefiere que le escriban por este chat';
 }
@@ -166,8 +216,11 @@ export function avisoContacto(c: Contacto, proxima: string | null): string {
   }
   if (c.canal === 'llamada') {
     if (c.franja === 'cita') return `📅 Elige abajo el día y la hora de tu cita: el asesor te llamará a ${numeroParaLaPersona(c)} a esa hora.`;
-    const franja = c.franja && c.franja !== 'cualquiera' ? ` ${FRANJA_TEXTO[c.franja]}` : proxima ? '' : ' apenas pueda';
-    return `📞 Un asesor de Posgrados te llamará a ${numeroParaLaPersona(c)}${franja}${franja && cuando ? ',' : ''}${cuando}.`;
+    const pedido = cuandoParaLaPersona(c, false);
+    // Con un día pedido no va "desde el próximo horario": ya dijo cuándo.
+    const franja = pedido || (proxima ? '' : ' apenas pueda');
+    const despues = c.dia ? '' : cuando;
+    return `📞 Un asesor de Posgrados te llamará a ${numeroParaLaPersona(c)}${franja}${franja && despues ? ',' : ''}${despues}.`;
   }
   return proxima
     ? `Tu solicitud quedó registrada. Un asesor de Posgrados te responderá en el próximo horario de atención: *${proxima}*.`
@@ -182,6 +235,7 @@ export function camposContacto(c: Contacto): Record<string, string> {
     contactoCanal: c.canal,
     contactoTel: c.canal === 'llamada' ? (c.telefono || 'este') : '',
     contactoFranja: c.canal === 'llamada' ? (c.franja ?? '') : '',
+    contactoDia: c.canal === 'llamada' ? (c.dia ?? '') : '',
     ...(c.canal === 'correo' && c.correo ? { correo: c.correo } : {}),
     // Compatibilidad: lo que ya leía el resto del bot para "pidió que lo llamen".
     pideLlamada: c.canal === 'llamada' ? '1' : '',
@@ -193,10 +247,12 @@ export function contactoEnCurso(data: Record<string, string>): Contacto | null {
   const canal = data.contactoCanal;
   if (!canal || !CANALES.has(canal)) return null;
   const franja = FRANJAS.has(data.contactoFranja ?? '') ? (data.contactoFranja as Franja) : undefined;
+  const dia = DIAS.has(data.contactoDia ?? '') ? (data.contactoDia as Dia) : undefined;
   return {
     canal: canal as CanalContacto,
     ...(data.contactoTel ? { telefono: data.contactoTel } : {}),
     ...(franja ? { franja } : {}),
+    ...(dia && canal === 'llamada' ? { dia } : {}),
     ...(data.correo && CORREO_REGEX.test(data.correo) ? { correo: data.correo } : {}),
   };
 }
@@ -257,8 +313,20 @@ export function correoEnTexto(texto: string): string | null {
   return CORREO_REGEX.test(correo) ? correo : null;
 }
 
-const NO_LLAMAR = /\bno (me )?(llam|marqu|timbr)\w*/;
-const LLAMADA = /\b(llam\w*|telefon\w*|celular|mar(c|qu)(a|ar|ame|arme|en|enme|uen|uenme)|timbr\w*)\b/;
+/** "No me llamen", "no puedo contestar llamadas", "no puedo hablar ahora": no quiere (o no puede) una llamada. */
+const NO_LLAMAR = new RegExp([
+  String.raw`\bno (me )?(llam|marqu|timbr)\w*`,
+  String.raw`\bno (puedo|podre|alcanzo a|logro|me gusta|me gustan|quiero) (contestar|recibir|atender|hablar|responder)\b`,
+  String.raw`\bno (contesto|atiendo|recibo) (llamadas|el telefono|el celular)\b`,
+  String.raw`\b(sin|nada de) llamadas\b`,
+].join('|'));
+/**
+ * Pedir una llamada: "llámenme", "una llamada", "¿me pueden llamar?", "al celular".
+ * Solo esas formas del verbo: "me llamo Laura", "me llamó la atención" o "me
+ * llamaron ayer" no piden nada.
+ */
+const LLAMADA =
+  /\b(llamad(a|as|ita|itas)|llamar(me|nos|la|lo)?|llamen(me|nos)?|llame(me|nos)?|llamame|llamanos|telefon\w*|celular|mar(c|qu)(a|ar|ame|arme|en|enme|uen|uenme)|timbr\w*)\b/;
 const SIN_CORREO = /\b(no (tengo|uso|manejo|me se|recuerdo)( mi| el| un)? (correo|email|mail|gmail)|sin (correo|email|mail))\b/;
 const CORREO = /\b(correo\w*|e ?mail|mail|gmail|hotmail|outlook)\b/;
 const CHAT =
@@ -285,12 +353,13 @@ export function parseCanal(texto: string): ContactoEscrito | null {
   const correo = correoEnTexto(t);
   if (correo) return { canal: 'correo', correo };
   const franja = parseFranja(t) ?? undefined;
-  const conFranja = franja && franja !== 'cita' ? { franja } : {};
+  const dia = parseDia(t);
+  const cuando = { ...(franja && franja !== 'cita' ? { franja } : {}), ...(dia ? { dia } : {}) };
   const telefono = telefonoColombiano(t);
-  if (telefono && !NO_LLAMAR.test(n)) return { canal: 'llamada', telefono, ...conFranja };
+  if (telefono && !NO_LLAMAR.test(n)) return { canal: 'llamada', telefono, ...cuando };
 
   if (LLAMADA.test(n) && !NO_LLAMAR.test(n)) {
-    return { canal: 'llamada', ...(MISMO_NUMERO.test(n) ? { mismoNumero: true } : {}), ...conFranja };
+    return { canal: 'llamada', ...(MISMO_NUMERO.test(n) ? { mismoNumero: true } : {}), ...cuando };
   }
   if (CORREO.test(n) && !SIN_CORREO.test(n)) return { canal: 'correo' };
   if (CHAT.test(n) || SIN_CORREO.test(n) || NO_LLAMAR.test(n) || /\b(prefiero|mejor) (whatsapp|que me escriban|escrito)\b/.test(n)) return { canal: 'chat' };
@@ -314,7 +383,9 @@ export function parseFranja(texto: string): Franja | null {
   const porNumero: Record<string, Franja> = { '1': 'manana', '2': 'tarde', '3': 'noche', '4': 'cualquiera', '5': 'cita' };
   if (porNumero[n]) return porNumero[n];
   if (/\b(agend\w*|agenda|cita)\b/.test(n)) return 'cita';
-  if (/\b(cuando sea|cuando (puedan|quieran|gusten|pueda)|cualquier (hora|momento|rato|franja)|a cualquier|(me )?da igual|no importa|indiferente|todo el dia|cuando sea mejor|lo antes posible|ya mismo|ahora)\b/.test(n)) return 'cualquiera';
+  // "No puedo hablar ahora" o "ahora no" dicen cuándo no: no es "a cualquier hora".
+  const negado = noPuedeAhora(n) || /\bno (puedo|podre|alcanzo|estoy|tengo tiempo)\b/.test(n);
+  if (!negado && /\b(cuando sea|cuando (puedan|quieran|gusten|pueda)|cualquier (hora|momento|rato|franja)|a cualquier|(me )?da igual|no importa|indiferente|todo el dia|cuando sea mejor|lo antes posible|lo mas pronto|cuanto antes|ya mismo|ahora mismo|de una vez)\b/.test(n)) return 'cualquiera';
   // "A las 3 pm", "10 am": la hora dice la franja.
   const hora = /\b(\d{1,2})(?:[:.\s]\d{2})?\s*(am|a\.?m|pm|p\.?m)\b/.exec(n);
   if (hora) {
@@ -324,11 +395,30 @@ export function parseFranja(texto: string): Franja | null {
     if (h >= 6 && h <= 11) return 'noche';
   }
   if (/\bnoche\w*\b/.test(n) || /\bdespues del (trabajo|trabajar)\b/.test(n)) return 'noche';
-  // "Pasado mañana" es un día, no la mañana; el mediodía va con la tarde (como "12 pm").
-  if (/\bpasado manana\b/.test(n)) return null;
+  // El mediodía va con la tarde (como "12 pm").
   if (/\b(medio ?dia|despues del almuerzo|despues de almuerzo)\b/.test(n)) return 'tarde';
   if (/\btarde\w*\b/.test(n)) return 'tarde';
-  if (/\b(manana|temprano)\b/.test(n)) return 'manana';
+  // "En la mañana", "por las mañanas", "temprano". "Mañana" a secas es el día (parseDia), no la franja.
+  if (/\b(la|las) mananas?\b|\bmananas\b|\btemprano\b|\bmadrugada\b/.test(n)) return 'manana';
+  return null;
+}
+
+/** "No puedo hablar ahora", "ahora no", "en este momento no puedo": cuándo no. */
+export function noPuedeAhora(texto: string): boolean {
+  const n = plano(texto);
+  return /\bno (puedo|podre)( (hablar|contestar|atender))?( (ahora|ahorita|ya|en este momento))\b|\bahora no\b|\ben este momento no\b/.test(n);
+}
+
+/**
+ * El día que pidió: "llámenme mañana" o "mañana en la tarde" → mañana;
+ * "pasado mañana". "En la mañana" o "por las mañanas" son la franja, no el día.
+ */
+export function parseDia(texto: string): Dia | null {
+  const t = (texto ?? '').trim();
+  if (t.startsWith('__') || /^contacto_/.test(t)) return null;
+  const n = plano(t).replace(/\b(la|las) mananas?\b|\bmananas\b/g, ' ');
+  if (/\bpasado manana\b/.test(n)) return 'pasado';
+  if (/\bmanana\b/.test(n)) return 'manana';
   return null;
 }
 
@@ -372,7 +462,9 @@ export function respondeAlPaso(paso: string, texto: string): boolean {
   if (paso === PASO_CANAL) return parseCanal(texto) !== null;
   if (paso === PASO_REPETIR) return parseRepetir(texto) !== null || parseCanal(texto) !== null;
   if (paso === PASO_NUMERO) return parseNumero(texto) !== null || traeNumero(texto) || parseCanal(texto)?.canal === 'correo';
-  if (paso === PASO_FRANJA) return parseFranja(texto) !== null || telefonoColombiano(texto) !== null;
+  if (paso === PASO_FRANJA) {
+    return parseFranja(texto) !== null || telefonoColombiano(texto) !== null || parseDia(texto) !== null || noPuedeAhora(texto);
+  }
   return false;
 }
 
