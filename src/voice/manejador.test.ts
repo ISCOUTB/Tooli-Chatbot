@@ -51,7 +51,10 @@ function espia(opts: { fallarSpeak?: boolean } = {}) {
     transfer: async (_c, callId, a) => { cmds.push({ accion: 'transfer', callId, a }); },
     hangup: async (_c, callId) => { cmds.push({ accion: 'hangup', callId }); },
     startRecording: async (_c, callId) => { cmds.push({ accion: 'record', callId }); },
-  };
+    // Nunca a la red en las pruebas.
+    estadoLlamada: async () => null,
+    stopListening: async (_c, callId) => { cmds.push({ accion: 'stop_listen', callId }); },
+  } as VoiceProvider;
   return { p, cmds };
 }
 

@@ -127,6 +127,16 @@ export function conEfectos(deps: DepsTurno, marcar: () => void): DepsTurno {
   };
 }
 
+/** Prefijo del `client_state` de la pata saliente de una transferencia: lleva el id de la llamada original. */
+export const ESTADO_PATA = 'tooli-pata:';
+/** Lo que Telnyx deja timbrar al asesor antes de dar la transferencia por fallida (timeout_secs por defecto). */
+const TIMBRE_TRANSFER_MS = 30_000;
+
+export const TEXTO_NO_CONTESTO_CON_NUMERO =
+  'No pude comunicarte con un asesor: no contestó. Dejé tu número para que un asesor te devuelva la llamada en horario de atención. ¿Te ayudo con algo más?';
+export const TEXTO_NO_CONTESTO_SIN_NUMERO =
+  'No pude comunicarte con un asesor en este momento. Puedes volver a llamar o escribirnos por WhatsApp. ¿Te ayudo con algo más?';
+
 export const TEXTO_SE_ACABA_TRANSFER = 'Se nos acaba el tiempo de esta llamada. Te paso con un asesor para terminar.';
 export const TEXTO_SE_ACABA_COLGAR = 'Se nos acaba el tiempo de esta llamada. Si necesitas más, escríbenos por WhatsApp o vuelve a llamar. ¡Gracias!';
 
@@ -202,18 +212,99 @@ export function crearManejador(d: DepsManejador) {
 
   /** Lo que se hace cuando termina de sonar lo último: transferir, colgar o empezar a contar el silencio. */
   async function ejecutarPendiente(l: LlamadaVoz, a: AjustesVoz, pendiente: LlamadaVoz['despuesDeHablar'], cmdBase: string): Promise<Nota> {
-    const desvio = a.numeroDesvio;
-    if (pendiente === 'transfer' && desvio) {
-      await cmd('transfer', (c) => d.proveedor.transfer(c, l.proveedorCallId, desvio, `${cmdBase}-transfer`));
-      await actualizar(l.id, (x) => ({ ...x, resultado: mejorResultado(x.resultado, 'transferida') }));
-      return { handled: true, note: 'transfer' };
-    }
+    if (pendiente === 'transfer' && a.numeroDesvio) return transferir(l, a, a.numeroDesvio, cmdBase);
     if (pendiente) {
       await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${cmdBase}-bye`));
       return { handled: true, note: 'hangup' };
     }
     await programarSilencio(l);
     return { handled: true, note: 'escuchando' };
+  }
+
+  /**
+   * Pasa la llamada a un asesor (punto 9). Primero se marca transferida, así lo que llegue desde ya (la charla con el
+   * asesor) no dispara turnos, silencios ni avisos; después se detiene la transcripción (Telnyx solo la para al colgar o
+   * con transcription_stop) y se transfiere con tope de duración y con la pata saliente atada a esta llamada por su
+   * client_state (punto 16). Si el transfer falla de una, el bot retoma.
+   */
+  async function transferir(l: LlamadaVoz, a: AjustesVoz, desvio: string, cmdBase: string): Promise<Nota> {
+    const limiteSeg = a.maxMinutosTransferencia * 60;
+    const en = ahora();
+    const t = await actualizar(l.id, (x) => (x.estado === 'activa' && !x.transferidaEn ? {
+      ...x,
+      transferidaEn: en.toISOString(),
+      transferidaHasta: en.getTime() + TIMBRE_TRANSFER_MS + limiteSeg * 1000,
+      pataContestada: false,
+      resultado: mejorResultado(x.resultado, 'transferida'),
+      despuesDeHablar: null,
+      silencioVence: null,
+      hablando: false,
+    } : null));
+    if (!t) return { handled: false, note: 'ya transferida' };
+    cancelarLocal(l.id);
+    await d.almacen.vigilar(l.id, plazoDuro(t));
+    await cmd('transcription_stop', (c) => d.proveedor.stopListening(c, l.proveedorCallId, `${cmdBase}-nolisten`));
+    const ok = await cmd('transfer', (c) => d.proveedor.transfer(c, l.proveedorCallId, desvio, `${cmdBase}-transfer`, { limiteSeg, estadoPata: `${ESTADO_PATA}${l.id}` }));
+    if (!ok) {
+      await retomar(l.id, a, `${cmdBase}-retoma`);
+      return { handled: true, note: 'la transferencia falló: retoma' };
+    }
+    return { handled: true, note: 'transfer' };
+  }
+
+  /**
+   * El asesor no contestó, dio ocupado o el transfer falló (punto 16): Telnyx deja la llamada original activa. El bot
+   * vuelve a escuchar, lo dice y deja la devolución en la cola del panel (con número; sin él no se puede devolver).
+   */
+  async function retomar(id: string, a: AjustesVoz, cmdBase: string) {
+    let texto = '';
+    const l = await actualizar(id, (x) => {
+      if (x.estado !== 'activa' || !x.transferidaEn) return null;
+      const conNumero = /^\d{7,15}$/.test(x.telefono);
+      texto = conNumero ? TEXTO_NO_CONTESTO_CON_NUMERO : TEXTO_NO_CONTESTO_SIN_NUMERO;
+      return {
+        ...x,
+        transferidaEn: null,
+        transferidaHasta: null,
+        pataContestada: false,
+        // «transferida» resuelve la llamada y la sacaría de la cola: aquí NO se resolvió.
+        resultado: conNumero ? 'devolver_llamada' : 'en_curso',
+        resumen: conNumero ? 'La transferencia a un asesor no se completó: devolver la llamada' : x.resumen,
+        silencio: 0,
+        dialogo: { ...x.dialogo, fase: 'libre', ultimaRespuesta: texto, ultimaDatos: null },
+      };
+    });
+    if (!l) return;
+    if (l.resultado === 'devolver_llamada') {
+      d.avisarPanel?.({ tipo: 'devolucion', llamadaId: l.id, texto: 'La transferencia no se completó: devolver la llamada', simulada: l.simulada });
+    }
+    await d.almacen.vigilar(l.id, plazoDuro(l));
+    await cmd('transcription_start', (c) => d.proveedor.startListening(c, l.proveedorCallId, a.idioma, `${cmdBase}-listen`));
+    await decir(l, a, texto, `${cmdBase}-aviso`);
+  }
+
+  /**
+   * Eventos de la pata saliente de una transferencia: llegan con OTRO call_control_id y el client_state de la llamada
+   * original. null si el evento no es de una pata nuestra.
+   */
+  async function eventoDePata(ev: VoiceEvent, a: AjustesVoz): Promise<Nota | null> {
+    const id = ev.clientState?.startsWith(ESTADO_PATA) ? ev.clientState.slice(ESTADO_PATA.length) : '';
+    if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+    const l = await d.almacen.leer(id);
+    if (!l || l.proveedor !== d.proveedor.id) return { handled: false, note: 'pata de una llamada desconocida' };
+    if (ev.kind === 'answered') {
+      await actualizar(id, (x) => (x.pataContestada ? null : { ...x, pataContestada: true }));
+      return { handled: true, note: 'el asesor contestó' };
+    }
+    if (ev.kind !== 'hangup') return { handled: false, note: 'evento de la pata saliente' };
+    if (l.estado !== 'activa' || !l.transferidaEn) return { handled: false, note: 'pata colgada' };
+    if (l.pataContestada) {
+      // Terminó la charla con el asesor: el bot no retoma una llamada que ya atendió una persona.
+      await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${ev.eventId}-fin`));
+      return { handled: true, note: 'el asesor colgó' };
+    }
+    await retomar(id, a, ev.eventId);
+    return { handled: true, note: 'el asesor no contestó: retoma' };
   }
 
   /**
@@ -246,7 +337,7 @@ export function crearManejador(d: DepsManejador) {
 
   /** Tras hablar el bot: fecha límite en el estado y en el índice del barrido; el temporizador local la adelanta. */
   async function programarSilencio(l: LlamadaVoz) {
-    if (!d.programador || l.estado !== 'activa' || l.silencio >= 2) return;
+    if (!d.programador || l.estado !== 'activa' || l.silencio >= 2 || l.transferidaEn) return;
     const vence = ahora().getTime() + (l.silencio === 0 ? silencio1 : silencio2);
     const g = await actualizar(l.id, (x) => (x.estado === 'activa' && x.silencio === l.silencio && !x.hablando ? { ...x, silencioVence: vence } : null));
     if (!g) return;
@@ -287,7 +378,8 @@ export function crearManejador(d: DepsManejador) {
     let dicho: { texto: string; etapa: 1 | 2 } | null = null;
     const l = await actualizar(id, (x) => {
       dicho = null;
-      if (x.estado !== 'activa' || x.silencio >= 2) return null;
+      // Transferida: el silencio es de la charla con el asesor, no del bot (punto 9).
+      if (x.estado !== 'activa' || x.silencio >= 2 || x.transferidaEn) return null;
       if (vence !== undefined && x.silencioVence !== vence) return null;
       const etapa = x.silencio === 0 ? 1 : 2;
       dicho = { texto: etapa === 1 ? SIGUES_AHI : DESPEDIDA_SILENCIO, etapa };
@@ -441,7 +533,7 @@ export function crearManejador(d: DepsManejador) {
 
       case 'answered': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
-        if (!l0) return { handled: false, note: 'llamada desconocida' };
+        if (!l0) return (await eventoDePata(ev, a)) ?? { handled: false, note: 'llamada desconocida' };
         const texto = textoSaludo({ saludo: a.saludo, nombreAgente: a.nombreAgente, grabar: a.grabar, retencionDias: a.retencionDias });
         const l = await actualizar(l0.id, (x) => ({ ...x, contestada: x.contestada ?? ahora().toISOString(), actividad: tick(x), dialogo: { ...x.dialogo, ultimaRespuesta: texto } }));
         if (!l) return { handled: false, note: 'llamada cerrada' };
@@ -458,6 +550,8 @@ export function crearManejador(d: DepsManejador) {
         if (!texto) return { handled: false, note: 'vacío' };
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
         if (!l0 || l0.estado !== 'activa') return { handled: false, note: 'llamada cerrada' };
+        // Ya la atiende un asesor: lo que diga no es para el bot ni se guarda (punto 9).
+        if (l0.transferidaEn) return { handled: false, note: 'transferida: no se atiende' };
         await cancelarSilencio(l0);
         if (!ev.isFinal) {
           // Una llamada con solo parciales también llega al tope: el aviso y el colgado no esperan una frase final (R5).
@@ -591,6 +685,8 @@ export function crearManejador(d: DepsManejador) {
       case 'hangup': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
         if (!l0) {
+          const pata = await eventoDePata(ev, a);
+          if (pata) return pata;
           await d.almacen.marcarColgada(d.proveedor.id, ev.callId);
           return { handled: false, note: 'llamada desconocida (se recuerda que colgó)' };
         }

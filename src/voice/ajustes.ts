@@ -19,6 +19,11 @@ export interface AjustesVoz {
   topeMinutosDia: number;
   topeMinutosMes: number;
   maxMinutosLlamada: number;
+  /**
+   * Tope de la pata saliente al pasar a un asesor (Telnyx `time_limit_secs`; sin él deja hasta 4 h). Vale también para
+   * el desvío con la línea apagada o sin cupo: nunca se transfiere sin tope.
+   */
+  maxMinutosTransferencia: number;
   costoMinutoUsd: number;
   /** Cuándo hay asesores para transferir en vivo. */
   horarioAsesores: FranjaAsesores[];
@@ -42,6 +47,7 @@ export const AJUSTES_DEFECTO: AjustesVoz = {
   topeMinutosDia: 120,
   topeMinutosMes: 1500,
   maxMinutosLlamada: 10,
+  maxMinutosTransferencia: 30,
   costoMinutoUsd: 0.07,
   horarioAsesores: HORARIO_ASESORES_DEFECTO,
   reglasRuteo: SCHEDULE_OFF,
@@ -88,6 +94,7 @@ export function leerAjustes(raw: unknown, base: AjustesVoz = AJUSTES_DEFECTO): A
     topeMinutosDia: has('topeMinutosDia') ? entero(o.topeMinutosDia, 0, 10_000, base.topeMinutosDia) : base.topeMinutosDia,
     topeMinutosMes: has('topeMinutosMes') ? entero(o.topeMinutosMes, 0, 100_000, base.topeMinutosMes) : base.topeMinutosMes,
     maxMinutosLlamada: has('maxMinutosLlamada') ? entero(o.maxMinutosLlamada, 1, 30, base.maxMinutosLlamada) : base.maxMinutosLlamada,
+    maxMinutosTransferencia: has('maxMinutosTransferencia') ? entero(o.maxMinutosTransferencia, 1, 240, base.maxMinutosTransferencia) : base.maxMinutosTransferencia,
     costoMinutoUsd: has('costoMinutoUsd') && Number.isFinite(Number(o.costoMinutoUsd)) ? Math.min(5, Math.max(0, Number(o.costoMinutoUsd))) : base.costoMinutoUsd,
     horarioAsesores: has('horarioAsesores') ? leerHorarioAsesores(o.horarioAsesores) : base.horarioAsesores,
     reglasRuteo: has('reglasRuteo') ? readScheduleRules(o.reglasRuteo) : base.reglasRuteo,

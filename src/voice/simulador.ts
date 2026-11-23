@@ -20,6 +20,7 @@ export type ComandoSim =
   | { tipo: 'cortar_audio' }
   | { tipo: 'contestar' }
   | { tipo: 'escuchar' }
+  | { tipo: 'dejar_de_escuchar' }
   | { tipo: 'grabar' };
 
 export const TELEFONO_SIMULADO = '573000000009';
@@ -44,6 +45,7 @@ export function crearSimulador(opts: {
     speak: async (_c, id, texto, o) => push(id, { tipo: 'decir', texto, encolado: o.interrumpir === false }),
     stopSpeaking: async (_c, id) => push(id, { tipo: 'cortar_audio' }),
     startListening: async (_c, id) => push(id, { tipo: 'escuchar' }),
+    stopListening: async (_c, id) => push(id, { tipo: 'dejar_de_escuchar' }),
     transfer: async (_c, id, a) => push(id, { tipo: 'transferir', a }),
     hangup: async (_c, id) => push(id, { tipo: 'colgar' }),
     startRecording: async (_c, id) => push(id, { tipo: 'grabar' }),

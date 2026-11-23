@@ -155,6 +155,15 @@ export interface LlamadaVoz {
   finHabla: number | null;
   /** Cuándo el barrido colgó la llamada por pasar el tope duro (ms); si después no llega el call.hangup, la cierra. */
   colgadoForzado: number | null;
+  /**
+   * Cuándo se pasó a un asesor (ISO). Desde ahí el bot no atiende: ni turnos, ni silencio, ni avisos de tiempo, y no
+   * se transcribe (punto 9). Vuelve a null si el asesor no contestó y el bot retoma (punto 16).
+   */
+  transferidaEn: string | null;
+  /** Hasta cuándo puede durar la pata del asesor (ms): el tope duro de una llamada transferida. */
+  transferidaHasta: number | null;
+  /** La pata saliente (asesor) contestó. */
+  pataContestada: boolean;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];

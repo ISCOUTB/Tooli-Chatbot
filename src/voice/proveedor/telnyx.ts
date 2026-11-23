@@ -7,7 +7,9 @@
 // del motor Google y que un `speak` sin `stop` se encole. Ver VOZ_PROGRESO.md.
 import axios from 'axios';
 import { verifyTelnyxSignature } from '../signature';
-import type { ConnectionTestResult, HeaderBag, ProviderCredentials, SpeakOptions, VoiceEvent, VoiceEventKind, VoiceProvider } from './tipos';
+import type {
+  ConnectionTestResult, HeaderBag, ProviderCredentials, SpeakOptions, TransferOptions, VoiceEvent, VoiceEventKind, VoiceProvider,
+} from './tipos';
 
 export const TELNYX_API = 'https://api.telnyx.com/v2';
 
@@ -58,6 +60,7 @@ export function parseTelnyxEvent(rawBody: string): VoiceEvent | null {
     to: str(payload.to, 40),
     direction: payload.direction === 'incoming' || payload.direction === 'outgoing' ? payload.direction : null,
     occurredAt: str(data.occurred_at, 40),
+    clientState: estadoCliente(payload.client_state),
   };
   if (kind === 'speech') {
     const td = (payload.transcription_data ?? payload) as Record<string, unknown>;
@@ -71,6 +74,23 @@ export function parseTelnyxEvent(rawBody: string): VoiceEvent | null {
     event.hangupCause = str(payload.hangup_cause, 60);
   }
   return event;
+}
+
+/** `client_state` viene en base64: se decodifica y solo se acepta texto corto y visible. */
+function estadoCliente(v: unknown): string | null {
+  if (typeof v !== 'string' || !v || v.length > 400) return null;
+  const t = Buffer.from(v, 'base64').toString('utf8');
+  return /^[\x20-\x7e]{1,200}$/.test(t) ? t : null;
+}
+
+/** Cuerpo del comando transfer (puro, se prueba): tope de duración y estado de la pata saliente. */
+export function transferBody(to: string, commandId: string, opts: TransferOptions = {}): Record<string, unknown> {
+  return {
+    to,
+    command_id: commandId,
+    ...(opts.limiteSeg ? { time_limit_secs: Math.max(30, Math.min(14_400, Math.round(opts.limiteSeg))) } : {}),
+    ...(opts.estadoPata ? { target_leg_client_state: Buffer.from(opts.estadoPata, 'utf8').toString('base64') } : {}),
+  };
 }
 
 /** Cuerpo del comando speak (puro, se prueba). */
@@ -131,7 +151,10 @@ export const telnyxProvider: VoiceProvider = {
   speak: (creds, callId, text, opts) => command(creds, callId, 'speak', speakBody(text, opts)),
   stopSpeaking: (creds, callId, commandId) => command(creds, callId, 'playback_stop', { stop: 'all', command_id: commandId }),
   startListening: (creds, callId, language, commandId) => command(creds, callId, 'transcription_start', listenBody(language, commandId)),
-  transfer: (creds, callId, to, commandId) => command(creds, callId, 'transfer', { to, command_id: commandId }),
+  // POST /v2/calls/{id}/actions/transcription_stop (developers.telnyx.com, «Transcription stop»): body opcional con
+  // command_id y client_state. Telnyx solo deja de transcribir al colgar o con este comando.
+  stopListening: (creds, callId, commandId) => command(creds, callId, 'transcription_stop', { command_id: commandId }),
+  transfer: (creds, callId, to, commandId, opts) => command(creds, callId, 'transfer', transferBody(to, commandId, opts)),
   hangup: (creds, callId, commandId) => command(creds, callId, 'hangup', { command_id: commandId }),
   startRecording: (creds, callId, commandId) =>
     command(creds, callId, 'record_start', { format: 'mp3', channels: 'single', command_id: commandId }),

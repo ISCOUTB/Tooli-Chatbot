@@ -19,9 +19,9 @@ import { ESTUDIANTE_EJEMPLO, academicoSimulado, agendaSimulada } from './simulad
 import type { LineaTranscripcion } from './tipos';
 import { vistaTranscripcion } from './vista';
 
-export type Cmd = { accion: string; callId: string; texto?: string; interrumpir?: boolean; a?: string; limiteSeg?: number };
+export type Cmd = { accion: string; callId: string; texto?: string; interrumpir?: boolean; a?: string; limiteSeg?: number; pata?: string };
 
-export function espia(opts: { fallarSpeak?: () => boolean } = {}) {
+export function espia(opts: { fallarSpeak?: () => boolean; fallarTransfer?: () => boolean } = {}) {
   const cmds: Cmd[] = [];
   const p: VoiceProvider = {
     ...telnyxProvider,
@@ -33,10 +33,16 @@ export function espia(opts: { fallarSpeak?: () => boolean } = {}) {
     },
     stopSpeaking: async (_c, callId) => { cmds.push({ accion: 'stop', callId }); },
     startListening: async (_c, callId) => { cmds.push({ accion: 'listen', callId }); },
-    transfer: async (_c, callId, a) => { cmds.push({ accion: 'transfer', callId, a }); },
+    transfer: async (_c, callId, a, _id, o) => {
+      if (opts.fallarTransfer?.()) throw new Error('Telnyx transfer respondió 422');
+      cmds.push({ accion: 'transfer', callId, a, limiteSeg: o?.limiteSeg, pata: o?.estadoPata });
+    },
     hangup: async (_c, callId) => { cmds.push({ accion: 'hangup', callId }); },
     startRecording: async (_c, callId) => { cmds.push({ accion: 'record', callId }); },
-  };
+    // Nunca a la red en las pruebas: sin estado del proveedor salvo que la prueba lo ponga.
+    estadoLlamada: async () => null,
+    stopListening: async (_c, callId) => { cmds.push({ accion: 'stop_listen', callId }); },
+  } as VoiceProvider;
   return { p, cmds };
 }
 
@@ -48,12 +54,12 @@ export const ev = (kind: VoiceEvent['kind'], extra: Partial<VoiceEvent> = {}): V
 });
 
 export function montar(over: {
-  ajustes?: Partial<AjustesVoz>; ia?: ClienteIa | null; academico?: AcademicoApi | null; fallarSpeak?: () => boolean;
+  ajustes?: Partial<AjustesVoz>; ia?: ClienteIa | null; academico?: AcademicoApi | null; fallarSpeak?: () => boolean; fallarTransfer?: () => boolean;
   asesoresEnVivo?: boolean; turno?: Partial<DepsTurno>; manejador?: Partial<DepsManejador>; inicio?: number;
 } = {}) {
   let reloj = over.inicio ?? Date.parse('2026-11-23T15:00:00Z');
   const almacen = almacenMemoria(() => reloj);
-  const { p, cmds } = espia({ fallarSpeak: over.fallarSpeak });
+  const { p, cmds } = espia({ fallarSpeak: over.fallarSpeak, fallarTransfer: over.fallarTransfer });
   const ajustes: AjustesVoz = { ...AJUSTES_DEFECTO, activo: true, ...over.ajustes };
   const codigos: { telefono: string; codigo: string }[] = [];
   const timers: { ms: number; fn: () => void; vivo: boolean }[] = [];
@@ -588,5 +594,84 @@ describe('punto 10: un evento que falla no se pierde', () => {
     assert.equal(l.estado, 'cerrada', 'sin call.hangup: estaba muerta y se cerró sin colgar');
     assert.equal(l.duracionSeg, 95, 'con la duración que dio Telnyx');
     assert.deepEqual(await y.almacen.uso(new Date(y.ahora())), { dia: 2, mes: 2 });
+  });
+});
+
+
+describe('punto 9 y 16: después de transferir, el bot deja de atender; si el asesor no contesta, retoma', () => {
+  const DESVIO = '+573001112233';
+  /** Llamada que pide un asesor en horario y queda transferida. */
+  async function transferida(over: Parameters<typeof montar>[0] = {}) {
+    const x = montar({ ajustes: { numeroDesvio: DESVIO }, asesoresEnVivo: true, ...over });
+    await contestar(x);
+    await decir(x, 'quiero hablar con un asesor');
+    await x.m.procesarEvento(ev('speak_started'));
+    await x.m.procesarEvento(ev('speak_ended'));
+    return x;
+  }
+  const pata = (x: Montaje) => x.cmds.find((c) => c.accion === 'transfer')!.pata!;
+
+  it('al transferir detiene la transcripción y deja la pata saliente atada a la llamada', async () => {
+    const x = await transferida();
+    const acciones = x.cmds.map((c) => c.accion);
+    assert.ok(acciones.indexOf('stop_listen') >= 0 && acciones.indexOf('stop_listen') < acciones.indexOf('transfer'), acciones.join(','));
+    assert.ok(pata(x), 'la pata saliente lleva el client_state de la llamada');
+    assert.ok((x.cmds.find((c) => c.accion === 'transfer')!.limiteSeg ?? 0) > 0, 'la transferencia tiene tope de duración');
+  });
+
+  it('lo que la persona le dice al asesor no dispara turnos, silencios, avisos de tiempo ni un hangup', async () => {
+    const x = await transferida({ ajustes: { numeroDesvio: DESVIO, maxMinutosLlamada: 1 } });
+    const antes = x.cmds.length;
+    const lineas = (await x.lineas()).length;
+    await decir(x, 'hola, sí, buenas, quería preguntar por la maestría');
+    await x.m.procesarEvento(ev('speech', { transcript: 'eh', isFinal: false }));
+    x.avanzar(40_000);
+    await decir(x, 'mis notas por favor');
+    await x.m.barrerSilencios();
+    x.avanzar(20 * 60_000);
+    assert.equal(x.cmds.length, antes, `mandó: ${x.cmds.slice(antes).map((c) => c.accion).join(',')}`);
+    assert.equal((await x.lineas()).length, lineas, 'la charla con el asesor no se transcribe');
+    assert.equal((await x.llamada()).estado, 'activa');
+  });
+
+  it('si el asesor no contesta, el bot retoma, avisa y deja la devolución en la cola del panel', async () => {
+    const x = await transferida();
+    const estadoPata = pata(x);
+    await x.m.procesarEvento(ev('incoming', { callId: 'pata-b', direction: 'outgoing', clientState: estadoPata }));
+    await x.m.procesarEvento(ev('hangup', { callId: 'pata-b', clientState: estadoPata, hangupCause: 'timeout', durationSeconds: 0 }));
+    assert.equal(x.cmds.at(-2)!.accion, 'listen', 'vuelve a escuchar');
+    assert.match(x.dichos().at(-1)!, /no pude comunicarte con un asesor/i);
+    assert.match(x.dichos().at(-1)!, /te devuelva la llamada/);
+    const l = await x.llamada();
+    assert.equal(l.resultado, 'devolver_llamada');
+    const { pendingCallbacks } = await import('./devoluciones');
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 70 }));
+    assert.deepEqual(pendingCallbacks([await x.llamada()], new Date(x.ahora())).map((p) => p.id), [l.id]);
+    await decir(x, 'gracias');
+  });
+
+  it('si la transferencia falla de una, también retoma', async () => {
+    const x = await transferida({ fallarTransfer: () => true });
+    assert.match(x.dichos().at(-1)!, /no pude comunicarte con un asesor/i);
+    assert.equal((await x.llamada()).resultado, 'devolver_llamada');
+  });
+
+  it('si el asesor contestó y colgó, el bot no retoma: cuelga la llamada', async () => {
+    const x = await transferida();
+    const estadoPata = pata(x);
+    await x.m.procesarEvento(ev('answered', { callId: 'pata-b', clientState: estadoPata }));
+    await x.m.procesarEvento(ev('hangup', { callId: 'pata-b', clientState: estadoPata, hangupCause: 'normal_clearing', durationSeconds: 300 }));
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+    assert.doesNotMatch(x.dichos().at(-1)!, /no pude comunicarte/);
+    assert.equal((await x.llamada()).resultado, 'transferida');
+  });
+
+  it('Telnyx: transcription_stop, client_state de la pata y tope de la transferencia', async () => {
+    const { parseTelnyxEvent, transferBody } = await import('./proveedor/telnyx');
+    const b = transferBody('+573001112233', 'cmd-1', { limiteSeg: 1800, estadoPata: 'tooli-pata:abc' });
+    assert.equal(b.time_limit_secs, 1800);
+    assert.equal(Buffer.from(String(b.target_leg_client_state), 'base64').toString('utf8'), 'tooli-pata:abc');
+    const e = parseTelnyxEvent(JSON.stringify({ data: { id: 'x', event_type: 'call.hangup', payload: { call_control_id: 'b', client_state: Buffer.from('tooli-pata:abc').toString('base64') } } }));
+    assert.equal(e?.clientState, 'tooli-pata:abc');
   });
 });

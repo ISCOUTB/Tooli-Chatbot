@@ -95,6 +95,9 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       verificada: o.verificada === true,
       finHabla: Number.isFinite(o.finHabla) ? o.finHabla : null,
       colgadoForzado: Number.isFinite(o.colgadoForzado) ? o.colgadoForzado : null,
+      transferidaEn: typeof o.transferidaEn === 'string' ? o.transferidaEn : null,
+      transferidaHasta: Number.isFinite(o.transferidaHasta) ? o.transferidaHasta : null,
+      pataContestada: o.pataContestada === true,
       dialogo: leerDialogo(o.dialogo),
     };
   } catch {

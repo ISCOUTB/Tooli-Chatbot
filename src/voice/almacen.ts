@@ -25,6 +25,7 @@ export const GRACIA_COLGAR_MS = 60_000;
 
 /** Fecha límite dura de una llamada activa (ms). */
 export function plazoDuro(l: LlamadaVoz): number {
+  if (l.transferidaEn && l.transferidaHasta) return l.transferidaHasta + MARGEN_TOPE_MS;
   const desde = Date.parse(l.contestada ?? l.iniciada);
   return desde + l.minutosPermitidos * 60_000 + MARGEN_TOPE_MS + (l.contestada ? 0 : ESPERA_CONTESTAR_MS);
 }
@@ -115,6 +116,9 @@ export function nuevaLlamada(args: {
     verificada: false,
     finHabla: null,
     colgadoForzado: null,
+    transferidaEn: null,
+    transferidaHasta: null,
+    pataContestada: false,
   };
 }
 

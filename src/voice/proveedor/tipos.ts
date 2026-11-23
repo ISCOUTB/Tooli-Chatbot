@@ -22,6 +22,18 @@ export interface VoiceEvent {
   /** Solo `hangup`: duración en segundos si el proveedor la manda. */
   durationSeconds?: number | null;
   hangupCause?: string | null;
+  /**
+   * Estado que la app pegó a la llamada (Telnyx `client_state`, ya decodificado). Así se reconoce la pata saliente de
+   * una transferencia, que llega con otro id de llamada (`target_leg_client_state`).
+   */
+  clientState?: string | null;
+}
+
+export interface TransferOptions {
+  /** Duración máxima de la pata saliente (s). Sin esto, Telnyx deja hasta 4 h. */
+  limiteSeg?: number;
+  /** Estado que llevarán los eventos de la pata saliente (para atarla a la llamada original). */
+  estadoPata?: string;
 }
 
 export interface ProviderCredentials {
@@ -58,7 +70,9 @@ export interface VoiceProvider {
   /** Corta lo que está sonando (barge-in: la persona habló encima). */
   stopSpeaking(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
   startListening(creds: ProviderCredentials, callId: string, language: string, commandId: string): Promise<void>;
-  transfer(creds: ProviderCredentials, callId: string, to: string, commandId: string): Promise<void>;
+  /** Deja de transcribir (al transferir: la charla con el asesor no es para el bot). */
+  stopListening(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
+  transfer(creds: ProviderCredentials, callId: string, to: string, commandId: string, opts?: TransferOptions): Promise<void>;
   hangup(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
   startRecording(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
   /**
