@@ -23,8 +23,10 @@ Hora de todo el sistema: **America/Bogota (UTC-5 fijo, sin horario de verano)**.
 - Si la persona ya está en una conversación con un asesor humano (`with_agent`), las palabras sueltas («agendar»,
   «mis citas») siguen yendo al asesor: ahí solo se agenda tocando el botón. El estado de la conversación de agendar
   vive en su propia clave de Redis (`agenda:flujo:<tel>`, 20 min) y nunca pisa la sesión del chat con el asesor.
-- La agenda viene **apagada**: `AGENDA_ACTIVA=true` la enciende en WhatsApp y en la voz (hay que hacerlo a propósito,
-  con la disponibilidad de los asesores ya cargada). Apagada, el bot y la voz no ofrecen citas; el panel y la API siguen.
+- La agenda viene **apagada**: `AGENDA_ACTIVA=true` la enciende en WhatsApp, en la voz y en el panel (hay que hacerlo a
+  propósito, con la disponibilidad de los asesores ya cargada). Apagada, el bot y la voz no ofrecen citas, la pestaña
+  **Agenda** no aparece y toda la API `/api/tools/agenda/*` responde `404 agenda_apagada`: así nadie agenda desde el panel
+  una cita que el bot no sabría cancelar. El panel pregunta `GET /api/tools/agenda/estado` (`{ activa }`) al abrir.
 
 ### Quien atiende (panel → **Agenda**)
 
@@ -84,7 +86,7 @@ en la ventana. Para ver los de un asesor concreto (panel) se usa `franjasDeAseso
 ## API del panel
 
 Todo bajo `/api/tools/agenda/*`, detrás de `requireAuth`, con validación `zod` y auditoría en `auditService`
-(quién, qué y sobre quién, con el teléfono enmascarado): `GET asesores`, `GET|PUT disponibilidad/:asesor`,
+(quién, qué y sobre quién, con el teléfono enmascarado): `GET estado` (responde siempre), `GET asesores`, `GET|PUT disponibilidad/:asesor`,
 `GET|PUT config` (PUT solo admin), `GET franjas`, `GET|POST citas`, `POST citas/:id/{mover,cancelar,estado}`.
 
 ## Recordatorios (24 h y 1 h antes)

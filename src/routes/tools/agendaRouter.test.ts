@@ -17,6 +17,7 @@ let servicio: AgendaServicio;
 let auditoria: Array<{ username: string; action: string; detail?: string }>;
 let avisos: Array<{ telefono: string; texto: string }>;
 let ventanaCerrada: boolean;
+let agendaActiva: boolean;
 
 before(async () => {
   const app = express();
@@ -40,6 +41,7 @@ beforeEach(async () => {
   auditoria = [];
   avisos = [];
   ventanaCerrada = false;
+  agendaActiva = true;
   await servicio.guardarDisponibilidad('laura', dispSemana(['posgrados']));
   await servicio.guardarDisponibilidad('mario', dispSemana(['posgrados', 'ti']));
   router = crearAgendaRouter({
@@ -51,6 +53,7 @@ beforeEach(async () => {
       return { enviado: true };
     },
     ahora: () => mundo.reloj.ahora,
+    activa: () => agendaActiva,
   });
 });
 
@@ -68,6 +71,28 @@ const MARIO = 'mario:asesor';
 const ADMIN = 'admin:admin';
 const cita = (extra: Record<string, unknown> = {}) => ({
   telefono: TEL, nombre: 'Ana', area: 'posgrados', asesor: 'laura', inicio: '2026-11-24T09:00:00-05:00', ...extra,
+});
+
+describe('AGENDA_ACTIVA=false: la API de la agenda está apagada', () => {
+  it('el panel pregunta el estado y, apagada, ninguna ruta de la agenda responde ni escribe', async () => {
+    assert.deepEqual((await llamar(LAURA, 'GET', '/agenda/estado')).json, { activa: true });
+    agendaActiva = false;
+    assert.deepEqual((await llamar(LAURA, 'GET', '/agenda/estado')).json, { activa: false });
+    const rutas: Array<[string, string, unknown?]> = [
+      ['GET', '/agenda/asesores'], ['GET', '/agenda/config'], ['GET', '/agenda/disponibilidad/laura'],
+      ['GET', '/agenda/franjas?asesor=laura'], ['GET', '/agenda/citas?desde=2026-11-24'],
+      ['POST', '/agenda/citas', cita()], ['PUT', '/agenda/disponibilidad/laura', dispSemana()],
+      ['PUT', '/agenda/config', { antelacionMin: 60, maxCitasFuturas: 3, diasVentana: 10 }],
+    ];
+    for (const [metodo, ruta, cuerpo] of rutas) {
+      const r = await llamar(ADMIN, metodo, ruta, cuerpo);
+      assert.equal(r.status, 404, `${metodo} ${ruta}`);
+      assert.equal(r.json.error, 'agenda_apagada');
+    }
+    assert.equal(avisos.length, 0, 'nadie recibe «escribe cancelar cita» de un flujo apagado');
+    assert.equal(auditoria.length, 0);
+    assert.deepEqual(await servicio.listarCitas({ desdeMs: 0, hastaMs: Date.parse('2100-01-01') }), []);
+  });
 });
 
 describe('disponibilidad y configuración', () => {

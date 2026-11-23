@@ -7,6 +7,9 @@
  * (ver toolsRoutes.ts), así que `req.user` siempre existe.
  *
  * Reglas:
+ *   - Con AGENDA_ACTIVA=false toda la API responde 404 `agenda_apagada` (salvo
+ *     `GET /agenda/estado`, que el panel usa para esconder la pestaña): nadie
+ *     agenda desde el panel una cita que el bot de WhatsApp no sabe atender.
  *   - Cada asesor edita SU disponibilidad y SUS citas; el administrador, las de todos.
  *   - Toda escritura queda en la auditoría: quién, qué y sobre quién (teléfono enmascarado).
  *   - El teléfono completo solo se devuelve al dueño de la agenda y al administrador.
@@ -32,6 +35,8 @@ export interface DepsRouterAgenda {
   /** Avisa por WhatsApp a la persona respetando la ventana de 24 h. Nunca lanza. */
   avisar: (telefono: string, texto: string) => Promise<AvisoPersona>;
   ahora?: () => number;
+  /** AGENDA_ACTIVA. Obligatorio a propósito: quien monte el router decide si la agenda está encendida. */
+  activa: () => boolean;
 }
 
 const HORA = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
@@ -142,6 +147,18 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
     const { telefono, ...resto } = c;
     return { ...resto, telefonoMasc: maskPhone(telefono), ...(editar ? { telefono } : {}), puedeEditar: editar };
   };
+
+  /* ── Interruptor ────────────────────────────────────────────────────── */
+
+  router.get('/agenda/estado', (_req, res: Response) => {
+    res.json({ activa: deps.activa() });
+  });
+
+  // Apagada, nada de la agenda responde: ni lectura ni escritura ni avisos por WhatsApp.
+  router.use('/agenda', (_req, res: Response, next) => {
+    if (deps.activa()) return next();
+    res.status(404).json({ error: 'agenda_apagada', message: 'La agenda de asesores está apagada (AGENDA_ACTIVA=false).' });
+  });
 
   /* ── Asesores y disponibilidad ──────────────────────────────────────── */
 

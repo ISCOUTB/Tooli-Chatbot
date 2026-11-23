@@ -3,6 +3,7 @@
  * Las rutas viven en agendaRouter.ts (fábrica probada con dobles).
  */
 
+import { config } from '../../config';
 import { messaging } from '../../flows/shared';
 import { agendaServicio } from '../../services/agendaService';
 import { logAudit } from '../../services/auditService';
@@ -13,6 +14,8 @@ import { motivoVentanaCerrada } from './shared';
 export const agendaRouter = crearAgendaRouter({
   servicio: agendaServicio,
   audit: logAudit,
+  // Se lee en cada petición: con AGENDA_ACTIVA=false la API y la pestaña del panel quedan apagadas.
+  activa: () => config.agenda.activa,
   /**
    * Avisar a la persona de lo que hizo el equipo. Con Meta, fuera de las 24 h
    * de su último mensaje solo puede salir una plantilla aprobada: en ese caso
