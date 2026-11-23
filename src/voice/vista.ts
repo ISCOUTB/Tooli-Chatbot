@@ -12,8 +12,11 @@ import type { LineaTranscripcion, LlamadaVoz } from './tipos';
  */
 export function textoVerificacionNegada(motivo: LlamadaVoz['verificacionNegada']): string | null {
   if (motivo === 'bloqueado') return 'Verificación por voz bloqueada 1 h: se agotaron los intentos del código varias veces.';
+  if (motivo === 'tope_dia') {
+    return 'Verificación por voz en pausa hasta mañana: se alcanzó el tope del día de códigos (10 al correo o al WhatsApp). El estudiante puede verificarse por WhatsApp o con un asesor.';
+  }
   if (motivo === 'espera') {
-    return 'Verificación por voz en pausa: se alcanzó el tope de códigos (por hora o por día). Puede durar hasta 24 h; el estudiante puede verificarse por WhatsApp o con un asesor.';
+    return 'Verificación por voz en pausa un rato: se pidieron códigos hace poco (espera de 60 s o tope por hora, menos de 1 h). El estudiante puede verificarse por WhatsApp o con un asesor.';
   }
   return null;
 }

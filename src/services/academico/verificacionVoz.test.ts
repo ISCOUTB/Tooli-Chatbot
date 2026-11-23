@@ -259,6 +259,37 @@ const SIN_MOCKS = typeof (mock as { module?: unknown }).module !== 'function'
   ? 'necesita Node 22.3+ con --experimental-test-module-mocks' : false;
 if (!SIN_MOCKS) mock.module('ioredis', { defaultExport: RedisMemoria });
 
+describe('tope DIARIO de códigos: se distingue de la espera corta (HANDOFF 23-nov)', () => {
+  it('con 10 envíos al mismo estudiante en el día responde «tope_dia», no «espera»', async () => {
+    const m = mundoAtaque();
+    const estados: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      estados.push((await iniciar(m, `57605651${String(i).padStart(4, '0')}`)).estado);
+      if (i === 4) m.avanzar(61 * 60_000); // pasa la hora: el tope por hora se libera, el del día no
+    }
+    assert.deepEqual(estados, Array(10).fill('enviado'));
+    m.avanzar(61 * 60_000);
+    assert.equal((await iniciar(m, '576056519999')).estado, 'tope_dia');
+    assert.equal(m.correos.length, 10, 'el undécimo no manda correo');
+  });
+
+  it('el mismo número que llama: 10 en el día → «tope_dia»; la marca de 60 s sigue siendo «espera»', async () => {
+    const m = mundoAtaque();
+    assert.equal((await iniciar(m)).estado, 'enviado');
+    assert.equal((await iniciar(m)).estado, 'espera', 'dentro de los 60 s es espera corta');
+    for (let i = 1; i < 10; i++) { m.avanzar(13 * 60_000); assert.equal((await iniciar(m)).estado, 'enviado', `envío ${i + 1}`); }
+    m.avanzar(13 * 60_000);
+    assert.equal((await iniciar(m)).estado, 'tope_dia');
+  });
+
+  it('el tope por HORA sigue siendo «espera» (se libera en menos de una hora)', async () => {
+    const m = mundoAtaque();
+    const estados: string[] = [];
+    for (let i = 0; i < 6; i++) { estados.push((await iniciar(m)).estado); m.avanzar(61_000); }
+    assert.equal(estados[5], 'espera');
+  });
+});
+
 describe('verificación por voz (servicio real): no toca identityService.checkCode', { skip: SIN_MOCKS }, () => {
   const correos: { to: string; code: string }[] = [];
   const llamadasVinculo: string[] = [];

@@ -15,7 +15,7 @@ import {
   LIMITES_VOZ, VOZ_OTP_TTL_MS, atomicoEnMemoria, type AlmacenPendientesVoz, type LimitesVoz, type PendienteVoz,
 } from './nucleo';
 
-export type EnvioCodigoVoz = 'enviado' | 'espera' | 'bloqueado' | 'error';
+export type EnvioCodigoVoz = 'enviado' | 'espera' | 'tope_dia' | 'bloqueado' | 'error';
 export type IntentoCodigoVoz = 'ok' | 'no_coincide' | 'demasiados' | 'vencido';
 
 export interface CodigoWhatsAppVoz {

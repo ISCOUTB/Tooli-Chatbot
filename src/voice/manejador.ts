@@ -720,7 +720,9 @@ export function crearManejador(d: DepsManejador) {
             tipo: 'otro', llamadaId: l.id, simulada: l.simulada,
             texto: r.verificacionNegada === 'bloqueado'
               ? 'Verificación por voz bloqueada 1 h por intentos fallidos'
-              : 'Verificación por voz en pausa: tope de códigos (puede durar hasta 24 h)',
+              : r.verificacionNegada === 'tope_dia'
+                ? 'Verificación por voz en pausa hasta mañana: se llegó al tope del día de códigos'
+                : 'Verificación por voz en pausa: tope de códigos por hora (se libera en menos de 1 h)',
           });
         }
         if (r.aviso) {

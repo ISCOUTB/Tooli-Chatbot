@@ -115,7 +115,8 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       pataContestada: o.pataContestada === true,
       segPata: Number.isFinite(o.segPata) ? o.segPata : null,
       minutosPata: Number.isFinite(o.minutosPata) ? o.minutosPata : 0,
-      verificacionNegada: o.verificacionNegada === 'espera' || o.verificacionNegada === 'bloqueado' ? o.verificacionNegada : null,
+      verificacionNegada: o.verificacionNegada === 'espera' || o.verificacionNegada === 'tope_dia' || o.verificacionNegada === 'bloqueado'
+        ? o.verificacionNegada : null,
       apagada: o.apagada === true,
       dialogo: leerDialogo(o.dialogo),
     };

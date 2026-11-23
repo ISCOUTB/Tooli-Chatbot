@@ -61,11 +61,11 @@ export interface ResultadoTurno {
   /** Usó (o descartó) los dígitos que venían de frases anteriores: el manejador los borra. */
   dictadoUsado?: boolean;
   /**
-   * La verificación por voz no se pudo ofrecer: 'espera' = marca de 60 s o tope de códigos por hora o por DÍA (con 10
-   * envíos al correo o al WhatsApp en un día, el estudiante queda sin verificación por voz hasta 24 h); 'bloqueado' =
-   * se agotaron los intentos varias veces (1 h). El panel lo muestra (#35).
+   * La verificación por voz no se pudo ofrecer: 'espera' = marca de 60 s o tope de códigos por hora; 'tope_dia' = 10
+   * envíos al correo o al WhatsApp en un día (sin verificación por voz hasta 24 h); 'bloqueado' = se agotaron los
+   * intentos varias veces (1 h). El panel lo muestra (#35).
    */
-  verificacionNegada?: 'espera' | 'bloqueado';
+  verificacionNegada?: 'espera' | 'tope_dia' | 'bloqueado';
 }
 
 export interface OpcionesTurno {
@@ -418,6 +418,7 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
       return fin('Te mandé un código de seis dígitos a tu correo institucional. Cuando te llegue, díctamelo.', { estado: { ...s, fase: 'pide_otp', verificacion } });
     }
     if (r.estado === 'espera') return { ...ofrecerAsesor({ ...s, fase: 'libre' }, deps, CODIGOS_RECIENTES, fin), verificacionNegada: 'espera' };
+    if (r.estado === 'tope_dia') return { ...ofrecerAsesor({ ...s, fase: 'libre' }, deps, CODIGOS_DEL_DIA, fin), verificacionNegada: 'tope_dia' };
     // Bloqueo de una hora tras agotar los intentos: se dice tal cual y no se vuelve a pedir el código en esta llamada.
     if (r.estado === 'bloqueado') {
       const pausa = ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);
@@ -440,8 +441,9 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
 }
 
 const PAUSA_VERIFICACION = 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.';
-// La espera puede ser de 60 s o del tope del día: no se promete «unos minutos».
+// La espera es de 60 s o del tope por hora: se libera en menos de una hora. El del día se dice aparte.
 const CODIGOS_RECIENTES = 'Ya se pidieron varios códigos de verificación, así que por seguridad no puedo mandar otro ahora. Vuelve a intentarlo más tarde.';
+const CODIGOS_DEL_DIA = 'Hoy ya se pidieron demasiados códigos de verificación para ese estudiante, así que por seguridad no puedo mandar otro. Podrás intentarlo de nuevo mañana.';
 
 async function enviarOtp(telefono: string, s: EstadoDialogo, deps: DepsTurno, fin0: Fin, intro: string): Promise<ResultadoTurno> {
   const fin: Fin = (r, extra = {}) => fin0(r, { estado: s, ...extra });
@@ -453,6 +455,9 @@ async function enviarOtp(telefono: string, s: EstadoDialogo, deps: DepsTurno, fi
   if (envio === 'espera') {
     const espera = ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se mandaron códigos a ese WhatsApp hace poco, así que por seguridad no puedo mandar otro ahora.', fin);
     return { ...espera, verificacionNegada: 'espera' };
+  }
+  if (envio === 'tope_dia') {
+    return { ...ofrecerAsesor({ ...s, fase: 'libre' }, deps, CODIGOS_DEL_DIA, fin), verificacionNegada: 'tope_dia' };
   }
   if (envio === 'bloqueado') {
     const pausa = ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);

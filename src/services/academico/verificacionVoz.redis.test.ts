@@ -55,6 +55,23 @@ describe('verificación por voz con Redis real (Lua atómico)', { skip: !CON_RED
     svc.closeIdentityService();
   });
 
+  it('tope diario en el Lua: con el contador del día lleno responde «tope_dia» (el de la hora, «espera»)', async () => {
+    const m = await mundo();
+    const { default: Redis } = await import('ioredis');
+    const { config } = await import('../../config');
+    const r = new Redis(config.redis.url);
+    try {
+      await r.set(clavesVoz.diaDestino(m.estudiante), String(LIMITES_VOZ.maxDiaDestino), 'PX', 60_000);
+      assert.equal((await m.api.iniciarVerificacionPorDato!(m.llamante(), { codigo: 'T00012345' })).estado, 'tope_dia');
+      await r.del(clavesVoz.diaDestino(m.estudiante));
+      await r.set(clavesVoz.horaDestino(m.estudiante), String(LIMITES_VOZ.maxHoraDestino), 'PX', 60_000);
+      assert.equal((await m.api.iniciarVerificacionPorDato!(m.llamante(), { codigo: 'T00012345' })).estado, 'espera');
+      assert.equal(m.correos.length, 0);
+    } finally {
+      r.disconnect();
+    }
+  });
+
   it('H3: tres inicios simultáneos mandan un solo correo', async () => {
     const m = await mundo();
     const ll = m.llamante();

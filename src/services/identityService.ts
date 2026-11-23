@@ -195,7 +195,10 @@ const vozOtpKey = clavesVoz.pendiente;
 const VOZ_CREAR_SCRIPT = `
 if redis.call('EXISTS', KEYS[6]) == 1 or redis.call('EXISTS', KEYS[7]) == 1 then return 'bloqueado' end
 if redis.call('EXISTS', KEYS[1]) == 1 then return 'espera' end
-for i = 2, 5 do
+for _, i in ipairs({3, 5}) do
+  if tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then return 'tope_dia' end
+end
+for _, i in ipairs({2, 4}) do
   if tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then return 'espera' end
 end
 redis.call('SET', KEYS[1], '1', 'PX', tonumber(ARGV[1]))
@@ -268,7 +271,7 @@ export const pendientesVoz = {
       l.esperaMs, l.maxHoraLlamante, l.maxDiaLlamante, l.maxHoraDestino, l.maxDiaDestino, l.horaMs, l.diaMs,
       JSON.stringify(p), Math.max(1, Math.round(ttlMs)),
     );
-    return r === 'ok' || r === 'espera' || r === 'bloqueado' ? r : 'espera';
+    return r === 'ok' || r === 'espera' || r === 'tope_dia' || r === 'bloqueado' ? r : 'espera';
   },
   async intentar(ll: string, destino: string, huella: string, ahora: number, l: LimitesVoz): Promise<ResultadoIntentoVoz> {
     const r = await redis.eval(

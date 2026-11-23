@@ -80,11 +80,12 @@ export interface AcademicoApi {
 export type ResultadoEnvioVerificacion =
   | { estado: 'enviado'; emailEnmascarado: string }
   /**
-   * 'espera' = marca de 60 s o tope de envíos (por número que llama o por estudiante destino) alcanzado.
+   * 'espera' = marca de 60 s o tope de envíos por HORA (por número que llama o por estudiante destino) alcanzado.
+   * 'tope_dia' (23-nov, compatible: un estado más) = tope de envíos del DÍA alcanzado; dura hasta 24 h.
    * 'bloqueado' (22-nov, compatible: un estado más) = se agotaron los intentos varias veces; el número que llama o
    * ese estudiante quedan bloqueados un rato (1 h). La voz debería decirlo y ofrecer un asesor.
    */
-  | { estado: 'no_encontrado' | 'sin_destino' | 'espera' | 'bloqueado' | 'error' };
+  | { estado: 'no_encontrado' | 'sin_destino' | 'espera' | 'tope_dia' | 'bloqueado' | 'error' };
 
 export type ResultadoConfirmacion =
   | { ok: true; telefonoEstudiante: string }

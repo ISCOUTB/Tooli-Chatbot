@@ -113,7 +113,11 @@ export interface LimitesVoz {
   bloqueoMs: number;
 }
 
-export type ResultadoReservaVoz = 'ok' | 'espera' | 'bloqueado';
+/**
+ * 'espera' = marca de 60 s o tope por HORA (se libera en menos de una hora); 'tope_dia' = tope por DÍA del número que
+ * llama o del estudiante (hasta 24 h); 'bloqueado' = intentos agotados varias veces (1 h).
+ */
+export type ResultadoReservaVoz = 'ok' | 'espera' | 'tope_dia' | 'bloqueado';
 export type ResultadoIntentoVoz = 'ok' | 'no_coincide' | 'demasiados' | 'vencido';
 
 export interface AlmacenPendientesVoz {
@@ -191,10 +195,11 @@ export function atomicoEnMemoria(
       const d = p.telefonoEstudiante;
       if (vive(clavesVoz.bloqLlamante(ll), ahora) || vive(clavesVoz.bloqDestino(d), ahora)) return 'bloqueado';
       if (vive(clavesVoz.espera(ll), ahora)) return 'espera';
+      // El del día primero: si los dos están llenos, lo que vale decir es «hasta mañana», no «en un rato».
+      if (cuenta(clavesVoz.diaLlamante(ll), ahora) >= l.maxDiaLlamante
+        || cuenta(clavesVoz.diaDestino(d), ahora) >= l.maxDiaDestino) return 'tope_dia';
       if (cuenta(clavesVoz.horaLlamante(ll), ahora) >= l.maxHoraLlamante
-        || cuenta(clavesVoz.diaLlamante(ll), ahora) >= l.maxDiaLlamante
-        || cuenta(clavesVoz.horaDestino(d), ahora) >= l.maxHoraDestino
-        || cuenta(clavesVoz.diaDestino(d), ahora) >= l.maxDiaDestino) return 'espera';
+        || cuenta(clavesVoz.horaDestino(d), ahora) >= l.maxHoraDestino) return 'espera';
       hasta.set(clavesVoz.espera(ll), ahora + l.esperaMs);
       sumar(clavesVoz.horaLlamante(ll), ahora, l.horaMs);
       sumar(clavesVoz.diaLlamante(ll), ahora, l.diaMs);

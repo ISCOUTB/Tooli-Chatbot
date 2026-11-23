@@ -56,6 +56,7 @@ export function textoAHorario(texto) {
 /** Etiqueta corta cuando la verificación por voz no se pudo ofrecer (tope de códigos o bloqueo). */
 export function etiquetaVerificacionNegada(motivo) {
   if (motivo === 'bloqueado') return 'Verificación bloqueada';
+  if (motivo === 'tope_dia') return 'Verificación en pausa hasta mañana';
   if (motivo === 'espera') return 'Verificación en pausa';
   return '';
 }

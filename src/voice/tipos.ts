@@ -169,10 +169,10 @@ export interface LlamadaVoz {
   /** Minutos cobrados de la pata del asesor (incluidos en `minutosCobrados`, punto 14). */
   minutosPata: number;
   /**
-   * La verificación por voz no se pudo ofrecer en esta llamada: 'espera' (tope de códigos; con el del día, hasta 24 h)
-   * o 'bloqueado' (intentos agotados, 1 h). El panel lo muestra (#35).
+   * La verificación por voz no se pudo ofrecer en esta llamada: 'espera' (60 s o tope por hora), 'tope_dia' (tope del
+   * día, hasta 24 h) o 'bloqueado' (intentos agotados, 1 h). El panel lo muestra (#35).
    */
-  verificacionNegada: 'espera' | 'bloqueado' | null;
+  verificacionNegada: 'espera' | 'tope_dia' | 'bloqueado' | null;
   /** Llegó con la línea apagada y sin desvío: solo se le dice que no está disponible y se cuelga (punto 17). */
   apagada: boolean;
 }

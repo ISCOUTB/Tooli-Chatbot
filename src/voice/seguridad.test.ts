@@ -759,7 +759,7 @@ describe('punto 15: llaves y memoria que no crecen sin fin', () => {
 });
 
 describe('#35, diseño: el panel dice cuándo la verificación por voz quedó en pausa', () => {
-  it('con el tope de códigos al correo alcanzado, la llamada y la API lo indican (hasta 24 h)', async () => {
+  it('con el tope de códigos por hora alcanzado, la llamada y la API lo indican (pausa de menos de 1 h)', async () => {
     const base = academicoSimulado();
     const academico: AcademicoApi = {
       ...base,
@@ -776,8 +776,45 @@ describe('#35, diseño: el panel dice cuándo la verificación por voz quedó en
     const { vistaLlamada } = await import('./vista');
     const v = vistaLlamada(l, false);
     assert.equal(v.verificacionNegada, 'espera');
-    assert.match(v.verificacionNegadaTexto!, /24 h/);
+    assert.match(v.verificacionNegadaTexto!, /menos de 1 h/);
     assert.ok(avisos.some((t) => /verificación por voz/i.test(t)), avisos.join(' | '));
+  });
+
+  it('con el tope DIARIO lo dice distinto: «mañana», y el panel lo marca como tope del día (no espera corta)', async () => {
+    const base = academicoSimulado();
+    const academico: AcademicoApi = {
+      ...base,
+      iniciarVerificacionPorDato: async () => ({ estado: 'tope_dia' }),
+      confirmarVerificacion: async () => ({ ok: false, motivo: 'vencido' }),
+    };
+    const avisos: string[] = [];
+    const x = montar({ academico, manejador: { avisarPanel: (a) => avisos.push(a.texto) } });
+    await contestar(x, 'cc1', '+573005550000');
+    await decir(x, 'quiero mis notas');
+    await decir(x, 'T00012345');
+    const dicho = x.dichos().at(-1)!;
+    assert.match(dicho, /mañana/, dicho);
+    assert.doesNotMatch(dicho, /más tarde/, 'no promete «más tarde» cuando es hasta mañana');
+    const l = await x.llamada();
+    assert.equal(l.verificacionNegada, 'tope_dia');
+    const { vistaLlamada } = await import('./vista');
+    const v = vistaLlamada(l, false);
+    assert.match(v.verificacionNegadaTexto!, /del día/);
+    assert.ok(avisos.some((t) => /tope del día/i.test(t)), avisos.join(' | '));
+  });
+
+  it('la espera corta no promete «mañana»', async () => {
+    const base = academicoSimulado();
+    const academico: AcademicoApi = {
+      ...base,
+      iniciarVerificacionPorDato: async () => ({ estado: 'espera' }),
+      confirmarVerificacion: async () => ({ ok: false, motivo: 'vencido' }),
+    };
+    const x = montar({ academico });
+    await contestar(x, 'cc1', '+573005550000');
+    await decir(x, 'quiero mis notas');
+    await decir(x, 'T00012345');
+    assert.doesNotMatch(x.dichos().at(-1)!, /mañana/);
   });
 
   it('el bloqueo por intentos también queda marcado', async () => {
