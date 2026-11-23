@@ -173,7 +173,7 @@ html.lv-abierta, html.lv-abierta body { overflow: hidden; }
 .lv-sub-txt { font-size: 17px; line-height: 1.45; overflow-wrap: anywhere; }
 .lv-sub-bot .lv-dicha { color: rgba(255, 255, 255, 0.72); }
 .lv-sub-bot .lv-ahora { color: #fff; font-weight: 500; }
-.lv-tel[data-fase="hablando"] .lv-sub-persona { opacity: 0.55; }
+.lv-tel[data-fase="hablando"] .lv-sub-persona { opacity: 0.55; order: -1; } /* lo más reciente, abajo */
 .lv-tel[data-fase="escuchando"] .lv-sub-bot, .lv-tel[data-fase="pensando"] .lv-sub-bot { opacity: 0.7; }
 .lv-sub-persona .lv-sub-txt { color: #b8f7ea; }
 .lv-sub-espera .lv-sub-txt { color: var(--lv-suave); font-style: italic; }
@@ -331,6 +331,7 @@ html.lv-abierta, html.lv-abierta body { overflow: hidden; }
     min-height: 100dvh; overflow: clip visible;
     padding: calc(10px + var(--safe-top)) 18px calc(18px + var(--safe-bottom));
   }
+  .lv.lv-solo { height: 100%; max-height: none; }
   .lv-registro { min-height: 60dvh; }
   .lv-lineas { overflow: visible; }
   .lv-ver-texto { display: inline-flex; }
