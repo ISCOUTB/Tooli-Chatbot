@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
 const ROUTES = [
   'home', 'atencion', 'recibo', 'metricas', 'conversaciones', 'posgrados',
   'registros', 'evento-posgrado', 'recordatorios', 'health', 'usuarios', 'actividad',
-  'informes', 'asistencia', 'plantillas', 'llamadas', 'agenda',
+  'informes', 'asistencia', 'plantillas', 'llamadas', 'agenda', 'probar-bot',
 ];
 // QA_BASE_URL permite revisar un mock que corre en otro puerto (PORT=4601).
 const BASE = process.env.QA_BASE_URL || 'http://localhost:4599';

@@ -1,0 +1,321 @@
+/* ===================================================================
+   Probar el bot — simulador de WhatsApp (screens/probar-bot.js).
+   Archivo propio para no chocar con los estilos de otras pantallas.
+   Colores de WhatsApp (tema claro) dentro del teléfono; fuera, los
+   tokens del panel (tarjetas, botones, azul UTB).
+   =================================================================== */
+.wsim {
+  --wa-verde: #008069;
+  --wa-verde-boton: #00a884;
+  --wa-fondo: #efeae2;
+  --wa-mio: #d9fdd3;
+  --wa-suyo: #ffffff;
+  --wa-texto: #111b21;
+  --wa-tenue: #667781;
+  --wa-enlace: #027eb5;
+  --wa-azul-visto: #53bdeb;
+  --wa-sombra: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-areas: "telefono control" "telefono lado";
+  grid-template-rows: auto 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.wsim-control { grid-area: control; }
+.wsim-telefono { grid-area: telefono; position: sticky; top: 20px; }
+.wsim-lado { grid-area: lado; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.wsim .card { padding: 20px; min-width: 0; }
+
+/* ── Quién escribe ── */
+.wsim-perfiles { display: grid; gap: 8px; margin: 12px 0 14px; }
+.wsim-perfil {
+  position: relative; display: flex; align-items: flex-start; gap: 12px; margin: 0;
+  padding: 12px 14px; min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-weight: 400; cursor: pointer; background: white;
+  transition: border-color 0.18s var(--ease-out), background 0.18s ease, box-shadow 0.18s var(--ease-out);
+}
+.wsim-perfil:hover { border-color: #b8c4da; }
+.wsim-perfil input {
+  position: absolute; opacity: 0; width: 1px; height: 1px; padding: 0; margin: 0; pointer-events: none;
+}
+.wsim-perfil::before {
+  content: ""; flex: 0 0 18px; height: 18px; margin-top: 1px; border-radius: 50%;
+  border: 2px solid #9aa6b8; background: white; transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.wsim-perfil:has(input:checked) { border-color: var(--utb-blue); background: rgba(0, 48, 135, 0.04); }
+.wsim-perfil:has(input:checked)::before { border-color: var(--utb-blue); box-shadow: inset 0 0 0 3.5px white, inset 0 0 0 10px var(--utb-blue); }
+.wsim-perfil:has(input:focus-visible) { box-shadow: 0 0 0 3px rgba(0, 48, 135, 0.25); }
+.wsim-perfil span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wsim-perfil strong { font-size: 14px; color: var(--text); }
+.wsim-perfil small { font-size: 12.5px; color: var(--text-muted); line-height: 1.35; }
+
+.wsim-control-pie { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.wsim-datos { display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: 4px 18px; margin: 0; }
+.wsim-datos div { min-width: 0; }
+.wsim-datos dt { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.wsim-datos dd { margin: 2px 0 0; font-size: 13.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.wsim-reiniciar { min-height: 44px; }
+
+/* ── El teléfono ── */
+.wsim-telefono {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  height: clamp(520px, calc(100vh - 190px), 860px);
+  height: clamp(520px, calc(100dvh - 190px), 860px);
+  border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border);
+  background: var(--wa-fondo); box-shadow: var(--shadow-md);
+  font-family: var(--font); color: var(--wa-texto);
+}
+.wsim-cabecera {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--wa-verde); color: white; flex: 0 0 auto;
+}
+.wsim-avatar {
+  flex: 0 0 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: white; color: var(--wa-verde);
+}
+.wsim-quien { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.wsim-quien strong { font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wsim-quien span { font-size: 12.5px; opacity: 0.85; transition: opacity 0.2s ease; }
+.wsim-quien span.activo { opacity: 1; font-style: italic; }
+.wsim-chip-prueba {
+  flex: 0 0 auto; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.wsim-chip-prueba::before { content: "🧪 "; }
+
+.wsim-hilo {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px clamp(10px, 4%, 36px) 16px;
+  background-color: var(--wa-fondo);
+  background-image:
+    radial-gradient(rgba(84, 101, 111, 0.07) 1.1px, transparent 1.3px),
+    radial-gradient(rgba(84, 101, 111, 0.05) 1px, transparent 1.2px);
+  background-size: 22px 22px, 22px 22px;
+  background-position: 0 0, 11px 11px;
+  scroll-behavior: auto;
+}
+.wsim-hilo:focus-visible { outline: 3px solid rgba(0, 128, 105, 0.45); outline-offset: -3px; }
+.wsim-hilo-inicio { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 10px; }
+.wsim-fecha {
+  font-size: 12px; font-weight: 500; color: #54656f; background: white; padding: 5px 12px;
+  border-radius: 8px; box-shadow: var(--wa-sombra); text-transform: uppercase; letter-spacing: 0.02em;
+}
+.wsim-aviso-zona {
+  max-width: min(94%, 520px); margin: 0; text-align: center; font-size: 12.5px; line-height: 1.45;
+  color: #54656f; background: #ffeecd; padding: 8px 12px; border-radius: 8px; box-shadow: var(--wa-sombra);
+}
+
+/* Filas y burbujas */
+.wsim-fila { display: flex; margin: 2px 0; }
+.wsim-fila.yo { justify-content: flex-end; }
+.wsim-fila.bot { justify-content: flex-start; }
+.wsim-fila.yo + .wsim-fila.bot, .wsim-fila.bot + .wsim-fila.yo,
+.wsim-fila-nota + .wsim-fila, .wsim-fila + .wsim-fila-nota { margin-top: 10px; }
+.wsim-grupo { display: flex; flex-direction: column; gap: 2px; max-width: min(80%, 460px); min-width: 0; }
+.wsim-grupo.con-botones { min-width: min(250px, 100%); }
+.wsim-burbuja {
+  position: relative; padding: 6px 8px 8px 9px; border-radius: 8px; box-shadow: var(--wa-sombra);
+  font-size: 14.3px; line-height: 1.4; min-width: 0; overflow-wrap: anywhere;
+  animation: wsim-entra 0.28s var(--ease-spring) both;
+}
+.wsim-burbuja.yo { background: var(--wa-mio); max-width: min(80%, 460px); border-top-right-radius: 0; }
+.wsim-burbuja.bot { background: var(--wa-suyo); border-top-left-radius: 0; }
+.wsim-burbuja.yo::before, .wsim-burbuja.bot::before {
+  content: ""; position: absolute; top: 0; width: 8px; height: 13px; background: inherit;
+}
+.wsim-burbuja.bot::before { left: -8px; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+.wsim-burbuja.yo::before { right: -8px; clip-path: polygon(0 0, 100% 0, 0 100%); }
+/* Solo el primero de una racha lleva la colita, como en WhatsApp */
+.wsim-fila.bot + .wsim-fila.bot .wsim-burbuja.bot { border-top-left-radius: 8px; }
+.wsim-fila.bot + .wsim-fila.bot .wsim-burbuja.bot::before,
+.wsim-fila.yo + .wsim-fila.yo .wsim-burbuja.yo::before { display: none; }
+.wsim-fila.yo + .wsim-fila.yo .wsim-burbuja.yo { border-top-right-radius: 8px; }
+.wsim-grupo.con-botones .wsim-burbuja { border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; }
+
+.wsim-titulo { font-weight: 700; margin-bottom: 2px; }
+.wsim-texto { white-space: normal; }
+.wsim-texto code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: rgba(11, 20, 26, 0.06); padding: 1px 4px; border-radius: 4px; }
+.wsim-pie { font-size: 13px; color: var(--wa-tenue); margin-top: 4px; }
+.wsim-meta {
+  float: right; display: inline-flex; align-items: center; gap: 3px; position: relative; top: 5px;
+  margin: 0 0 0 10px; font-size: 11px; color: var(--wa-tenue); white-space: nowrap; line-height: 1;
+}
+.wsim-ticks { display: inline-flex; color: #8696a0; transition: color 0.3s ease; }
+.wsim-ticks.leido { color: var(--wa-azul-visto); }
+
+/* Botones de respuesta rápida y el que despliega la lista */
+.wsim .wsim-boton {
+  width: 100%; min-height: 44px; justify-content: center; gap: 6px; padding: 10px 12px;
+  background: var(--wa-suyo); color: var(--wa-enlace); border-radius: 4px; font-size: 14.3px; font-weight: 500;
+  box-shadow: var(--wa-sombra); line-height: 1.25; text-align: center;
+  animation: wsim-entra 0.28s var(--ease-spring) both;
+}
+.wsim .wsim-boton:last-child { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+.wsim .wsim-boton:hover { background: #f5f6f6; }
+.wsim .wsim-boton:focus-visible { outline: 3px solid rgba(2, 126, 181, 0.45); outline-offset: 1px; }
+.wsim .wsim-boton[aria-disabled="true"] { opacity: 0.65; cursor: progress; }
+.wsim-botones { display: flex; flex-direction: column; gap: 2px; }
+
+/* Imagen, documento y otros adjuntos */
+.wsim-burbuja.con-imagen { padding: 3px 3px 6px; }
+.wsim-imagen { display: block; width: 100%; max-width: 320px; height: auto; border-radius: 6px; background: #dfe5e7; }
+.wsim-pie-imagen { padding: 6px 6px 0; }
+.wsim-burbuja.con-imagen .wsim-meta { margin-right: 6px; }
+.wsim-adjunto {
+  display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 4px;
+  background: #f5f6f6; border-radius: 6px; min-width: min(220px, 100%);
+}
+.wsim-adjunto > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.wsim-adjunto strong { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.wsim-adjunto small { font-size: 12px; color: var(--wa-tenue); overflow-wrap: anywhere; }
+.wsim-adjunto-icono {
+  flex: 0 0 38px; height: 38px; border-radius: 6px; display: grid; place-items: center;
+  background: white; font-size: 18px;
+}
+.wsim-pdf { background: #e5483f; color: white; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; }
+
+/* Notas de la zona de pruebas: lo que no se hizo fuera */
+.wsim-fila-nota { display: flex; justify-content: center; margin: 6px 0; }
+.wsim-nota {
+  max-width: min(94%, 560px); text-align: center; font-size: 12.5px; line-height: 1.45;
+  color: #54656f; background: #fff8d6; border: 1px dashed #e7c96a; padding: 6px 12px; border-radius: 8px;
+  overflow-wrap: anywhere; animation: wsim-entra 0.28s var(--ease-spring) both;
+}
+.wsim-nota strong { color: #3b4a54; font-weight: 600; }
+.wsim-nota-error { background: #fff1f0; border-color: #ffb4ab; color: var(--danger); }
+.wsim-nota-detalle summary { cursor: pointer; list-style: none; padding: 6px 0; }
+.wsim-nota-detalle[open] .wsim-nota-resumen { display: none; }
+.wsim-nota-detalle summary::-webkit-details-marker { display: none; }
+.wsim-nota-detalle summary::after { content: "▾"; display: inline-block; margin-left: 6px; color: #8696a0; transition: transform 0.2s ease; }
+.wsim-nota-detalle[open] summary::after { transform: rotate(180deg); }
+.wsim-nota-detalle summary:focus-visible { outline: 2px solid #c59f22; outline-offset: 2px; border-radius: 4px; }
+.wsim-nota-completa { text-align: left; padding: 6px 2px 2px; border-top: 1px dashed #e7c96a; margin-top: 4px; }
+
+/* «escribiendo…» */
+.wsim-puntos { display: inline-flex; gap: 4px; padding: 12px 14px; }
+.wsim-puntos span { width: 7px; height: 7px; border-radius: 50%; background: #8696a0; animation: wsim-punto 1.2s infinite ease-in-out; }
+.wsim-puntos span:nth-child(2) { animation-delay: 0.15s; }
+.wsim-puntos span:nth-child(3) { animation-delay: 0.3s; }
+
+/* Ir a lo nuevo, si subió a leer */
+.wsim .wsim-bajar {
+  position: absolute; right: 14px; bottom: 76px; z-index: 3; width: 44px; height: 44px; padding: 0;
+  border-radius: 50%; background: white; color: #54656f; justify-content: center;
+  box-shadow: 0 2px 8px rgba(11, 20, 26, 0.22);
+}
+.wsim .wsim-bajar .icon-svg { transform: rotate(-90deg); }
+.wsim-bajar span:not(:empty) {
+  position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  background: var(--wa-verde-boton); color: white; font-size: 11px; font-weight: 700; display: grid; place-items: center;
+}
+
+/* Redactor */
+.wsim-redactor { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; background: #f0f2f5; flex: 0 0 auto; }
+.wsim-redactor textarea {
+  flex: 1; min-width: 0; min-height: 44px; max-height: 120px; resize: none; border: none; border-radius: 22px;
+  padding: 11px 16px; font-size: 15px; line-height: 1.4; background: white; color: var(--wa-texto); box-shadow: none;
+}
+.wsim-redactor textarea:focus { box-shadow: 0 0 0 2px rgba(0, 168, 132, 0.45); background: white; }
+.wsim .wsim-enviar {
+  flex: 0 0 46px; width: 46px; height: 46px; padding: 0; border-radius: 50%; justify-content: center;
+  background: var(--wa-verde-boton); color: white; box-shadow: 0 1px 3px rgba(11, 20, 26, 0.2);
+}
+.wsim .wsim-enviar:hover { background: #008f6f; }
+.wsim .wsim-enviar:disabled { opacity: 0.55; cursor: progress; transform: none; }
+.wsim .wsim-enviar:focus-visible { outline: 3px solid rgba(0, 168, 132, 0.45); outline-offset: 2px; }
+
+/* Hoja de la lista (como el «Ver opciones» de WhatsApp) */
+.wsim-hoja-fondo {
+  position: absolute; inset: 0; z-index: 10; display: flex; align-items: flex-end;
+  background: rgba(11, 20, 26, 0.42);
+}
+.wsim-hoja {
+  width: 100%; max-height: 82%; display: flex; flex-direction: column; background: white;
+  border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(11, 20, 26, 0.2);
+  transform: translateY(100%); transition: transform 0.32s var(--ease-spring);
+}
+.wsim-hoja.abierta { transform: translateY(0); }
+.wsim-hoja-cabeza { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #e9edef; }
+.wsim-hoja-cabeza h3 { flex: 1; margin: 0; text-align: center; padding-right: 44px; font-size: 16px; font-weight: 600; color: var(--wa-texto); }
+.wsim .wsim-hoja-cerrar { width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 50%; background: transparent; color: #54656f; }
+.wsim .wsim-hoja-cerrar:hover { background: #f0f2f5; }
+.wsim-hoja-cuerpo { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.wsim-seccion { border: none; margin: 0; padding: 0; min-width: 0; }
+.wsim-seccion legend { padding: 14px 20px 6px; font-size: 13px; font-weight: 600; color: var(--wa-verde); }
+.wsim-opcion {
+  position: relative; display: flex; align-items: center; gap: 14px; margin: 0; min-height: 56px;
+  padding: 10px 20px; font-weight: 400; cursor: pointer; border-bottom: 1px solid #f0f2f5;
+}
+.wsim-opcion:hover { background: #f5f6f6; }
+.wsim-opcion input { position: absolute; opacity: 0; width: 1px; height: 1px; padding: 0; margin: 0; pointer-events: none; }
+.wsim-opcion-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wsim-opcion-txt strong { font-size: 15px; font-weight: 500; color: var(--wa-texto); overflow-wrap: anywhere; }
+.wsim-opcion-txt small { font-size: 13px; color: var(--wa-tenue); }
+.wsim-radio { flex: 0 0 20px; height: 20px; border-radius: 50%; border: 2px solid #8696a0; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.wsim-opcion:has(input:checked) .wsim-radio { border-color: var(--wa-verde-boton); box-shadow: inset 0 0 0 3px white, inset 0 0 0 10px var(--wa-verde-boton); }
+.wsim-opcion:has(input:focus-visible) { box-shadow: inset 0 0 0 3px rgba(0, 168, 132, 0.45); }
+.wsim-hoja-pie { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 10px 16px 14px; background: linear-gradient(transparent, white 30%); }
+.wsim .wsim-hoja-enviar {
+  min-height: 48px; padding: 10px 22px; border-radius: 999px; background: var(--wa-verde-boton); color: white;
+  font-size: 15px; box-shadow: 0 2px 6px rgba(11, 20, 26, 0.2);
+}
+.wsim .wsim-hoja-enviar:disabled { background: #b3c7c1; box-shadow: none; cursor: not-allowed; transform: none; }
+
+/* ── Columna lateral ── */
+.wsim-sin-ia { margin: 10px 0 12px; font-size: 13px; }
+.wsim-interruptores { list-style: none; margin: 10px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wsim-interruptores li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text); }
+.wsim-interruptores li > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.wsim-interruptores small { font-size: 12.5px; color: var(--text-muted); }
+.wsim-punto { flex: 0 0 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: #a3aec0; }
+.wsim-interruptores li.si .wsim-punto { background: var(--success); box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15); }
+.wsim-interruptores li.no { color: var(--text-muted); }
+.wsim-rapidas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.wsim .wsim-rapida { min-height: 44px; padding: 10px 14px; font-size: 13px; text-align: left; }
+.wsim .wsim-rapida:hover { border-color: var(--utb-blue); }
+.wsim .wsim-rapida[aria-disabled="true"] { opacity: 0.6; cursor: progress; }
+.wsim-salta ul { margin: 8px 0 10px; padding-left: 18px; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.wsim-salta li { margin: 3px 0; }
+
+@keyframes wsim-entra { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes wsim-punto { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* ── Tamaños ── */
+@media (max-width: 1100px) {
+  .wsim { grid-template-columns: minmax(0, 1fr); grid-template-areas: "control" "telefono" "lado"; grid-template-rows: none; }
+  .wsim-perfiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .wsim-lado { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+}
+@media (max-width: 720px) {
+  .wsim { gap: 14px; }
+  .wsim .card { padding: 16px; }
+  .wsim-telefono {
+    height: max(460px, calc(100vh - var(--tab-bar-height) - var(--safe-bottom) - 120px));
+    height: max(460px, calc(100dvh - var(--tab-bar-height) - var(--safe-bottom) - 120px));
+    border-radius: var(--radius-md);
+  }
+  .wsim-telefono { position: relative; top: auto; }
+  /* Perfil compacto: tres opciones en una fila para que el chat quede cerca */
+  .wsim-perfiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 10px 0 12px; }
+  .wsim-perfil { padding: 8px 6px; justify-content: center; text-align: center; align-items: center; }
+  .wsim-perfil::before { display: none; }
+  .wsim-perfil strong { font-size: 13px; line-height: 1.25; }
+  .wsim-perfil small { display: none; }
+  .wsim-perfil:has(input:checked) { box-shadow: inset 0 0 0 1px var(--utb-blue); }
+  /* La hoja de la lista cubre la pantalla, por encima de la barra de pestañas */
+  .wsim-hoja-fondo { position: fixed; z-index: 200; }
+  .wsim-hoja { max-height: 85vh; padding-bottom: var(--safe-bottom); }
+  .wsim-hilo { padding: 10px 10px 14px; }
+  .wsim-grupo, .wsim-burbuja.yo { max-width: 88%; }
+}
+@media (max-width: 400px) {
+  .wsim-perfil strong { font-size: 12.5px; }
+  .wsim-chip-prueba { padding: 4px 8px; }
+  .wsim-reiniciar { width: 100%; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wsim-burbuja, .wsim .wsim-boton, .wsim-nota, .wsim-hoja { animation: none; transition: none; }
+  .wsim-puntos span { animation: none; opacity: 0.8; }
+}
