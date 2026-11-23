@@ -148,3 +148,90 @@ describe('#33: «repítemelo» no deja las notas en claro', () => {
     assert.deepEqual(vistaTranscripcion(lineas, true).map((l) => l.t), lineas.map((l) => l.t), 'la simulada se ve completa');
   });
 });
+
+describe('#34: el código por WhatsApp desde la voz pasa por el almacén atómico del correo', () => {
+  const VICTIMA = ESTUDIANTE_EJEMPLO.telefono;
+  /** Una llamada desde el número de la víctima que pide el turno; devuelve lo último que dijo la línea. */
+  async function pedirCodigo(x: Montaje, callId: string) {
+    await x.m.procesarEvento(ev('incoming', { callId, from: `+${VICTIMA}` }));
+    await x.m.procesarEvento(ev('answered', { callId }));
+    await decir(x, 'quiero mi turno', callId);
+    return x.dichos(callId).at(-1)!;
+  }
+  const colgar = (x: Montaje, callId: string) => x.m.procesarEvento(ev('hangup', { callId, durationSeconds: 20 }));
+
+  it('tope diario: a lo sumo 10 códigos por día al mismo WhatsApp (antes, 5 por hora sin tope de día)', async () => {
+    const x = montar({ ajustes: { maxLlamadasNumeroDia: 1000 } as Partial<AjustesVoz> });
+    for (let i = 0; i < 14; i++) {
+      await pedirCodigo(x, `d${i}`);
+      await colgar(x, `d${i}`);
+      x.avanzar(61 * 60_000);
+    }
+    assert.equal(x.codigos.length, 10);
+  });
+
+  it('agotar los intentos dos veces en una hora bloquea la verificación por voz de ese número', async () => {
+    const x = montar({ ajustes: { maxLlamadasNumeroDia: 1000 } as Partial<AjustesVoz> });
+    for (let ronda = 0; ronda < 2; ronda++) {
+      assert.match(await pedirCodigo(x, `b${ronda}`), /código de seis dígitos/);
+      for (const malo of ['111111', '222222', '333333']) await decir(x, malo, `b${ronda}`);
+      assert.match(x.dichos(`b${ronda}`).at(-1)!, /ya no puedo intentarlo más/);
+      await colgar(x, `b${ronda}`);
+      x.avanzar(61_000);
+    }
+    const tercera = await pedirCodigo(x, 'b2');
+    assert.match(tercera, /demasiados intentos/);
+    assert.equal(x.codigos.length, 2, 'no sale un tercer código');
+  });
+
+  it('con un número falsificado, en 24 h no se pueden probar más de 30 códigos (antes, 360)', async () => {
+    const x = montar({ ajustes: { maxLlamadasNumeroDia: 1000 } as Partial<AjustesVoz> });
+    let conjeturas = 0;
+    for (let i = 0; i < 144; i++) { // cada 10 min durante 24 h
+      const callId = `g${i}`;
+      if (/código de seis dígitos/.test(await pedirCodigo(x, callId))) {
+        for (const malo of ['111111', '222222', '333333']) {
+          await decir(x, malo, callId);
+          if (/no coincide/.test(x.dichos(callId).at(-1)!)) conjeturas++;
+        }
+      }
+      await colgar(x, callId);
+      x.avanzar(10 * 60_000);
+    }
+    assert.ok(conjeturas <= 30, `se probaron ${conjeturas} códigos`);
+  });
+
+  it('R6: dos códigos equivocados dictados casi juntos cuentan los dos intentos', async () => {
+    const x = montar();
+    await contestar(x);
+    await decir(x, 'quiero mi turno');
+    await Promise.all([decir(x, '111111'), decir(x, '222222')]);
+    await decir(x, '333333');
+    assert.match(x.dichos().at(-1)!, /ya no puedo intentarlo más/, 'el tercer intento ya es el último');
+  });
+});
+
+describe('#34: la huella del código usa la clave usable de la voz, no JWT_SECRET tal cual', () => {
+  it('con un JWT_SECRET público fuera de pruebas, la voz no verifica (no manda código)', async () => {
+    const { config } = await import('../config');
+    const { depsTurnoReales } = await import('./servicio');
+    const antes = { secreto: config.auth.jwtSecret, entorno: process.env.NODE_ENV };
+    const l = { telefono: VICTIMA_DE_EJEMPLO } as Parameters<typeof depsTurnoReales>[0];
+    try {
+      process.env.NODE_ENV = 'production';
+      (config.auth as { jwtSecret: string }).jwtSecret = 'cambia-este-secreto-largo-para-jwt-tooli-2026';
+      assert.equal(depsTurnoReales(l, AJUSTES_DEFECTO).secreto, '', 'una clave pública no firma códigos');
+      const x = montar({ turno: { secreto: depsTurnoReales(l, AJUSTES_DEFECTO).secreto } });
+      await contestar(x);
+      await decir(x, 'quiero mi turno');
+      assert.equal(x.codigos.length, 0);
+      assert.match(x.dichos().at(-1)!, /No pude enviarte el código/);
+    } finally {
+      (config.auth as { jwtSecret: string }).jwtSecret = antes.secreto;
+      process.env.NODE_ENV = antes.entorno;
+    }
+    assert.equal(depsTurnoReales(l, AJUSTES_DEFECTO).secreto, antes.secreto, 'en pruebas, la de .env.test');
+  });
+});
+
+const VICTIMA_DE_EJEMPLO = ESTUDIANTE_EJEMPLO.telefono;

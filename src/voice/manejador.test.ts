@@ -505,19 +505,8 @@ describe('webhook', () => {
   });
 });
 
-describe('códigos por WhatsApp: espera y tope por número destino', () => {
+describe('códigos por WhatsApp: espera y tope (almacén atómico del correo, #34)', () => {
   const VICTIMA = ESTUDIANTE_EJEMPLO.telefono;
-
-  it('el almacén aparta: 1 cada 60 s, 5 por hora, por número (atómico)', async () => {
-    const a = almacenMemoria();
-    const t0 = Date.parse('2026-11-23T15:00:00Z');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0), 'ok');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 30_000), 'espera');
-    assert.equal(await a.cupoCodigoVoz('573111111111', t0 + 30_000), 'ok', 'otro número tiene su propio cupo');
-    for (let i = 1; i <= 4; i++) assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + i * 61_000), 'ok');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 5 * 61_000), 'tope');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 3_600_001), 'ok', 'pasada la hora vuelve a dejar');
-  });
 
   it('llamar seguido con el número de la víctima no le manda un código por llamada', async () => {
     const almacen = almacenMemoria();
@@ -540,11 +529,11 @@ describe('códigos por WhatsApp: espera y tope por número destino', () => {
       return cmds.filter((c) => c.callId === callId && c.accion === 'speak').at(-1)!.texto!;
     };
     assert.match(await llamar('c1'), /código de seis dígitos/);
-    assert.match(await llamar('c2'), /Espera un minuto/);
+    assert.match(await llamar('c2'), /hace poco/);
     assert.equal(enviados.length, 1);
     for (let i = 3; i <= 7; i++) { reloj += 61_000; await llamar(`c${i}`); }
     assert.equal(enviados.length, 5, 'tope de 5 por hora');
-    assert.match(cmds.filter((c) => c.callId === 'c7' && c.accion === 'speak').at(-1)!.texto!, /varios códigos/);
+    assert.match(cmds.filter((c) => c.callId === 'c7' && c.accion === 'speak').at(-1)!.texto!, /hace poco/);
   });
 });
 

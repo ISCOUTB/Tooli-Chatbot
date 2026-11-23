@@ -7,7 +7,7 @@
 // Retención (Ley 1581): la llamada y su transcripción vencen solas (PEXPIREAT) a los `retencionDias`.
 import Redis from 'ioredis';
 import { bogotaClock } from './horario';
-import { CUPO_CODIGO, nuevaLlamada, recortarLinea, type AlmacenVoz, type CupoCodigo } from './almacen';
+import { nuevaLlamada, recortarLinea, type AlmacenVoz } from './almacen';
 import { MAX_LINEAS, leerDialogo, type LineaTranscripcion, type LlamadaVoz } from './tipos';
 
 const K = {
@@ -20,20 +20,10 @@ const K = {
   lineas: (id: string) => `voz:lineas:${id}`,
   sim: (d: string) => `voz:sim:${d}`,
   silencios: 'voz:silencios',
-  codigoEspera: (tel: string) => `voz:codigo:espera:${tel}`,
-  codigoHora: (tel: string) => `voz:codigo:hora:${tel}`,
 };
 
-// Espera y tope por número destino, en un solo paso (dos llamadas a la vez no pasan juntas el tope).
-export const CUPO_CODIGO_SCRIPT = `
-if redis.call('EXISTS', KEYS[1]) == 1 then return 'espera' end
-local n = tonumber(redis.call('GET', KEYS[2]) or '0')
-if n >= tonumber(ARGV[3]) then return 'tope' end
-redis.call('SET', KEYS[1], '1', 'PX', ARGV[1])
-n = redis.call('INCR', KEYS[2])
-if n == 1 then redis.call('PEXPIRE', KEYS[2], ARGV[2]) end
-return 'ok'
-`;
+// El código por WhatsApp desde la voz ya no tiene cupo propio aquí: pasa por el almacén atómico del código al correo
+// (src/services/academico/verificacionVoz.ts, issue #34), con tope diario y bloqueo.
 
 // Quita la entrada del índice solo si su fecha sigue siendo la que se leyó (si otra instancia ya programó la siguiente
 // etapa, ZADD cambió el puntaje y esta no la toca).
@@ -166,12 +156,6 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
       const n = await redis.incr(k);
       if (n === 1) await redis.expire(k, 172_800);
       return n <= tope;
-    },
-    async cupoCodigoVoz(telefono) {
-      return (await redis.eval(
-        CUPO_CODIGO_SCRIPT, 2, K.codigoEspera(telefono), K.codigoHora(telefono),
-        String(CUPO_CODIGO.esperaMs), String(CUPO_CODIGO.ventanaMs), String(CUPO_CODIGO.maxPorVentana),
-      )) as CupoCodigo;
     },
     async indexarSilencio(id, vence) {
       await redis.zadd(K.silencios, vence, id);

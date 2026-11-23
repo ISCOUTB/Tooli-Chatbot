@@ -21,6 +21,7 @@ import { decideRouteNow } from './horario';
 import type { ProviderCredentials, VoiceEvent, VoiceProvider } from './proveedor/tipos';
 import { aplicarLexico, cleanForSpeech, taparDatosDictados } from './texto';
 import type { LlamadaVoz, Resultado } from './tipos';
+import { crearCodigoWhatsAppVoz, pendientesVozEnMemoria, type CodigoWhatsAppVoz } from '../services/academico/verificacionVoz';
 
 export interface Programador {
   /** Corre `fn` en `ms`; devuelve con qué cancelarlo. Sin programador no hay control de silencio (simulador). */
@@ -49,6 +50,11 @@ export interface DepsManejador {
   ajustes: () => Promise<AjustesVoz>;
   /** Dependencias del turno para esta llamada (la simulada recibe agenda y datos académicos simulados). */
   depsTurno: (llamada: LlamadaVoz, ajustes: AjustesVoz) => DepsTurno;
+  /**
+   * Código por WhatsApp: el almacén atómico compartido con el código al correo (producción: Lua de identityService).
+   * Sin él, uno en memoria por manejador (pruebas y simulador).
+   */
+  codigoWhatsApp?: CodigoWhatsAppVoz;
   programador?: Programador | null;
   avisarPanel?: (aviso: AvisoPanel) => void;
   ahora?: () => Date;
@@ -75,6 +81,7 @@ export function crearManejador(d: DepsManejador) {
   const puenteMs = d.puenteMs ?? 700;
   const [silencio1, silencio2] = d.silencioMs ?? [6000, 7000];
   const timers = new Map<string, () => void>();
+  const codigoWhatsApp = d.codigoWhatsApp ?? crearCodigoWhatsAppVoz(pendientesVozEnMemoria());
   // Marca de actividad estrictamente creciente (dos eventos en el mismo milisegundo no se confunden).
   const tick = (x: LlamadaVoz) => Math.max(ahora().getTime(), x.actividad + 1);
 
@@ -279,8 +286,8 @@ export function crearManejador(d: DepsManejador) {
           return { ...x, frase: miFrase, hablando: false, silencio: 0, actividad: tick(x) };
         });
         const base = d.depsTurno(l0, a);
-        // Espera y tope de códigos por número destino, en el almacén compartido (vale para todas las instancias).
-        const deps: DepsTurno = { ...base, cupoCodigo: base.cupoCodigo ?? ((tel) => d.almacen.cupoCodigoVoz(tel, ahora().getTime())) };
+        // Código por WhatsApp: siempre por el almacén atómico compartido (topes y bloqueo valen para todas las instancias).
+        const deps: DepsTurno = { ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp };
         const promesa = correrTurno(texto, l0.dialogo, deps);
         let puente = false;
         let cancelarPuente: (() => void) | null = null;

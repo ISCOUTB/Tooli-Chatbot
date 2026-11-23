@@ -3,9 +3,9 @@
 // estudiante verificado y asesor (transferencia, agenda o devolución). Sin red propia: todo llega por `DepsTurno`
 // (contratos AcademicoApi y AgendaApi por inyección, IA por inyección), así el simulador y las pruebas usan el mismo
 // motor que la llamada real.
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { AcademicoApi, ResultadoConfirmacion, ResultadoEnvioVerificacion, TipoConsulta } from '../contratos/academico';
 import type { AgendaApi, AreaAgenda, Cita } from '../contratos/agenda';
+import { crearCodigoWhatsAppVoz, pendientesVozEnMemoria, type CodigoWhatsAppVoz } from '../services/academico/verificacionVoz';
 import { entender, entenderPorReglas, type ClienteIa, type Intencion } from './entender';
 import {
   getPosgrado, listaAreaHablada, listaHablada, nivelesMencionados, nombreHablado, programaPorNombre, programasDeAreas,
@@ -23,16 +23,17 @@ export interface DepsTurno {
   agenda: AgendaApi | null;
   ia: ClienteIa | null;
   /**
-   * Aparta un envío de código a ese WhatsApp (espera y tope por número destino, en el almacén de la voz). El manejador
-   * lo pone siempre; sin él (pruebas viejas) no hay límite.
+   * Código por WhatsApp: pasa por el almacén atómico del código al correo (espera, topes por hora y por día, bloqueo e
+   * intentos atómicos; issue #34). El manejador pone siempre uno compartido; sin él (pruebas que llaman `correrTurno`
+   * directo) se usa uno en memoria por cada objeto de dependencias.
    */
-  cupoCodigo?: (telefonoDestino: string) => Promise<'ok' | 'espera' | 'tope'>;
+  codigoWhatsApp?: CodigoWhatsAppVoz;
   /** Manda el código de verificación al WhatsApp vinculado. false = no se pudo. */
   enviarCodigo: (telefono: string, codigo: string) => Promise<boolean>;
   /** Manda un texto por WhatsApp al número que llama (p. ej. cómo seguir con el recibo). Sin esto no se ofrece. */
   enviarWhatsApp?: (telefono: string, texto: string) => Promise<boolean>;
   generarCodigo?: () => string;
-  /** Secreto para la huella del código (nunca se guarda el código en claro). */
+  /** Secreto para la huella del código (nunca se guarda el código en claro). Vacío = no se verifica por voz. */
   secreto: string;
   ahora: () => Date;
   /** Número que llama (E.164 sin '+', como en los flujos de WhatsApp). */
@@ -66,14 +67,15 @@ const NOMBRE_CONSULTA: Record<TipoConsulta, string> = {
   notas: 'tus notas', recibo: 'tu recibo de matrícula', turno: 'tu turno', horario: 'tu horario', cursos: 'tus cursos',
 };
 
-export function huellaCodigo(secreto: string, telefono: string, codigo: string): string {
-  return createHmac('sha256', secreto).update(`voz:${telefono}:${codigo}`).digest('hex');
-}
-
-function mismaHuella(a: string, b: string): boolean {
-  const x = Buffer.from(a, 'hex');
-  const y = Buffer.from(b, 'hex');
-  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+const respaldoCodigos = new WeakMap<DepsTurno, CodigoWhatsAppVoz>();
+function codigosDe(deps: DepsTurno): CodigoWhatsAppVoz {
+  if (deps.codigoWhatsApp) return deps.codigoWhatsApp;
+  let c = respaldoCodigos.get(deps);
+  if (!c) {
+    c = crearCodigoWhatsAppVoz(pendientesVozEnMemoria());
+    respaldoCodigos.set(deps, c);
+  }
+  return c;
 }
 
 const digitos = (t: string) => t.replace(/\D/g, '');
@@ -388,10 +390,7 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
     if (r.estado === 'espera') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se pidieron varios códigos hace poco. Espera unos minutos.', fin);
     // Bloqueo de una hora tras agotar los intentos: se dice tal cual y no se vuelve a pedir el código en esta llamada.
     if (r.estado === 'bloqueado') {
-      return ofrecerAsesor(
-        { ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO },
-        deps, 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.', fin,
-      );
+      return ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);
     }
     if (r.estado === 'error') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
     return noSePudo();
@@ -409,29 +408,26 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
   return enviarOtp(r.telefonoVinculado, s, deps, fin, 'Te mandé un código de seis dígitos al WhatsApp que tienes registrado');
 }
 
+const PAUSA_VERIFICACION = 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.';
+
 async function enviarOtp(telefono: string, s: EstadoDialogo, deps: DepsTurno, fin0: Fin, intro: string): Promise<ResultadoTurno> {
   const fin: Fin = (r, extra = {}) => fin0(r, { estado: s, ...extra });
-  if (deps.cupoCodigo) {
-    let cupo: 'ok' | 'espera' | 'tope';
-    try {
-      cupo = await deps.cupoCodigo(telefono);
-    } catch {
-      cupo = 'tope'; // sin poder contar, no se manda: mejor un asesor que llenarle el WhatsApp a alguien
-    }
-    if (cupo === 'espera') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Hace un momento ya se mandó un código a ese WhatsApp. Espera un minuto antes de pedir otro.', fin);
-    if (cupo === 'tope') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se mandaron varios códigos a ese WhatsApp en la última hora, así que no puedo mandar otro.', fin);
+  // Espera, topes por hora y por día y bloqueo: en el almacén atómico compartido con el código al correo (#34).
+  const envio = await codigosDe(deps).iniciar({
+    llamante: deps.telefonoLlamante, destino: telefono, secreto: deps.secreto, ahora: deps.ahora().getTime(),
+    enviar: deps.enviarCodigo, generarCodigo: deps.generarCodigo,
+  });
+  if (envio === 'espera') {
+    return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se mandaron códigos a ese WhatsApp hace poco, así que por seguridad no puedo mandar otro ahora.', fin);
   }
-  const codigo = deps.generarCodigo?.() ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
-  let ok = false;
-  try {
-    ok = await deps.enviarCodigo(telefono, codigo);
-  } catch {
-    ok = false;
+  if (envio === 'bloqueado') {
+    return ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);
   }
-  if (!ok) return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
+  if (envio !== 'enviado') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
   const final = digitos(telefono).slice(-2);
+  // El código y su huella viven en el almacén atómico; aquí solo a qué WhatsApp se mandó y hasta cuándo vale.
   const verificacion = {
-    telefono, huella: huellaCodigo(deps.secreto, telefono, codigo), expira: deps.ahora().getTime() + OTP_TTL_MS, intentos: 0, final, canal: 'whatsapp' as const,
+    telefono, huella: '', expira: deps.ahora().getTime() + OTP_TTL_MS, intentos: 0, final, canal: 'whatsapp' as const,
   };
   const terminado = intro.endsWith('.') ? intro : `${intro}, el que termina en ${final.split('').join(' ')}.`;
   return fin(`${terminado} Cuando te llegue, díctamelo.`, { estado: { ...s, fase: 'pide_otp', verificacion } });
@@ -444,13 +440,18 @@ async function verificarOtp(dig: string, s: EstadoDialogo, deps: DepsTurno, fin0
     return fin('Ese código ya venció. Si quieres, te mando uno nuevo: dime otra vez qué quieres consultar.', { estado: { ...s, fase: 'libre', verificacion: null } });
   }
   if (v.canal === 'correo') return confirmarPorCorreo(dig, v, s, deps, fin);
-  if (mismaHuella(huellaCodigo(deps.secreto, v.telefono, dig), v.huella)) {
+  // Comparar, contar el intento y consumir: un solo paso en el almacén (los intentos no viven en la llamada, R6).
+  const r = await codigosDe(deps).confirmar({ llamante: deps.telefonoLlamante, destino: v.telefono, secreto: deps.secreto, codigo: dig, ahora: deps.ahora().getTime() });
+  if (r === 'ok') {
     const listo = { ...s, fase: 'libre' as const, verificado: v.telefono, verificacion: null };
     if (listo.consultaPendiente) return leerConsulta(v.telefono, listo.consultaPendiente, { ...listo, consultaPendiente: null }, deps, fin, '¡Listo, quedaste verificado! ');
     return fin('¡Listo, quedaste verificado! ¿Qué quieres consultar?', { estado: listo });
   }
+  if (r === 'vencido') {
+    return fin('Ese código ya venció. Si quieres, te mando uno nuevo: dime otra vez qué quieres consultar.', { estado: { ...s, fase: 'libre', verificacion: null } });
+  }
   const intentos = v.intentos + 1;
-  if (intentos >= MAX_INTENTOS_OTP) {
+  if (r === 'demasiados' || intentos >= MAX_INTENTOS_OTP) {
     return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null, consultaPendiente: null }, deps, 'Ese código no coincide y ya no puedo intentarlo más en esta llamada.', fin);
   }
   return fin('Ese código no coincide. Revísalo y dímelo otra vez, número por número.', { estado: { ...s, verificacion: { ...v, intentos } } });

@@ -14,10 +14,6 @@ export interface TopesReserva {
   retencionDias: number;
 }
 
-/** Código de verificación por WhatsApp desde la voz: espera entre envíos y tope por hora, por número DESTINO. */
-export const CUPO_CODIGO = { esperaMs: 60_000, ventanaMs: 3_600_000, maxPorVentana: 5 } as const;
-export type CupoCodigo = 'ok' | 'espera' | 'tope';
-
 export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' };
 
 export interface AlmacenVoz {
@@ -41,11 +37,6 @@ export interface AlmacenVoz {
   uso(ahora: Date): Promise<{ dia: number; mes: number }>;
   /** Cuenta simulaciones del día; false si ya se llegó al tope. */
   contarSimulacion(ahora: Date, tope: number): Promise<boolean>;
-  /**
-   * Aparta un envío de código al WhatsApp `telefono` (atómico): 'espera' si se mandó uno hace menos de 60 s, 'tope'
-   * si ya van 5 en la hora. Así, llamar muchas veces con el número de otra persona no le llena el WhatsApp de códigos.
-   */
-  cupoCodigoVoz(telefono: string, ahora: number): Promise<CupoCodigo>;
   /** Índice de fechas límite de silencio (para el barrido). Reemplaza la de esa llamada si ya había una. */
   indexarSilencio(id: string, vence: number): Promise<void>;
   /** Las que ya vencieron a `ahora` (ms), las más viejas primero. */
@@ -110,7 +101,6 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
   const usoMes = new Map<string, number>();
   const sims = new Map<string, number>();
   const silencios = new Map<string, number>();
-  const codigos = new Map<string, { ultimo: number; ventana: number; n: number }>();
   const clon = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const vigente = (l: LlamadaVoz | undefined) => (l && l.expira > reloj() ? l : null);
   return {
@@ -186,14 +176,6 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       if (n > tope) return false;
       sims.set(day, n);
       return true;
-    },
-    async cupoCodigoVoz(telefono, ahora) {
-      const c = codigos.get(telefono);
-      if (c && ahora - c.ultimo < CUPO_CODIGO.esperaMs) return 'espera';
-      const enVentana = c && ahora - c.ventana < CUPO_CODIGO.ventanaMs;
-      if (enVentana && c.n >= CUPO_CODIGO.maxPorVentana) return 'tope';
-      codigos.set(telefono, enVentana ? { ultimo: ahora, ventana: c.ventana, n: c.n + 1 } : { ultimo: ahora, ventana: ahora, n: 1 });
-      return 'ok';
     },
     async indexarSilencio(id, vence) { silencios.set(id, vence); },
     async silenciosVencidos(ahora, limite) {
