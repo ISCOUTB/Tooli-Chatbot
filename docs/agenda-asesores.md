@@ -20,6 +20,8 @@ Hora de todo el sistema: **America/Bogota (UTC-5 fijo, sin horario de verano)**.
   cancelar o reprogramar. «Ver más horarios» sigue desde la franja siguiente a la más tardía que ya vio, otra vez en
   días distintos, y recorre toda la ventana (sin saltarse días); cuando llega al final vuelve a las horas que quedaron
   atrás sin mostrarse y solo dice que no hay más cuando ya vio todas.
+- Dentro del flujo, lo que no es una opción de la agenda (una pregunta sobre un programa, un botón de otro menú, un
+  saludo) suelta el flujo y lo atiende el bot normal; solo un botón viejo de la propia agenda recibe «no te entendí».
 - **mis citas**, **cancelar cita** y **reprogramar** funcionan desde cualquier punto del bot. Solo se ven y se tocan las
   citas del propio teléfono.
 - Si la persona ya está en una conversación con un asesor humano (`with_agent`), las palabras sueltas («agendar»,

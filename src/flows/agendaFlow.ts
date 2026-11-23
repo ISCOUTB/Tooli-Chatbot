@@ -301,9 +301,13 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
     await ofrecerFranjas(from, { ...e, paso: 'franja', ultimo: undefined, vistas: undefined, elegida: undefined });
   }
 
-  async function nada(from: string, conAgente: boolean): Promise<boolean> {
-    // Con un asesor humano en el chat, lo que no es una opción del flujo es para él: se suelta el flujo.
-    if (conAgente) {
+  /**
+   * Lo que no es una opción de la agenda (una pregunta sobre una maestría, un botón de otro menú, un saludo) suelta
+   * el flujo y sigue al bot normal, o al asesor humano si está en el chat: antes se quedaba repitiendo «no te
+   * entendí» hasta 20 minutos. Solo un botón de la propia agenda que no corresponde al paso se responde aquí.
+   */
+  async function nada(from: string, raw: string, conAgente: boolean): Promise<boolean> {
+    if (conAgente || !(raw ?? '').trim().startsWith('ag:')) {
       await deps.estado.del(from);
       return false;
     }
@@ -340,7 +344,7 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
           return true;
         }
         if (opcion(raw, 'ag:no') !== null || esNo(n)) return cerrar(from);
-        return nada(from, conAgente);
+        return nada(from, raw, conAgente);
       }
       case 'franja': {
         if (opcion(raw, 'ag:mas') !== null || /^(mas|ver mas|otros|4)$/.test(n)) {
@@ -355,11 +359,11 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
           await pedirConfirmacion(from, e, f);
           return true;
         }
-        return nada(from, conAgente);
+        return nada(from, raw, conAgente);
       }
       case 'confirmar': {
         if (opcion(raw, 'ag:ok') !== null || esSi(n)) {
-          if (!e.elegida) return nada(from, conAgente);
+          if (!e.elegida) return nada(from, raw, conAgente);
           await ejecutarReserva(from, e);
           return true;
         }
@@ -368,7 +372,7 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
           return true;
         }
         if (opcion(raw, 'ag:no') !== null || esNo(n) || n === '3') return cerrar(from);
-        return nada(from, conAgente);
+        return nada(from, raw, conAgente);
       }
       case 'elegir_cita_cancelar':
       case 'elegir_cita_reprogramar': {
@@ -386,7 +390,7 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
           return true;
         }
         if (opcion(raw, 'ag:no') !== null || esNo(n)) return cerrar(from);
-        return nada(from, conAgente);
+        return nada(from, raw, conAgente);
       }
       case 'confirmar_cancelar': {
         if (opcion(raw, 'ag:cok') !== null || esSi(n) || n === 'cancelar') {
@@ -403,7 +407,7 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
           await texto(from, 'Perfecto, tu cita sigue en pie. 👍');
           return true;
         }
-        return nada(from, conAgente);
+        return nada(from, raw, conAgente);
       }
     }
     return false;

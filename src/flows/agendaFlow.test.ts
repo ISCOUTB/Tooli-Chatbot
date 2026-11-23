@@ -144,9 +144,30 @@ describe('WhatsApp de punta a punta', () => {
     assert.equal(estados.has(TEL), false);
   });
 
-  it('fuera del chat con asesor, un texto raro dentro del flujo repite la instrucción en vez de perderse', async () => {
+  it('lo que no es una opción de la agenda sale del flujo y sigue al bot normal (no atrapa 20 minutos)', async () => {
+    const pasos: Array<[string, string[]]> = [
+      ['franja', []],
+      ['confirmar', ['ag:s:0']],
+      ['area', []],
+    ];
+    const entradas = ['¿cuánto cuesta la maestría en gerencia de proyectos?', 'blablabla', '7', 'reco_si', 'hola'];
+    for (const [paso, previos] of pasos) {
+      for (const entrada of entradas) {
+        estados.clear();
+        await flujo.atender(TEL, 'agendar', { step: 'menu', data: paso === 'area' ? {} : { area: 'posgrados' } });
+        for (const p of previos) await flujo.atender(TEL, p, SESION_MENU);
+        assert.equal(estados.get(TEL)?.paso, paso);
+        const antes = enviados.length;
+        assert.equal(await flujo.atender(TEL, entrada, SESION_MENU), false, `${paso} · «${entrada}» debe seguir al bot`);
+        assert.equal(estados.has(TEL), false, `${paso} · «${entrada}» suelta el flujo`);
+        assert.equal(enviados.length, antes, 'la agenda no contesta: contesta el bot');
+      }
+    }
+  });
+
+  it('un botón de la propia agenda que no corresponde al paso sí se responde dentro del flujo', async () => {
     await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
-    assert.equal(await flujo.atender(TEL, 'blablabla', SESION_MENU), true);
+    assert.equal(await flujo.atender(TEL, 'ag:cok', SESION_MENU), true);
     assert.match(ultimo().texto, /No te entendí/);
     assert.equal(estados.get(TEL)?.paso, 'franja');
   });
