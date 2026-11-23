@@ -244,6 +244,7 @@ async function recorrido(browser, ancho) {
     // Volver a llamar y colgar a mitad del saludo.
     await page.locator('[data-accion="otra"]').click();
     await esperarFase(page, 'hablando');
+    revisar(!(await page.locator('.lv-asesor').isVisible()), `${p} la llamada nueva no arrastra al asesor de la anterior`);
     revisar(await page.evaluate(() => window.__qa.streams.length === 2), `${p} volver a llamar pide el micrófono otra vez`);
     await page.locator('.lv-colgar').click();
     await esperarFase(page, 'terminada', 3000);
@@ -331,7 +332,17 @@ async function interrumpir(browser, ancho) {
     // Tab no sale del diálogo.
     for (let i = 0; i < 12; i++) await page.keyboard.press('Tab');
     revisar(await page.evaluate(() => Boolean(document.activeElement?.closest('.lv'))), `${ancho} el foco no sale de la llamada`);
+    // Cerrar con la X en plena llamada: cuelga y el foco vuelve al botón de entrada.
+    const colgarX = page.waitForRequest(r => /\/colgar$/.test(r.url()), { timeout: 4000 });
+    await page.locator('.lv-x').click();
+    await colgarX;
+    await page.locator('.lv-fondo').waitFor({ state: 'detached', timeout: 3000 });
+    await page.waitForTimeout(100);
+    revisar(await page.evaluate(() => document.activeElement?.id === 'simVoz'), `${ancho} cerrar en plena llamada devuelve el foco`, await page.evaluate(() => document.activeElement?.id || document.activeElement?.className));
+    revisar(await page.evaluate(() => window.__qaMicrofonoLibre()), `${ancho} cerrar en plena llamada suelta el micrófono`);
     // Salir de la pantalla en plena llamada cuelga y suelta el micrófono.
+    await abrir(page);
+    await esperarFase(page, 'hablando');
     const colgar = page.waitForRequest(r => /\/colgar$/.test(r.url()), { timeout: 4000 });
     await page.evaluate(() => { location.hash = '#home'; });
     await colgar;

@@ -306,6 +306,7 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
     // Sin conversación no hace falta la columna de la transcripción.
     dialogo.classList.toggle('lv-solo', !estado?.transcripcion?.length);
     $('.lv-estado-txt').textContent = PROBLEMAS[clave]?.titulo ?? 'No se pudo llamar';
+    $('.lv-x').setAttribute('aria-label', 'Cerrar');
     requestAnimationFrame(() => caja.querySelector('.lv-problema-titulo')?.focus({ preventScroll: true }));
   }
 
@@ -317,6 +318,7 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
     dialogo.classList.remove('lv-solo');
     tel.dataset.fase = 'preparando';
     delete tel.dataset.problema;
+    delete tel.dataset.motivo; // si la anterior pasó a un asesor, la nueva no empieza con él
     $('.lv-estado-txt').textContent = ESTADOS.preparando;
     $('.lv-crono').textContent = '0:00';
     try {
@@ -341,7 +343,8 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
   function pintarFin(e) {
     const fin = $('.lv-fin');
     const transferida = e.motivoFin === 'transferida';
-    $('.lv-fin-titulo').textContent = transferida ? 'Te pasó con un asesor' : e.motivoFin === 'colgaste' ? 'Colgaste' : `${nombre} colgó`;
+    $('.lv-fin-titulo').textContent = transferida ? 'Te pasó con un asesor'
+      : e.motivoFin === 'colgaste' ? 'Colgaste' : e.motivoFin === 'colgo' ? `${nombre} colgó` : 'Llamada terminada';
     // «Colgaste · Colgó» sobra: el resultado solo se dice si agrega algo (silencio, consulta, asesor…).
     const resultado = e.resultado && !['en_curso', 'colgo'].includes(e.resultado) ? resultadoLlamada(e.resultado).label : '';
     // La duración ya va en la píldora de estado («Llamada terminada · 0:24»).
@@ -412,6 +415,7 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
     }
 
     const activa = !['lista', 'terminada'].includes(e.fase);
+    $('.lv-x').setAttribute('aria-label', activa ? 'Colgar y cerrar' : 'Cerrar');
     if (activa && !e.microApagado && document.visibilityState === 'visible') medidor?.encender(); else medidor?.apagar();
     if (activa && !cronometro) cronometro = setInterval(() => { if (estado) $('.lv-crono').textContent = duracionLlamada(estado, Date.now()); }, 1000);
     if (!activa && cronometro) { clearInterval(cronometro); cronometro = 0; }
@@ -425,8 +429,8 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
   /* ── Salir ── */
   function cerrar() {
     if (cerrada) return;
+    cerrada = true; // antes de colgar: la pantalla de fin ya no se pinta ni se roba el foco
     llamada?.colgar();
-    cerrada = true;
     clearInterval(cronometro);
     soltarMicrofono();
     oido?.apagar();
@@ -492,7 +496,11 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
   document.addEventListener('visibilitychange', alCambiarVisibilidad);
   window.addEventListener('hashchange', alSalirDePantalla);
   window.addEventListener('pagehide', alCerrarPestana);
-  requestAnimationFrame(() => fondo.classList.add('lv-abre'));
+  requestAnimationFrame(() => {
+    fondo.classList.add('lv-abre');
+    // El foco entra a la llamada desde el principio (mientras el navegador pide el micrófono).
+    if (!dialogo.contains(document.activeElement)) $('.lv-x').focus({ preventScroll: true });
+  });
 
   if (soporte.ok) {
     window.speechSynthesis.addEventListener?.('voiceschanged', alCambiarVoces);
