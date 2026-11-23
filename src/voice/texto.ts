@@ -234,6 +234,18 @@ const INJECTION_PATTERNS = [
   /\b(soy|habla)\s+(el|la)?\s*(rector|rectora|administrador|administradora|director|directora|desarrollador|programador|soporte|profesor|decano)\b.*\b(dame|dime|lee|necesito|muestrame|acceso)\b/,
   /\b(notas|datos|recibo|telefono|correo|codigo|horario|cursos)\b.*\b(de otro|de otra|de otros|de otras|del estudiante|de la estudiante|de mi (hijo|hija|amigo|amiga|companero|companera|novio|novia|esposo|esposa))\b/,
   /\b(sin|no necesito|saltate|salta|omite)\b.*\b(verificar|verificacion|codigo de verificacion)\b/,
+  // Del corpus (22-nov): el usted («olvide»), «borrar lo que te dijeron», «no le hagas caso a eso anterior».
+  /\b(olvide|olviden|ignore|ignoren|borra|borrar|borre)\b.*\b(instruccion|instrucciones|reglas|indicaciones|prompt|lo que te (han dicho|dijeron|dije))\b/,
+  /\bno (le )?(hagas|haga) caso\b.*\b(anterior|instrucciones|reglas)\b/,
+  // «Sin reglas / sin restricciones / sin ninguna norma»: siempre dicho del bot (eres, sea, finge, un bot, ya no tienes).
+  /\b(eres|sea|seas|ser|finge|fingir|actua|bot|robot|asistente|sistema|ya no tienes)\b.*\bsin (ninguna |ningun |tus |sus )?(reglas|restriccion|restricciones|limites|norma|normas|filtros|censura)\b/,
+  /\bya no tienes (reglas|restricciones|limites|normas)\b/,
+  // «DAN» solo como el truco conocido: «modo dan», «actúa como dan», «eres dan»; «¿me dan información?» es un verbo.
+  // «¿En qué modo dan las clases?» tampoco: el modo tiene que activarse.
+  /\b(activa|activo|activar|activado|entra en|entra al|pasa a) (el )?modo dan\b|\b(actua como|eres|seras|soy) dan\b|\bdan (significa|es un bot)\b|\bdo anything now\b/,
+  /\b(mostrar|mostrarme|pasame|pasar|ensename|copiame|imprime|print)\b.*\b(prompt|instrucciones|configuracion (interna|oculta)|directrices internas)\b/,
+  /\b(sudo|rm -rf|ejecutame|ejecuta este|escribe en (la )?consola|credenciales de (root|administrador|admin|la base|del servidor|del sistema)|contrasena de (root|administrador|admin))\b/,
+  /\bquien te (programo|creo|configuro)\b.*\b(verdadero|real|instrucciones|reglas)\b|\btu verdadero nombre\b/,
 ];
 
 export function looksLikeInjection(text: string): boolean {
