@@ -7,7 +7,7 @@ const METRIC_EVENT_NAMES: ReadonlySet<string> = new Set([
   'recibo_login_failed', 'recibo_no_pendientes', 'recibo_error', 'ai_request',
   'ai_resolved', 'ai_failed', 'ai_escalated_to_agent', 'ai_disabled_escalation',
   'ai_used_tool', 'ai_identity_verification_started', 'agent_handoff',
-  'agent_outside_hours', 'rate_limited', 'audio_transcrito', 'audio_fallido', 'info_acepta', 'info_rechaza', 'info_baja', 'conv_regreso', 'conv_sugerencia', 'datos_acepta', 'datos_rechaza', 'conv_seguimiento', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'no_reconocido', 'incidencia', 'conv_inicio', 'ai_reutilizada', 'ia_corregida', 'duplicate_message',
+  'agent_outside_hours', 'rate_limited', 'audio_transcrito', 'audio_fallido', 'info_acepta', 'info_rechaza', 'info_baja', 'conv_regreso', 'conv_sugerencia', 'conv_cambio_nombre', 'datos_acepta', 'datos_rechaza', 'conv_seguimiento', 'reco_util_si', 'reco_util_no', 'conv_asesor_sugerido', 'no_reconocido', 'incidencia', 'conv_inicio', 'ai_reutilizada', 'ia_corregida', 'duplicate_message',
   'prospecto_iniciado', 'prospecto_completado', 'programas_especializaciones',
   'programas_maestrias', 'programas_doctorados', 'programas_ayuda_areas',
   'programas_ayuda_area', 'registro_iniciado', 'registro_completado',

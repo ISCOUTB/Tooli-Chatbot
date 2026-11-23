@@ -42,6 +42,7 @@ export type MetricEvent =
   | 'ai_reutilizada'
   | 'ia_corregida'
   | 'conv_sugerencia'
+  | 'conv_cambio_nombre'
   | 'duplicate_message'
   // Posgrados
   | 'prospecto_iniciado'

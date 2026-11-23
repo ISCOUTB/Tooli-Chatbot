@@ -45,6 +45,9 @@ const perfiles = new Map<string, Record<string, string>>();
 const decisiones = new Map<string, 'si' | 'no'>();
 const notas: Array<{ tel: string; texto: string }> = [];
 const filasActualizadas: Array<{ fila: number; nombre: string }> = [];
+/** Filas reescritas enteras (B a F): cambiar el nombre no debe tocarlas. */
+const filasReescritas: Array<{ fila: number; nombre: string; email: string }> = [];
+const eventos: string[] = [];
 const preguntasIa: string[] = [];
 const contextosIa: Array<string | undefined> = [];
 const flyers: string[] = [];
@@ -68,7 +71,7 @@ before(async () => {
     deleteSession: async (t: string) => { sesiones.delete(t); },
     claimMessageId: async () => true,
   } });
-  mock.module('../services/metrics', { namedExports: { ...metricas, track: async () => {} } });
+  mock.module('../services/metrics', { namedExports: { ...metricas, track: async (e: string) => { eventos.push(e); } } });
   const guardar = async (t: string, d: Record<string, string>) => {
     const p = perfil.perfilDeDatos(d);
     if (Object.keys(p).length) perfiles.set(t, p); else perfiles.delete(t);
@@ -105,7 +108,10 @@ before(async () => {
   mock.module('../services/registroService', { namedExports: {
     ...registro,
     guardarRegistroProspecto: async () => 7,
-    actualizarRegistroProspecto: async (fila: number, d: { nombre: string }) => { filasActualizadas.push({ fila, nombre: d.nombre }); },
+    actualizarRegistroProspecto: async (fila: number, d: { nombre: string; email: string }) => {
+      filasReescritas.push({ fila, nombre: d.nombre, email: d.email });
+    },
+    actualizarNombreProspecto: async (fila: number, nombre: string) => { filasActualizadas.push({ fila, nombre }); },
   } });
   mock.module('../services/noReconocidoService', { namedExports: { ...noRec, registrarNoReconocido: async () => {} } });
   mock.module('../services/incidenciasService', { namedExports: { ...incid, registrarIncidencia: async () => {} } });
@@ -139,7 +145,7 @@ before(async () => {
 
 beforeEach(() => {
   enviados.length = 0; sesiones.clear(); perfiles.clear(); decisiones.clear();
-  notas.length = 0; filasActualizadas.length = 0; preguntasIa.length = 0;
+  notas.length = 0; filasActualizadas.length = 0; filasReescritas.length = 0; eventos.length = 0; preguntasIa.length = 0;
   contextosIa.length = 0; flyers.length = 0; consultaIa = undefined;
 });
 
@@ -311,7 +317,9 @@ describe('cambiar el nombre en cualquier momento', { skip: SIN_MOCKS }, () => {
     assert.equal(datos().nombre, 'Laura');
     assert.equal(perfiles.get(TEL)?.nombre, 'Laura');
     assert.ok(notas.some((n) => /Pedro/.test(n.texto) && /Laura/.test(n.texto)), JSON.stringify(notas));
-    assert.deepEqual(filasActualizadas, [{ fila: 7, nombre: 'Laura' }]);
+    assert.deepEqual(filasActualizadas, [{ fila: 7, nombre: 'Laura' }], 'solo la columna del nombre');
+    assert.deepEqual(filasReescritas, [], 'no reescribe la fila: el correo y el programa de la hoja quedan');
+    assert.ok(eventos.includes('conv_cambio_nombre'), 'se mide el cambio de nombre');
     assert.ok(r.some((t) => /Laura/.test(t)), JSON.stringify(r));
     assert.match(ultimo(r), /posgrado en mente/i, 'sigue con lo que estaba pendiente');
   });

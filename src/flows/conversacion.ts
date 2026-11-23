@@ -20,7 +20,7 @@ import { NIVELES_POSGRADO, ProgramaUtb, buscarPrograma, getPrograma } from '../s
 import { darDeBaja, estaDadoDeBaja, quitarBaja } from '../services/campanaService';
 import { programarSeguimiento } from '../services/seguimientoService';
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
-import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../services/registroService';
+import { actualizarNombreProspecto, guardarRegistroProspecto } from '../services/registroService';
 import {
   completarPerfil, conLoRecordado, guardarPerfil, leerPerfil, pendienteVigente, perfilDeDatos, soloConsentimiento,
 } from '../services/perfilService';
@@ -423,6 +423,7 @@ async function cambiarNombre(
   }
   const nuevo: SessionData = { ...data, nombre };
   const aviso = nombreCambiado(nombre, anterior);
+  if (anterior !== nombre) await track('conv_cambio_nombre');
   if (data.datos !== 'si' || anterior === nombre) return { data: nuevo, aviso };
   try {
     await agregarNota(from, `✏️ Cambió su nombre en el chat: «${anterior || 'sin nombre'}» → «${nombre}».`, AUTOR_BOT);
@@ -433,9 +434,8 @@ async function cambiarNombre(
   const fila = Number(data.filaCrm);
   if (Number.isInteger(fila) && fila >= 2) {
     try {
-      await actualizarRegistroProspecto(fila, {
-        nombre, email: data.correo ?? '', whatsapp: from, programa: programaInteresLead(data), area: 'Posgrado',
-      });
+      // Solo la columna del nombre: el correo y el programa de la hoja pueden no estar en la sesión.
+      await actualizarNombreProspecto(fila, nombre);
     } catch (err) {
       console.error('[conversacion] no se pudo actualizar la fila del CRM:', describeExternalError(err));
       await registrarIncidencia('crm', 'No se pudo cambiar el nombre en la hoja del CRM', err);
