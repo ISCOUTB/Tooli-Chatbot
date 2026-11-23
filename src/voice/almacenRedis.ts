@@ -7,7 +7,7 @@
 // Retención (Ley 1581): la llamada y su transcripción vencen solas (PEXPIREAT) a los `retencionDias`.
 import Redis from 'ioredis';
 import { bogotaClock } from './horario';
-import { nuevaLlamada, recortarLinea, type AlmacenVoz } from './almacen';
+import { ESPERA_CONTESTAR_MS, MARGEN_TOPE_MS, nuevaLlamada, recortarLinea, type AlmacenVoz } from './almacen';
 import { MAX_LINEAS, leerDialogo, type LineaTranscripcion, type LlamadaVoz } from './tipos';
 
 const K = {
@@ -20,6 +20,7 @@ const K = {
   lineas: (id: string) => `voz:lineas:${id}`,
   sim: (d: string) => `voz:sim:${d}`,
   silencios: 'voz:silencios',
+  plazos: 'voz:plazos',
 };
 
 // El código por WhatsApp desde la voz ya no tiene cupo propio aquí: pasa por el almacén atómico del código al correo
@@ -51,6 +52,10 @@ redis.call('SET', KEYS[4], json)
 redis.call('PEXPIREAT', KEYS[4], ARGV[7])
 redis.call('SET', KEYS[3], ARGV[5], 'EX', 172800)
 redis.call('ZADD', KEYS[5], ARGV[8], ARGV[5])
+-- Tope duro (punto 8): la llamada queda vigilada desde que se reserva, en el mismo paso.
+if ARGV[10] == '1' then
+  redis.call('ZADD', KEYS[6], string.format('%.0f', tonumber(ARGV[8]) + permitido * 60000 + tonumber(ARGV[9])), ARGV[5])
+end
 return {1, tostring(permitido)}
 `;
 
@@ -87,6 +92,8 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       dictado: typeof o.dictado === 'string' ? o.dictado.slice(0, 12) : '',
       turnoAplicado: Number.isInteger(o.turnoAplicado) ? o.turnoAplicado : 0,
       verificada: o.verificada === true,
+      finHabla: Number.isFinite(o.finHabla) ? o.finHabla : null,
+      colgadoForzado: Number.isFinite(o.colgadoForzado) ? o.colgadoForzado : null,
       dialogo: leerDialogo(o.dialogo),
     };
   } catch {
@@ -106,10 +113,11 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
       const base = nuevaLlamada({ proveedor, proveedorCallId, telefono, simulada, minutosPermitidos: -1, ahora, retencionDias: topes.retencionDias });
       const { day, month } = bogotaClock(ahora);
       const r = (await redis.eval(
-        RESERVAR_SCRIPT, 5,
-        K.dia(day), K.mes(month), K.prov(proveedor, proveedorCallId), K.llamada(base.id), K.indice,
+        RESERVAR_SCRIPT, 6,
+        K.dia(day), K.mes(month), K.prov(proveedor, proveedorCallId), K.llamada(base.id), K.indice, K.plazos,
         String(topes.maxMinutosLlamada), String(topes.topeMinutosDia), String(topes.topeMinutosMes), simulada || soloRegistro ? '1' : '0',
         base.id, serializar(base), String(base.expira), String(ahora.getTime()),
+        String(MARGEN_TOPE_MS + ESPERA_CONTESTAR_MS), soloRegistro ? '0' : '1',
       )) as [number, string];
       if (r[0] !== 1) return { ok: false, motivo: r[1] === 'duplicada' ? 'duplicada' : 'sin_cupo' };
       return { ok: true, llamada: { ...base, minutosPermitidos: Number(r[1]) } };
@@ -175,6 +183,18 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
     },
     async quitarSilencio(id, vence) {
       await redis.eval(QUITAR_SILENCIO_SCRIPT, 1, K.silencios, id, String(vence));
+    },
+    async vigilar(id, vence) {
+      await redis.zadd(K.plazos, vence, id);
+    },
+    async vigiladasVencidas(ahora, limite) {
+      const r = await redis.zrangebyscore(K.plazos, '-inf', ahora, 'WITHSCORES', 'LIMIT', 0, limite);
+      const out: { id: string; vence: number }[] = [];
+      for (let i = 0; i + 1 < r.length; i += 2) out.push({ id: r[i], vence: Number(r[i + 1]) });
+      return out;
+    },
+    async dejarDeVigilar(id) {
+      await redis.zrem(K.plazos, id);
     },
   };
 }

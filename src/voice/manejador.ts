@@ -15,7 +15,7 @@
 // Sin credenciales del proveedor todo se registra pero no se manda ningún comando (así funciona sin cuenta).
 import { billedMinutes, estimatedCostUsd, shouldWrapUp } from './caps';
 import type { AjustesVoz } from './ajustes';
-import type { AlmacenVoz } from './almacen';
+import { GRACIA_COLGAR_MS, plazoDuro, type AlmacenVoz } from './almacen';
 import { DESPEDIDA_SILENCIO, SIGUES_AHI, correrTurno, frasePuente, textoSaludo, type DepsTurno, type ResultadoTurno } from './dialogo';
 import { decideRouteNow } from './horario';
 import type { ProviderCredentials, VoiceEvent, VoiceProvider } from './proveedor/tipos';
@@ -169,11 +169,67 @@ export function crearManejador(d: DepsManejador) {
     return null;
   }
 
-  /** `registro`: lo que queda en la transcripción si no debe ser lo dicho (datos académicos leídos). */
-  async function decir(l: LlamadaVoz, a: AjustesVoz, texto: string, commandId: string, interrumpir = true, registro?: string) {
+  /**
+   * `registro`: lo que queda en la transcripción si no debe ser lo dicho (datos académicos leídos). Si el `speak` falla
+   * (422, 5xx, sin llave) no llegará su `speak_ended`: se hace aquí lo que ese evento haría (punto 8, escenario B).
+   */
+  async function decir(l: LlamadaVoz, a: AjustesVoz, texto: string, commandId: string, interrumpir = true, registro?: string): Promise<boolean> {
     const limpio = cleanForSpeech(texto);
     await d.almacen.agregarLinea(l.id, { r: 'a', t: registro ?? limpio, at: ahora().toISOString() }, a.retencionDias);
-    await cmd('speak', (c) => d.proveedor.speak(c, l.proveedorCallId, aplicarLexico(limpio), { voice: a.voz, language: a.idioma, commandId, interrumpir }));
+    const ok = await cmd('speak', (c) => d.proveedor.speak(c, l.proveedorCallId, aplicarLexico(limpio), { voice: a.voz, language: a.idioma, commandId, interrumpir }));
+    if (!ok) await noSono(l.id, a, `${commandId}-sin-audio`);
+    return ok;
+  }
+
+  /**
+   * Un `speak` que no salió: si hay una frase puente sonando delante, el fin de ESA hará lo pendiente; si no, se
+   * transfiere o cuelga lo pendiente o se arma el control de silencio, como al terminar de hablar.
+   */
+  async function noSono(id: string, a: AjustesVoz, cmdBase: string) {
+    let actuar = false;
+    let despues: LlamadaVoz['despuesDeHablar'] = null;
+    const l = await actualizar(id, (x) => {
+      actuar = false;
+      despues = null;
+      if (x.estado !== 'activa') return null;
+      if ((x.puentes ?? 0) > 0) return { ...x, puentes: x.puentes - 1 };
+      actuar = true;
+      despues = x.despuesDeHablar;
+      return { ...x, hablando: false, despuesDeHablar: null };
+    });
+    if (l && actuar) await ejecutarPendiente(l, a, despues as LlamadaVoz['despuesDeHablar'], cmdBase);
+  }
+
+  /** Lo que se hace cuando termina de sonar lo último: transferir, colgar o empezar a contar el silencio. */
+  async function ejecutarPendiente(l: LlamadaVoz, a: AjustesVoz, pendiente: LlamadaVoz['despuesDeHablar'], cmdBase: string): Promise<Nota> {
+    const desvio = a.numeroDesvio;
+    if (pendiente === 'transfer' && desvio) {
+      await cmd('transfer', (c) => d.proveedor.transfer(c, l.proveedorCallId, desvio, `${cmdBase}-transfer`));
+      await actualizar(l.id, (x) => ({ ...x, resultado: mejorResultado(x.resultado, 'transferida') }));
+      return { handled: true, note: 'transfer' };
+    }
+    if (pendiente) {
+      await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${cmdBase}-bye`));
+      return { handled: true, note: 'hangup' };
+    }
+    await programarSilencio(l);
+    return { handled: true, note: 'escuchando' };
+  }
+
+  /**
+   * Aviso de fin de tiempo (30 s antes del tope de la llamada), una sola vez: con una frase final o con un resultado
+   * parcial (una llamada con solo parciales también llega al tope, #35 R5). null si todavía no toca.
+   */
+  async function avisarFinDeTiempo(l0: LlamadaVoz, a: AjustesVoz, eventId: string): Promise<Nota | null> {
+    const inicio = Date.parse(l0.contestada ?? l0.iniciada);
+    if (!shouldWrapUp(inicio, l0.minutosPermitidos, ahora().getTime())) return null;
+    const transferir = Boolean(a.numeroDesvio);
+    const l = await actualizar(l0.id, (x) => (x.despuesDeHablar
+      ? null
+      : { ...x, despuesDeHablar: transferir ? 'transfer' : 'hangup', hablando: false, silencio: 0, actividad: tick(x) }));
+    if (!l) return { handled: false, note: 'tope de la llamada (ya avisado)' };
+    await decir(l, a, transferir ? TEXTO_SE_ACABA_TRANSFER : TEXTO_SE_ACABA_COLGAR, `${eventId}-wrap`);
+    return { handled: true, note: 'tope de la llamada' };
   }
 
   function cancelarLocal(id: string) {
@@ -275,7 +331,47 @@ export function crearManejador(d: DepsManejador) {
     if (!l) return null;
     // Lo apartado al contestar se cambia por lo cobrado (el uso del día/mes queda con minutos reales).
     if (!l.simulada) await d.almacen.ajustarUso(l.usoDia, l.usoMes, l.minutosCobrados - l.minutosPermitidos);
+    await d.almacen.dejarDeVigilar(l.id);
     return l;
+  }
+
+  /**
+   * Tope duro (punto 8), en el barrido de cada instancia: una llamada activa que pasó su máximo (+ margen) se cuelga
+   * aunque el aviso de tiempo y el control de silencio no lo hayan hecho (un speak_started tardío, un speak que falló,
+   * solo parciales). Si tras la gracia no llega el call.hangup, se cierra aquí y devuelve lo apartado.
+   */
+  async function barrerPlazos(limite = 20): Promise<number> {
+    let atendidas = 0;
+    const a = await d.ajustes();
+    for (const { id } of await d.almacen.vigiladasVencidas(ahora().getTime(), limite)) {
+      const l = await d.almacen.leer(id);
+      if (!l || l.estado !== 'activa') { await d.almacen.dejarDeVigilar(id); continue; }
+      if (l.proveedor !== d.proveedor.id && !l.simulada) continue;
+      const ya = ahora().getTime();
+      const plazo = plazoDuro(l);
+      if (l.colgadoForzado == null && plazo > ya) { await d.almacen.vigilar(id, plazo); continue; }
+      const desde = Date.parse(l.contestada ?? l.iniciada);
+      const segundos = l.contestada ? (ya - desde) / 1000 : 0;
+      if (l.simulada) {
+        if (await cerrarLlamada(id, a, segundos)) atendidas++;
+        continue;
+      }
+      if (l.colgadoForzado == null) {
+        // Primera vez: se cuelga (solo una instancia gana el compare-and-set) y se espera el call.hangup.
+        const g = await actualizar(id, (x) => (x.estado === 'activa' && x.colgadoForzado == null
+          ? { ...x, colgadoForzado: ya, despuesDeHablar: null, silencioVence: null }
+          : null));
+        if (!g) continue;
+        cancelarLocal(id);
+        await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${id}-tope`));
+        await d.almacen.vigilar(id, ya + GRACIA_COLGAR_MS);
+        atendidas++;
+        continue;
+      }
+      // Ya se colgó y no llegó el call.hangup: se cierra aquí con lo que duró hasta ahora y devuelve lo apartado.
+      if (await cerrarLlamada(id, a, segundos)) atendidas++;
+    }
+    return atendidas;
   }
 
   async function procesarEvento(ev: VoiceEvent): Promise<Nota> {
@@ -329,6 +425,8 @@ export function crearManejador(d: DepsManejador) {
         const texto = textoSaludo({ saludo: a.saludo, nombreAgente: a.nombreAgente, grabar: a.grabar, retencionDias: a.retencionDias });
         const l = await actualizar(l0.id, (x) => ({ ...x, contestada: x.contestada ?? ahora().toISOString(), actividad: tick(x), dialogo: { ...x.dialogo, ultimaRespuesta: texto } }));
         if (!l) return { handled: false, note: 'llamada cerrada' };
+        // El tope duro cuenta desde que se contestó.
+        await d.almacen.vigilar(l.id, plazoDuro(l));
         await decir(l, a, texto, `${ev.eventId}-hello`);
         if (a.grabar) await cmd('record_start', (c) => d.proveedor.startRecording(c, ev.callId, `${ev.eventId}-rec`));
         await cmd('transcription_start', (c) => d.proveedor.startListening(c, ev.callId, a.idioma, `${ev.eventId}-listen`));
@@ -342,6 +440,9 @@ export function crearManejador(d: DepsManejador) {
         if (!l0 || l0.estado !== 'activa') return { handled: false, note: 'llamada cerrada' };
         await cancelarSilencio(l0);
         if (!ev.isFinal) {
+          // Una llamada con solo parciales también llega al tope: el aviso y el colgado no esperan una frase final (R5).
+          const tope = await avisarFinDeTiempo(l0, a, ev.eventId);
+          if (tope) return tope;
           // Barge-in: la persona empezó a hablar encima del bot. Se corta el audio y se espera la frase final.
           const cortar = l0.hablando;
           await actualizar(l0.id, (x) => ({ ...x, hablando: false, puentes: cortar ? 0 : x.puentes, silencio: 0, actividad: tick(x) }));
@@ -357,13 +458,8 @@ export function crearManejador(d: DepsManejador) {
         await d.almacen.agregarLinea(l0.id, { r: 'c', t: taparDatosDictados(texto, pideCodigo ? 1 : 4), at: ahora().toISOString() }, a.retencionDias);
         if (l0.hablando) await cmd('playback_stop', (c) => d.proveedor.stopSpeaking(c, ev.callId, `${ev.eventId}-stop`));
 
-        const inicio = Date.parse(l0.contestada ?? l0.iniciada);
-        if (shouldWrapUp(inicio, l0.minutosPermitidos, ahora().getTime())) {
-          const transferir = Boolean(desvio);
-          const l = await actualizar(l0.id, (x) => ({ ...x, despuesDeHablar: transferir ? 'transfer' : 'hangup', hablando: false, silencio: 0, actividad: tick(x) }));
-          if (l) await decir(l, a, transferir ? TEXTO_SE_ACABA_TRANSFER : TEXTO_SE_ACABA_COLGAR, `${ev.eventId}-wrap`);
-          return { handled: true, note: 'tope de la llamada' };
-        }
+        const tope = await avisarFinDeTiempo(l0, a, ev.eventId);
+        if (tope) return tope;
 
         // Cada frase final se numera: si llega otra más nueva mientras esta piensa, la nueva gana. En el mismo paso se
         // juntan los dígitos de frases seguidas que son solo un dictado mientras se pide el código (punto 13).
@@ -443,6 +539,10 @@ export function crearManejador(d: DepsManejador) {
       case 'speak_started': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
         if (!l0) return { handled: false, note: 'llamada desconocida' };
+        // Llegó después del speak_ended de esa misma frase (o de una posterior): no vuelve a «hablando» ni borra el
+        // control de silencio ya armado; si no, la llamada quedaba abierta para siempre (punto 8, escenario A).
+        const at = Date.parse(ev.occurredAt ?? '');
+        if (Number.isFinite(at) && l0.finHabla != null && at <= l0.finHabla) return { handled: false, note: 'speak_started tardío' };
         cancelarLocal(l0.id);
         await actualizar(l0.id, (x) => (x.estado === 'activa' ? { ...x, hablando: true, silencioVence: null } : null));
         return { handled: true, note: 'hablando' };
@@ -453,28 +553,19 @@ export function crearManejador(d: DepsManejador) {
         if (!l0) return { handled: false, note: 'llamada desconocida' };
         let despues: LlamadaVoz['despuesDeHablar'] = null;
         let eraPuente = false;
+        const at = Date.parse(ev.occurredAt ?? '');
         const l = await actualizar(l0.id, (x) => {
           despues = null;
           eraPuente = (x.puentes ?? 0) > 0;
+          const finHabla = Number.isFinite(at) ? Math.max(at, x.finHabla ?? 0) : x.finHabla;
           // Terminó la frase puente: lo pendiente es de la respuesta que suena detrás.
-          if (eraPuente) return { ...x, puentes: x.puentes - 1 };
+          if (eraPuente) return { ...x, puentes: x.puentes - 1, finHabla };
           despues = x.despuesDeHablar;
-          return { ...x, hablando: false, despuesDeHablar: null };
+          return { ...x, hablando: false, despuesDeHablar: null, finHabla };
         });
         if (!l) return { handled: false, note: 'sin cambios' };
         if (eraPuente) return { handled: true, note: 'terminó la frase puente' };
-        const pendiente = despues as LlamadaVoz['despuesDeHablar'];
-        if (pendiente === 'transfer' && desvio) {
-          await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-transfer`));
-          await actualizar(l.id, (x) => ({ ...x, resultado: mejorResultado(x.resultado, 'transferida') }));
-          return { handled: true, note: 'transfer' };
-        }
-        if (pendiente) {
-          await cmd('hangup', (c) => d.proveedor.hangup(c, ev.callId, `${ev.eventId}-bye`));
-          return { handled: true, note: 'hangup' };
-        }
-        await programarSilencio(l);
-        return { handled: true, note: 'escuchando' };
+        return ejecutarPendiente(l, a, despues as LlamadaVoz['despuesDeHablar'], ev.eventId);
       }
 
       case 'hangup': {
@@ -492,7 +583,7 @@ export function crearManejador(d: DepsManejador) {
     }
   }
 
-  return { procesarEvento, silencio, barrerSilencios, cancelarTodo: () => { for (const c of timers.values()) c(); timers.clear(); } };
+  return { procesarEvento, silencio, barrerSilencios, barrerPlazos, cancelarTodo: () => { for (const c of timers.values()) c(); timers.clear(); } };
 }
 
 export type Manejador = ReturnType<typeof crearManejador>;

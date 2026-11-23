@@ -151,6 +151,10 @@ export interface LlamadaVoz {
    * queda solo esto, para que el panel lo muestre sin guardar el dato 180 días (punto 12).
    */
   verificada: boolean;
+  /** Último `speak_ended` (ms, del reloj del proveedor): un `speak_started` más viejo llegó tarde y se ignora. */
+  finHabla: number | null;
+  /** Cuándo el barrido colgó la llamada por pasar el tope duro (ms); si después no llega el call.hangup, la cierra. */
+  colgadoForzado: number | null;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];

@@ -431,3 +431,65 @@ describe('punto 12: al colgar no quedan el código dictado ni el teléfono verif
     assert.equal(vistaLlamada(l, true).verificado, true);
   });
 });
+
+describe('punto 8 y #35 R5: ninguna llamada queda abierta para siempre', () => {
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  it('A: speak_started llega después de speak_ended; el silencio igual se cumple y cuelga', async () => {
+    const x = montar();
+    await x.m.procesarEvento(ev('incoming'));
+    await x.m.procesarEvento(ev('answered'));
+    const t0 = x.ahora();
+    await x.m.procesarEvento(ev('speak_ended', { occurredAt: iso(t0 + 5000) }));
+    await x.m.procesarEvento(ev('speak_started', { occurredAt: iso(t0 + 100) }));
+    x.avanzar(6500);
+    assert.equal(await x.m.barrerSilencios(), 1, '«¿sigues ahí?» a su hora');
+    await x.m.procesarEvento(ev('speak_ended', { occurredAt: iso(x.ahora()) }));
+    x.avanzar(7500);
+    assert.equal(await x.m.barrerSilencios(), 1, 'despedida');
+    await x.m.procesarEvento(ev('speak_ended', { occurredAt: iso(x.ahora()) }));
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+  });
+
+  it('B: si speak falla (422/5xx), el silencio se arma igual y termina colgando', async () => {
+    const x = montar({ fallarSpeak: () => true });
+    await x.m.procesarEvento(ev('incoming'));
+    await x.m.procesarEvento(ev('answered'));
+    x.avanzar(6500);
+    assert.equal(await x.m.barrerSilencios(), 1);
+    x.avanzar(7500);
+    assert.equal(await x.m.barrerSilencios(), 1);
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup', 'sin speak_ended, cuelga igual');
+  });
+
+  it('tope duro: pasado el máximo de la llamada (+ margen) el barrido cuelga, y si no llega el call.hangup la cierra y devuelve el cupo', async () => {
+    const x = montar();
+    await contestar(x);
+    // Queda «hablando» para siempre: nunca más llega un speak_ended (ni silencio ni aviso de tiempo).
+    await x.m.procesarEvento(ev('speak_started'));
+    assert.deepEqual(await x.almacen.uso(new Date(x.ahora())), { dia: 10, mes: 10 });
+    x.avanzar(10 * 60_000);
+    assert.equal(await x.m.barrerPlazos(), 0, 'antes del margen no hace nada');
+    x.avanzar(31_000);
+    assert.equal(await x.m.barrerPlazos(), 1);
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+    assert.equal((await x.llamada()).estado, 'activa', 'espera el call.hangup');
+    x.avanzar(61_000);
+    assert.equal(await x.m.barrerPlazos(), 1);
+    const l = await x.llamada();
+    assert.equal(l.estado, 'cerrada');
+    assert.equal(l.minutosCobrados, 12, 'cobra lo que duró: 11 min 32 s');
+    assert.deepEqual(await x.almacen.uso(new Date(x.ahora())), { dia: 12, mes: 12 }, 'lo apartado se cambió por lo cobrado');
+    assert.equal(await x.m.barrerPlazos(), 0, 'no queda vigilada');
+  });
+
+  it('R5: solo resultados parciales: al llegar al tope avisa una vez y cuelga', async () => {
+    const x = montar({ ajustes: { maxMinutosLlamada: 1 } });
+    await contestar(x);
+    x.avanzar(31_000);
+    for (let i = 0; i < 3; i++) await x.m.procesarEvento(ev('speech', { transcript: 'eh', isFinal: false }));
+    assert.equal(x.dichos().filter((t) => /Se nos acaba el tiempo/.test(t)).length, 1, 'el aviso se dice una sola vez');
+    await x.m.procesarEvento(ev('speak_ended'));
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+  });
+});

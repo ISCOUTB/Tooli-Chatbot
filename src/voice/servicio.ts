@@ -181,17 +181,21 @@ export const manejador = crearManejador({
 
 let barrido: NodeJS.Timeout | null = null;
 let barriendo = false;
+let vueltas = 0;
 /**
- * Barrido de los controles de silencio (fechas límite en Redis). Cada instancia lo corre; no se pisan: cada fecha la
- * cumple una sola (compare-and-set en el estado de la llamada). Seguro llamarlo más de una vez.
+ * Barrido de los controles de silencio (fechas límite en Redis) y, cada 5 vueltas, del tope duro de las llamadas
+ * (punto 8: cuelga la que pasó su máximo y cierra la que ya no tiene call.hangup). Cada instancia lo corre; no se
+ * pisan: cada fecha la cumple una sola (compare-and-set en el estado de la llamada). Seguro llamarlo más de una vez.
  */
 export function iniciarBarridoSilencios(cadaMs = 1000): void {
   if (barrido) return;
   barrido = setInterval(() => {
     if (barriendo) return;
     barriendo = true;
+    const plazos = vueltas++ % 5 === 0;
     manejador.barrerSilencios()
-      .catch((err) => console.error('[voz] barrido de silencios falló:', describeError(err)))
+      .then(() => (plazos ? manejador.barrerPlazos() : 0))
+      .catch((err) => console.error('[voz] barrido de silencios y plazos falló:', describeError(err)))
       .finally(() => { barriendo = false; });
   }, cadaMs);
   barrido.unref?.();

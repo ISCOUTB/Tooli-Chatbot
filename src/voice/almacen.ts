@@ -16,6 +16,19 @@ export interface TopesReserva {
 
 export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' };
 
+/** Tope duro (punto 8): pasado el máximo de la llamada y este margen, el barrido la cuelga aunque nada más lo haga. */
+export const MARGEN_TOPE_MS = 30_000;
+/** Lo que se espera a que una llamada reservada se conteste antes de contar su tope desde que entró. */
+export const ESPERA_CONTESTAR_MS = 60_000;
+/** Tras colgar por el tope, lo que se espera el call.hangup antes de cerrarla sin él (reconciliar). */
+export const GRACIA_COLGAR_MS = 60_000;
+
+/** Fecha límite dura de una llamada activa (ms). */
+export function plazoDuro(l: LlamadaVoz): number {
+  const desde = Date.parse(l.contestada ?? l.iniciada);
+  return desde + l.minutosPermitidos * 60_000 + MARGEN_TOPE_MS + (l.contestada ? 0 : ESPERA_CONTESTAR_MS);
+}
+
 export interface AlmacenVoz {
   /** Idempotencia: true solo la primera vez que llega ese evento. */
   reclamarEvento(proveedor: string, eventId: string): Promise<boolean>;
@@ -43,6 +56,13 @@ export interface AlmacenVoz {
   silenciosVencidos(ahora: number, limite: number): Promise<{ id: string; vence: number }[]>;
   /** Saca la entrada solo si sigue siendo esa fecha (otra instancia pudo programar una nueva). */
   quitarSilencio(id: string, vence: number): Promise<void>;
+  /**
+   * Índice de llamadas activas por su fecha límite dura (punto 8). `reservarLlamada` ya la deja vigilada; contestar o
+   * transferir la mueven. Reemplaza la fecha si ya había una.
+   */
+  vigilar(id: string, vence: number): Promise<void>;
+  vigiladasVencidas(ahora: number, limite: number): Promise<{ id: string; vence: number }[]>;
+  dejarDeVigilar(id: string): Promise<void>;
 }
 
 /** Retención en ms desde un instante. */
@@ -87,6 +107,8 @@ export function nuevaLlamada(args: {
     silencioVence: null,
     dictado: '',
     verificada: false,
+    finHabla: null,
+    colgadoForzado: null,
   };
 }
 
@@ -104,6 +126,7 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
   const usoMes = new Map<string, number>();
   const sims = new Map<string, number>();
   const silencios = new Map<string, number>();
+  const plazos = new Map<string, number>();
   const clon = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const vigente = (l: LlamadaVoz | undefined) => (l && l.expira > reloj() ? l : null);
   return {
@@ -132,6 +155,7 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       const llamada = nuevaLlamada({ proveedor, proveedorCallId, telefono, simulada, minutosPermitidos: minutos, ahora, retencionDias: topes.retencionDias });
       llamadas.set(llamada.id, clon(llamada));
       porProv.set(k, llamada.id);
+      if (!soloRegistro) plazos.set(llamada.id, plazoDuro(llamada));
       return { ok: true, llamada };
     },
     async porProveedor(p, cid) {
@@ -185,5 +209,10 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       return [...silencios.entries()].filter(([, v]) => v <= ahora).sort((a, b) => a[1] - b[1]).slice(0, limite).map(([id, vence]) => ({ id, vence }));
     },
     async quitarSilencio(id, vence) { if (silencios.get(id) === vence) silencios.delete(id); },
+    async vigilar(id, vence) { plazos.set(id, vence); },
+    async vigiladasVencidas(ahora, limite) {
+      return [...plazos.entries()].filter(([, v]) => v <= ahora).sort((a, b) => a[1] - b[1]).slice(0, limite).map(([id, vence]) => ({ id, vence }));
+    },
+    async dejarDeVigilar(id) { plazos.delete(id); },
   };
 }
