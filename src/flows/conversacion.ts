@@ -44,7 +44,7 @@ import {
   NO_RECONOCI_PREGRADO, PEDIR_PROGRAMA, PIE, PIE_SUGERENCIAS, INFO_RECHAZADA, PEDIR_NOMBRE_VALIDO, PREGUNTAS, Pendiente,
   SALUDO_CON_PREGUNTA, SALUDO_CONVERSACION, SALUDO_CORTO, SEGUIR_CON_SUGERENCIAS, SEGUIR_PREGUNTANDO, SIN_PREGRADO, SUGERIR_ASESOR, TECNICO, TITULO,
   TURNOS_ANTES_DE_ASESOR, botonesSugeridos, cabeConBotones, cambioDeNombre, carreraAnotada, datosAceptados, datosDeLaFrase,
-  nombreCambiado, soloCuentaDatos, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
+  nombraUnPosgrado, nombreCambiado, soloCuentaDatos, recordatorioSeguimiento, esBaja, esPedidoAsesor, esSaludo,
   infoAceptada, interpretarRespuestaEscrita, limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton,
   parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso, SUGERENCIAS_SALUDO, IMAGEN_NO, separarSugerencias, sinPregrado, siguientePregunta,
   textoPregrado,
@@ -936,6 +936,8 @@ export async function handleConversacion(ctx: FlowContext): Promise<void> {
     // Ya venía conversando: se presenta otra vez y recuerda de qué puede preguntar, sin la IA.
     return saludarEnConversacion(from, data);
   }
+  // "Busco la maestría en finanzas" contesta «¿Ya tienes un posgrado en mente?»: no se le repite.
+  const conPrograma = pendiente === 'tiene_programa' && nombraUnPosgrado(texto) ? { ...data, pendiente: '', saltada: '' } : data;
   // A la IA va con lo que ya se sabía: responderConIa anota (y confirma) lo que la frase trae.
-  return responderConIa(from, data, texto, saludo);
+  return responderConIa(from, conPrograma, texto, saludo);
 }

@@ -232,6 +232,40 @@ describe('el primer mensaje también cuenta', { skip: SIN_MOCKS }, () => {
   });
 });
 
+describe('nombrar un programa sin signo de pregunta va a la IA', { skip: SIN_MOCKS }, () => {
+  for (const frase of [
+    'busco la maestría en ingeniería de sistemas',
+    'estoy interesado en la especialización en gerencia de proyectos',
+    'Me llamó la atención la maestría en finanzas',
+  ]) {
+    it(`«${frase}» ante «¿Ya tienes un posgrado en mente?» lo responde la IA`, async () => {
+      await empezar('Pedro');
+      const r = await escribir(frase);
+      assert.deepEqual(preguntasIa, [frase], `la IA recibe el mensaje: ${JSON.stringify(r)}`);
+      assert.ok(r.some((t) => /Respuesta de la IA/.test(t)), JSON.stringify(r));
+      assert.equal(datos().nombre, 'Pedro', 'no es un cambio de nombre');
+      assert.doesNotMatch(ultimo(r), /posgrado en mente/i, 'ya dijo qué programa busca');
+    });
+  }
+
+  it('el primer mensaje «Hola, busco la maestría en finanzas» lo responde la IA al autorizar y dar el nombre', async () => {
+    await escribir('Hola, busco la maestría en finanzas');
+    await escribir('sí');
+    const r = await escribir('Pedro');
+    assert.deepEqual(preguntasIa, ['Hola, busco la maestría en finanzas'], JSON.stringify(r));
+    assert.ok(r.some((t) => /Respuesta de la IA/.test(t)), JSON.stringify(r));
+    assert.ok(!r.some((t) => /posgrado en mente/i.test(t)), `no pregunta si tiene un posgrado en mente: ${JSON.stringify(r)}`);
+    assert.equal(datos().nivel, 'maestria', 'el nivel dicho igual queda');
+  });
+
+  it('«busco una maestría» o «estudio derecho» siguen sin la IA', async () => {
+    await empezar('Pedro');
+    await escribir('busco una maestría');
+    await escribir('estudio derecho');
+    assert.equal(preguntasIa.length, 0);
+  });
+});
+
 describe('sabe qué busca', { skip: SIN_MOCKS }, () => {
   for (const frase of ['no, una especialización', 'quiero una especialización', 'Especialización', 'no, busco una especializacion']) {
     it(`«${frase}» fija el nivel y el modo elegir, sin volver a preguntar el nivel`, async () => {

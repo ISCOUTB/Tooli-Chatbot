@@ -732,11 +732,29 @@ export function datosDeLaFrase(texto: string): DatosDeLaFrase {
   return datos;
 }
 
+/**
+ * Nombra un posgrado en particular ("la maestría en finanzas", "la especialización
+ * en gerencia de proyectos", "el MBA"), exista o no: eso lo responde la IA, no es
+ * un dato del perfil. "Una maestría en la UTB" o "una especialización virtual" no
+ * nombran ninguno.
+ */
+export function nombraUnPosgrado(texto: string): boolean {
+  const n = normalize(texto ?? '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (/\bmba\b/.test(n)) return true;
+  return new RegExp(
+    String.raw`\b(?:especiali[sz]aci?on(?:es)?|maestrias?|magister|master|doctorados?|posgrados?|postgrados?)` +
+    String.raw`(?: (?:virtual(?:es)?|presencial(?:es)?|en linea|online))? (?:en|de|del) ` +
+    String.raw`(?!(?:la |el |una |un )?(?:utb|tecnologica|universidad|linea|virtual|cartagena|bolivar)\b)\p{L}{3,}`, 'u',
+  ).test(n);
+}
+
 /** "Soy egresado de sistemas de la UTB" sin pedir nada: se anota y se sigue, sin la IA. */
 export function soloCuentaDatos(texto: string): boolean {
   const t = (texto ?? '').trim();
   const n = normalize(t).replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (!n || t.includes('?') || pareceUnaPregunta(t) || n.split(' ').length > 15) return false;
+  // "Busco la maestría en finanzas": nombra un programa, y eso va a la IA aunque fije el nivel.
+  if (nombraUnPosgrado(t)) return false;
   return !/\b(quiero saber|cuanto|cuanta|costo|cuesta|precio|valor|horario|requisito|requisitos|cuando|donde|como|informacion|info|me puedes|puedes|podrias|necesito saber|dime|cuentame|explicame|tienen|hay|beca|becas|descuento|inscrip|matricul)\b/.test(n);
 }
 

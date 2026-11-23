@@ -6,7 +6,7 @@ import {
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso,
   SALUDO_CONVERSACION, SALUDO_CORTO, SUGERENCIAS_SALUDO,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
-  buscaNivel, cambioDeNombre, carreraEnLaFrase, datosDeLaFrase, esCorreccion, soloCuentaDatos,
+  buscaNivel, cambioDeNombre, carreraEnLaFrase, datosDeLaFrase, esCorreccion, nombraUnPosgrado, soloCuentaDatos,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -493,6 +493,19 @@ describe('conversación: lo que trae una frase escrita', () => {
     assert.ok(soloCuentaDatos('no, me equivoqué, estudio civil'));
     for (const t of ['soy egresado de la UTB, ¿cuánto cuesta la maestría?', 'estudio derecho y quiero saber los horarios', 'estudié derecho, hay becas']) {
       assert.ok(!soloCuentaDatos(t), t);
+    }
+  });
+
+  it('nombrar un programa no es solo contar datos: va a la IA', () => {
+    for (const t of ['busco la maestría en ingeniería de sistemas', 'estoy interesado en la especialización en gerencia de proyectos',
+      'Me llamó la atención la maestría en finanzas', 'Hola, busco la maestría en finanzas', 'soy administrador y quiero un MBA',
+      'me interesa el doctorado en ingeniería', 'la especialización virtual en seguridad y salud']) {
+      assert.ok(nombraUnPosgrado(t), t);
+      assert.ok(!soloCuentaDatos(t), t);
+    }
+    for (const t of ['busco una maestría', 'quiero una especialización virtual', 'una maestría en la UTB', 'estudio derecho',
+      'un doctorado en el exterior', 'especialización de un año', 'maestría en línea', 'soy egresado de la UTB']) {
+      assert.ok(!nombraUnPosgrado(t), t);
     }
   });
 });
