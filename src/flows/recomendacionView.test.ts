@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { REGLA_AFINES } from '../services/aiAssistant';
 import { POSGRADOS_URL, POSGRADOS_UTB, POSGRADOS_VIRTUALES_URL, getPrograma } from '../services/catalogoUtb';
 import { TABLA_PREGRADO, recomendar } from './recomendacionPregrado';
 import {
@@ -504,6 +505,22 @@ describe('contexto de la conversación para la IA', () => {
     assert.ok(!/Negocios Internacionales/.test(contexto));
     // Lo que escribió la persona nunca llega tal cual al prompt.
     assert.ok(!/recomiendan|estudiante de/i.test(contexto));
+  });
+
+  it('a Ingeniería Industrial le llegan la SST presencial y su gemela virtual', () => {
+    const afines = afinesParaIa({ pregradoId: 'ingenieria-industrial' })!;
+    assert.match(afines, /Especialización en Gerencia de la Seguridad y Salud en el Trabajo, Especialización en Gerencia de la Seguridad y Salud en el Trabajo \(virtual\)/);
+  });
+
+  it('si pide un nivel o una modalidad que no está en la lista, la IA dice qué hay en vez de decir que no hay nada', () => {
+    // Diseño no tiene doctorado afín.
+    const diseno = afinesParaIa({ pregradoId: 'diseno' })!;
+    assert.doesNotMatch(diseno, /Doctorados:/);
+    assert.match(diseno, /nivel o una modalidad/i);
+    assert.match(diseno, /no digas que la UTB no tiene/i);
+    assert.match(diseno, /cuáles de ese nivel o modalidad tiene la UTB/i);
+    assert.match(REGLA_AFINES, /modalidad/i);
+    assert.match(REGLA_AFINES, /no digas que no hay/i);
   });
 
   it('afinesParaIa es null sin carrera y sirve también para un pregrado de otra universidad', () => {

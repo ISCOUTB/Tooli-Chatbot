@@ -797,9 +797,10 @@ export function afinesParaIa(data: Record<string, string> | undefined | null, te
       : [];
   });
   return `Posgrados de la UTB afines a ${carrera.etiqueta}, en orden de prioridad. ${porNivel.join('; ')}. ` +
-    'Si pide que le recomiendes posgrados para su carrera, recomienda solo de esta lista y del nivel que pida; ' +
+    'Si pide que le recomiendes posgrados para su carrera, recomienda solo de esta lista, del nivel y la modalidad que pida; ' +
     'no recomiendes ni consultes programas de otras áreas salvo que los nombre o pida otra área. ' +
-    'Si de ese nivel no hay ninguno en la lista, dilo y ofrece los de otro nivel de la lista.';
+    'Si pide un nivel o una modalidad (por ejemplo, virtual) que no está en esta lista, no digas que la UTB no tiene: ' +
+    'di cuáles de ese nivel o modalidad tiene la UTB en tu base, aclarando que no son de su área, y ofrece los de esta lista que más se acercan.';
 }
 
 /**

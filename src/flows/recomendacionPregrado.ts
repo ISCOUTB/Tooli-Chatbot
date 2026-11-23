@@ -493,7 +493,20 @@ export function programasAfines(perfil: PerfilRecomendacion): ProgramaUtb[] {
   const origen = listasDe(perfil);
   if (!origen) return [];
   const ids = [...new Set(TIPOS.flatMap((tipo) => origen.listas[tipo]))];
-  return ids.map((id) => getPrograma(id)).filter((p): p is ProgramaUtb => !!p);
+  // La gemela virtual de un afín (el mismo programa y nivel en UTB Virtual) también es afín, justo después.
+  const conGemelas = ids.flatMap((id) => [id, ...gemelasVirtuales(id).map((p) => p.id)]);
+  return [...new Set(conGemelas)].map((id) => getPrograma(id)).filter((p): p is ProgramaUtb => !!p);
+}
+
+/**
+ * El mismo programa en UTB Virtual: mismo nivel y mismo nombre, otro sitio
+ * (la Especialización en Gerencia de la SST existe presencial y virtual).
+ */
+export function gemelasVirtuales(id: string): ProgramaUtb[] {
+  const p = getPrograma(id);
+  if (!p || esVirtual(p)) return [];
+  const nombre = normalizar(p.nombre);
+  return PROGRAMAS_UTB.filter((q) => q.id !== p.id && esVirtual(q) && q.nivel === p.nivel && normalizar(q.nombre) === nombre);
 }
 
 /** Texto breve del porqué. Nunca promete admisión ni empleo. */

@@ -85,6 +85,18 @@ const TOOLS_ADMISIONES: OpenAI.Chat.ChatCompletionTool[] = [
   },
 ];
 
+/**
+ * Regla 13 del prompt de posgrados: recomendar de los afines a la carrera, con
+ * la modalidad que pida, y nunca decir "no hay" cuando lo pedido existe en otra área.
+ */
+export const REGLA_AFINES =
+  '13. Recomienda solo programas afines a la carrera de la persona. Si el contexto trae los "posgrados afines" a su pregrado, ' +
+  'recomienda de esa lista, del nivel y la modalidad que pida, y no de otras áreas (por ejemplo, a un ingeniero de sistemas no le ' +
+  'sugieras negocios internacionales) salvo que los pida. Si pide un nivel o una modalidad que no está en esa lista (por ejemplo, ' +
+  'un doctorado o algo virtual), no digas que no hay: di cuáles de ese nivel o modalidad tiene la UTB en tu base, aclarando que ' +
+  'son de otra área, y ofrece los de la lista que más se acercan. Si pide recomendaciones y no sabes qué estudió, pregúntaselo ' +
+  'antes de sugerir programas.';
+
 const SYSTEM_PROMPT_POSGRADOS = `
 Eres Tooli Posgrados, el asistente virtual de Posgrados de la Universidad Tecnológica de Bolívar (UTB) en Cartagena, Colombia.
 
@@ -105,7 +117,7 @@ Reglas:
 10. Comparte solo enlaces que aparezcan en tu base o en la ficha del programa.
 11. Para el costo total usa el "valor total" de tu base o de la ficha; no hagas multiplicaciones.
 12. Los valores de matrícula de la base son de 2026. Si el año actual no es 2026, remite a la página oficial de derechos pecuniarios en vez de dar esos valores como vigentes. El costo de inscripción y sus exenciones deben confirmarse con la UTB.
-13. Recomienda solo programas afines a la carrera de la persona. Si el contexto trae los "posgrados afines" a su pregrado, recomienda de esa lista y no de otras áreas (por ejemplo, a un ingeniero de sistemas no le sugieras negocios internacionales) salvo que los pida. Si pide recomendaciones y no sabes qué estudió, pregúntaselo antes de sugerir programas.
+${REGLA_AFINES}
 14. Usa consultar_programa_posgrado con el nombre completo de un solo programa de tu base, nunca con un área ("Especialización en Sistemas", "Maestría en Gestión").
 
 Tu base de conocimiento:
