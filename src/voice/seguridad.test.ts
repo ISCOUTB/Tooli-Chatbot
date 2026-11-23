@@ -3,6 +3,10 @@
 // Cada bloque nació como prueba que FALLABA con el código de antes; aquí se exige el comportamiento arreglado.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
 import type { AcademicoApi } from '../contratos/academico';
 import { AJUSTES_DEFECTO, type AjustesVoz } from './ajustes';
 import { almacenMemoria } from './almacen';
@@ -491,5 +495,98 @@ describe('punto 8 y #35 R5: ninguna llamada queda abierta para siempre', () => {
     assert.equal(x.dichos().filter((t) => /Se nos acaba el tiempo/.test(t)).length, 1, 'el aviso se dice una sola vez');
     await x.m.procesarEvento(ev('speak_ended'));
     assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+  });
+});
+
+
+describe('punto 10: un evento que falla no se pierde', () => {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const pub = Buffer.from(publicKey.export({ format: 'der', type: 'spki' }).subarray(12)).toString('base64');
+  const CLAVE = 'clave-larga-de-prueba-0123456789';
+  const firmar = (body: string) => {
+    const ts = String(Math.floor(Date.now() / 1000));
+    return { 'content-type': 'application/json', 'telnyx-timestamp': ts, 'telnyx-signature-ed25519': sign(null, Buffer.from(`${ts}|${body}`), privateKey).toString('base64') };
+  };
+  function enviar(url: string, body: string): Promise<{ status: number; ms: number }> {
+    const t0 = Date.now();
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(url, { method: 'POST', headers: { ...firmar(body), connection: 'close' }, agent: false }, (res) => {
+        res.resume();
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, ms: Date.now() - t0 }));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+  async function servidor(procesar: (e: VoiceEvent) => Promise<{ handled: boolean; note: string }>, plazoMs?: number) {
+    const { crearWebhookVoz } = await import('../routes/voiceWebhook');
+    const app = express();
+    app.use('/voice', crearWebhookVoz({ clave: () => CLAVE, llavePublica: () => pub, proveedor: telnyxProvider, procesar, log: () => undefined, ...(plazoMs ? { plazoMs } : {}) } as Parameters<typeof crearWebhookVoz>[0]));
+    const srv = app.listen(0);
+    await new Promise((r) => srv.once('listening', r));
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/voice/telnyx/${CLAVE}`;
+    return { url, cerrar: () => new Promise((r) => { srv.closeAllConnections(); srv.close(r); }) };
+  }
+  const cuerpo = (id: string, tipo = 'call.initiated') => JSON.stringify({ data: { id, event_type: tipo, payload: { call_control_id: 'w-cc', direction: 'incoming', from: '+573001112233' } } });
+
+  it('si procesar falla responde 5xx (Telnyx reintenta) y el reintento contesta la llamada', async () => {
+    const x = montar();
+    let caido = true;
+    const almacen = x.almacen;
+    const reservar = almacen.reservarLlamada.bind(almacen);
+    almacen.reservarLlamada = async (args) => { if (caido) throw new Error('Redis caído'); return reservar(args); };
+    const s = await servidor((e) => x.m.procesarEvento(e));
+    try {
+      assert.equal((await enviar(s.url, cuerpo('w1'))).status, 500, 'antes respondía 200 y el evento se perdía');
+      caido = false;
+      assert.equal((await enviar(s.url, cuerpo('w1'))).status, 200);
+      assert.deepEqual(x.cmds.map((c) => c.accion), ['answer'], 'el reintento sí contestó');
+    } finally {
+      await s.cerrar();
+    }
+  });
+
+  it('si procesar tarda más que el plazo, responde 2xx a tiempo y termina de procesar', async () => {
+    let terminado = false;
+    const s = await servidor(async () => { await new Promise((r) => setTimeout(r, 400)); terminado = true; return { handled: true, note: 'lento' }; }, 50);
+    try {
+      const r = await enviar(s.url, cuerpo('w2'));
+      assert.ok(r.status >= 200 && r.status < 300);
+      assert.ok(r.ms < 350, `tardó ${r.ms} ms`);
+      await new Promise((res) => setTimeout(res, 450));
+      assert.equal(terminado, true);
+    } finally {
+      await s.cerrar();
+    }
+  });
+
+  it('un call.hangup que llega antes de terminar el incoming no deja la llamada abierta con el cupo apartado', async () => {
+    const x = montar();
+    assert.equal((await x.m.procesarEvento(ev('hangup', { callId: 'h1', durationSeconds: 0 }))).handled, false);
+    await x.m.procesarEvento(ev('incoming', { callId: 'h1' }));
+    const l = await x.llamada('h1');
+    assert.equal(l.estado, 'cerrada');
+    assert.equal(x.cmds.some((c) => c.accion === 'answer'), false, 'no contesta una llamada que ya colgó');
+    assert.deepEqual(await x.almacen.uso(new Date(x.ahora())), { dia: 0, mes: 0 }, 'devolvió lo apartado');
+  });
+
+  it('reconciliador: una llamada activa cuyo call.hangup se perdió se cierra consultando el estado en Telnyx', async () => {
+    const consultas: string[] = [];
+    const y = montar({
+      manejador: {
+        proveedor: {
+          ...espia().p,
+          estadoLlamada: async (_c: ProviderCredentials, callId: string) => { consultas.push(callId); return { viva: false, duracionSeg: 95 }; },
+        } as VoiceProvider,
+      },
+    });
+    await contestar(y);
+    y.avanzar(11 * 60_000);
+    assert.equal(await y.m.barrerPlazos(), 1);
+    const l = await y.llamada();
+    assert.deepEqual(consultas, ['cc1'], 'preguntó a Telnyx antes de cerrar');
+    assert.equal(l.estado, 'cerrada', 'sin call.hangup: estaba muerta y se cerró sin colgar');
+    assert.equal(l.duracionSeg, 95, 'con la duración que dio Telnyx');
+    assert.deepEqual(await y.almacen.uso(new Date(y.ahora())), { dia: 2, mes: 2 });
   });
 });

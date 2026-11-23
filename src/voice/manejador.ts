@@ -356,6 +356,20 @@ export function crearManejador(d: DepsManejador) {
         if (await cerrarLlamada(id, a, segundos)) atendidas++;
         continue;
       }
+      // Reconciliar (punto 10): si el proveedor dice que la llamada ya no existe, su call.hangup se perdió; se cierra
+      // con la duración que da el proveedor sin mandar nada. Sin respuesta, se trata como viva.
+      const creds = d.credenciales();
+      const estado = creds && d.proveedor.estadoLlamada ? await d.proveedor.estadoLlamada(creds, l.proveedorCallId) : null;
+      if (estado && !estado.viva) {
+        if (await cerrarLlamada(id, a, estado.duracionSeg ?? segundos)) atendidas++;
+        continue;
+      }
+      if (l.colgadoForzado != null && estado?.viva && ya - l.colgadoForzado < 5 * GRACIA_COLGAR_MS) {
+        // Sigue viva después de colgarla: se insiste (Telnyx ignora el mismo command_id por 60 s).
+        await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${id}-tope-${ya}`));
+        await d.almacen.vigilar(id, ya + GRACIA_COLGAR_MS);
+        continue;
+      }
       if (l.colgadoForzado == null) {
         // Primera vez: se cuelga (solo una instancia gana el compare-and-set) y se espera el call.hangup.
         const g = await actualizar(id, (x) => (x.estado === 'activa' && x.colgadoForzado == null
@@ -368,8 +382,8 @@ export function crearManejador(d: DepsManejador) {
         atendidas++;
         continue;
       }
-      // Ya se colgó y no llegó el call.hangup: se cierra aquí con lo que duró hasta ahora y devuelve lo apartado.
-      if (await cerrarLlamada(id, a, segundos)) atendidas++;
+      // Ya se colgó y no llegó el call.hangup: se cierra aquí con lo que duró y devuelve lo apartado.
+      if (await cerrarLlamada(id, a, estado?.duracionSeg ?? segundos)) atendidas++;
     }
     return atendidas;
   }
@@ -414,6 +428,12 @@ export function crearManejador(d: DepsManejador) {
           if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-cap`));
           else await cmd('hangup', (c) => d.proveedor.hangup(c, ev.callId, `${ev.eventId}-cap`));
           return { handled: true, note: 'sin cupo' };
+        }
+        // Colgó antes de terminar este incoming (su call.hangup llegó primero y no encontró la llamada): se cierra ya y
+        // devuelve lo apartado, en vez de quedar activa y «desconocida» para siempre.
+        if (await d.almacen.fueColgada(d.proveedor.id, ev.callId)) {
+          await cerrarLlamada(r.llamada.id, a, 0);
+          return { handled: true, note: 'colgó antes de contestar' };
         }
         await cmd('answer', (c) => d.proveedor.answer(c, ev.callId, `${ev.eventId}-answer`));
         return { handled: true, note: 'contestada' };
@@ -570,7 +590,10 @@ export function crearManejador(d: DepsManejador) {
 
       case 'hangup': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
-        if (!l0) return { handled: false, note: 'llamada desconocida' };
+        if (!l0) {
+          await d.almacen.marcarColgada(d.proveedor.id, ev.callId);
+          return { handled: false, note: 'llamada desconocida (se recuerda que colgó)' };
+        }
         cancelarLocal(l0.id);
         if (l0.estado === 'cerrada') return { handled: false, note: 'ya cerrada' };
         const desdeContestada = l0.contestada ? Math.round((ahora().getTime() - Date.parse(l0.contestada)) / 1000) : 0;

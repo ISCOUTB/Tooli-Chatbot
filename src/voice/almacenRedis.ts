@@ -21,6 +21,7 @@ const K = {
   sim: (d: string) => `voz:sim:${d}`,
   silencios: 'voz:silencios',
   plazos: 'voz:plazos',
+  colgada: (p: string, cid: string) => `voz:colgada:${p}:${cid}`,
 };
 
 // El código por WhatsApp desde la voz ya no tiene cupo propio aquí: pasa por el almacén atómico del código al correo
@@ -183,6 +184,12 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
     },
     async quitarSilencio(id, vence) {
       await redis.eval(QUITAR_SILENCIO_SCRIPT, 1, K.silencios, id, String(vence));
+    },
+    async marcarColgada(p, cid) {
+      await redis.set(K.colgada(p, cid), '1', 'EX', 3600);
+    },
+    async fueColgada(p, cid) {
+      return (await redis.exists(K.colgada(p, cid))) === 1;
     },
     async vigilar(id, vence) {
       await redis.zadd(K.plazos, vence, id);

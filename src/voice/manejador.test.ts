@@ -460,8 +460,7 @@ describe('webhook', () => {
 
   async function servidor(procesar: (e: VoiceEvent) => Promise<{ handled: boolean; note: string }>) {
     const app = express();
-    const tareas: Promise<void>[] = [];
-    app.use('/voice', crearWebhookVoz({ clave: () => CLAVE, llavePublica: () => pub, proveedor: telnyxProvider, procesar, despues: (fn) => { tareas.push(fn()); }, log: () => undefined }));
+    app.use('/voice', crearWebhookVoz({ clave: () => CLAVE, llavePublica: () => pub, proveedor: telnyxProvider, procesar, log: () => undefined }));
     app.use(express.json());
     const srv = app.listen(0);
     await new Promise((r) => srv.once('listening', r));
@@ -469,14 +468,14 @@ describe('webhook', () => {
     // fetch deja conexiones keep-alive: sin cerrarlas, close() queda esperando y
     // --test-force-exit aborta en Windows con UV_HANDLE_CLOSING.
     // fetch deja conexiones keep-alive: se cierran para que close() no espere.
-    return { url, tareas, cerrar: () => new Promise((r) => { srv.closeAllConnections(); srv.close(r); }) };
+    return { url, cerrar: () => new Promise((r) => { srv.closeAllConnections(); srv.close(r); }) };
   }
   const cuerpo = JSON.stringify({ data: { id: 'w1', event_type: 'call.initiated', payload: { call_control_id: 'c', direction: 'incoming' } } });
   const firmar = (body: string, ts = String(Math.floor(Date.now() / 1000))) => ({
     'content-type': 'application/json', 'telnyx-timestamp': ts, 'telnyx-signature-ed25519': sign(null, Buffer.from(`${ts}|${body}`), privateKey).toString('base64'),
   });
 
-  it('clave equivocada 404, firma mala 401, cuerpo grande 413, bueno 200 y procesa después', async () => {
+  it('clave equivocada 404, firma mala 401, cuerpo grande 413, bueno: procesa y responde 200', async () => {
     const vistos: VoiceEvent[] = [];
     const s = await servidor(async (e) => { vistos.push(e); return { handled: true, note: 'ok' }; });
     try {
@@ -486,19 +485,17 @@ describe('webhook', () => {
       assert.equal((await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(grande), body: grande })).status, 413);
       const ok = await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(cuerpo), body: cuerpo });
       assert.equal(ok.status, 200);
-      await Promise.all(s.tareas);
       assert.equal(vistos.length, 1);
       assert.equal(vistos[0].eventId, 'w1');
     } finally {
       await s.cerrar();
     }
   });
-  it('un fallo al procesar no tumba el webhook (ya respondió 200)', async () => {
+  it('un fallo al procesar responde 500 para que Telnyx lo reintente (un 2xx no se reintenta)', async () => {
     const s = await servidor(async () => { throw new Error('falló'); });
     try {
       const r = await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(cuerpo), body: cuerpo });
-      assert.equal(r.status, 200);
-      await Promise.all(s.tareas);
+      assert.equal(r.status, 500);
     } finally {
       await s.cerrar();
     }

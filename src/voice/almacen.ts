@@ -61,6 +61,12 @@ export interface AlmacenVoz {
    * transferir la mueven. Reemplaza la fecha si ya había una.
    */
   vigilar(id: string, vence: number): Promise<void>;
+  /**
+   * Un call.hangup de una llamada que todavía no existe (llegó antes de terminar el incoming): se recuerda un rato para
+   * que el incoming no la deje abierta con el cupo apartado (punto 10).
+   */
+  marcarColgada(proveedor: string, proveedorCallId: string): Promise<void>;
+  fueColgada(proveedor: string, proveedorCallId: string): Promise<boolean>;
   vigiladasVencidas(ahora: number, limite: number): Promise<{ id: string; vence: number }[]>;
   dejarDeVigilar(id: string): Promise<void>;
 }
@@ -127,6 +133,7 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
   const sims = new Map<string, number>();
   const silencios = new Map<string, number>();
   const plazos = new Map<string, number>();
+  const colgadas = new Set<string>();
   const clon = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const vigente = (l: LlamadaVoz | undefined) => (l && l.expira > reloj() ? l : null);
   return {
@@ -210,6 +217,8 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
     },
     async quitarSilencio(id, vence) { if (silencios.get(id) === vence) silencios.delete(id); },
     async vigilar(id, vence) { plazos.set(id, vence); },
+    async marcarColgada(p, cid) { colgadas.add(`${p}:${cid}`); },
+    async fueColgada(p, cid) { return colgadas.has(`${p}:${cid}`); },
     async vigiladasVencidas(ahora, limite) {
       return [...plazos.entries()].filter(([, v]) => v <= ahora).sort((a, b) => a[1] - b[1]).slice(0, limite).map(([id, vence]) => ({ id, vence }));
     },

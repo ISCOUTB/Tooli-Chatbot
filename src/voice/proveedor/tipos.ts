@@ -61,5 +61,10 @@ export interface VoiceProvider {
   transfer(creds: ProviderCredentials, callId: string, to: string, commandId: string): Promise<void>;
   hangup(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
   startRecording(creds: ProviderCredentials, callId: string, commandId: string): Promise<void>;
+  /**
+   * Estado de una llamada en el proveedor (reconciliar una que quedó «activa»). null = no se pudo saber. Telnyx:
+   * GET /v2/calls/{call_control_id} (`is_alive`, `call_duration`; guarda el dato 10 min después de colgar).
+   */
+  estadoLlamada?(creds: ProviderCredentials, callId: string): Promise<{ viva: boolean; duracionSeg: number | null } | null>;
   testConnection(creds: ProviderCredentials, phoneNumber: string | null): Promise<ConnectionTestResult>;
 }

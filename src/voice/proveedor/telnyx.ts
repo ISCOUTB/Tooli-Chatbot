@@ -135,6 +135,22 @@ export const telnyxProvider: VoiceProvider = {
   hangup: (creds, callId, commandId) => command(creds, callId, 'hangup', { command_id: commandId }),
   startRecording: (creds, callId, commandId) =>
     command(creds, callId, 'record_start', { format: 'mp3', channels: 'single', command_id: commandId }),
+  async estadoLlamada(creds, callId) {
+    try {
+      const res = await axios.get(`${TELNYX_API}/calls/${encodeURIComponent(callId)}`, {
+        headers: { Authorization: `Bearer ${creds.apiKey}`, Accept: 'application/json' }, timeout: 8000, validateStatus: () => true,
+      });
+      // 404/422 (error 90015): la llamada no existe o terminó hace más de 10 min.
+      if (res.status === 404 || res.status === 422) return { viva: false, duracionSeg: null };
+      if (res.status < 200 || res.status >= 300) return null;
+      const data = (res.data as { data?: { is_alive?: unknown; call_duration?: unknown } } | null)?.data;
+      if (typeof data?.is_alive !== 'boolean') return null;
+      const dur = Number(data.call_duration);
+      return { viva: data.is_alive, duracionSeg: Number.isFinite(dur) && dur >= 0 ? Math.round(dur) : null };
+    } catch {
+      return null;
+    }
+  },
   async testConnection(creds, phoneNumber): Promise<ConnectionTestResult> {
     const headers = { Authorization: `Bearer ${creds.apiKey}`, Accept: 'application/json' };
     let balance: string | null = null;
