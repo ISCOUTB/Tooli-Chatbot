@@ -4,7 +4,7 @@ import { config } from '../config';
 import { sendOtpEmail } from './mailService';
 import {
   CamposAcademicos, conservarAlRenovar, extraerCamposAcademicos, FuenteCodigo,
-  normalizarCedula, normalizarCodigo,
+  normalizarCedula, normalizarCodigo, sinCamposAcademicos,
 } from './academico/identidadAcademica';
 import { cifrar, descifrar, leerClave } from './academico/cifrado';
 import {
@@ -478,6 +478,59 @@ export async function buscarIdentidadPorCedula(cedula: string): Promise<{ telefo
     if (confirmado) return { telefono, identity };
   }
   return null;
+}
+
+// Soltar un código: deja el vínculo de correo como estaba pero sin los datos académicos, y borra sus índices, solo si
+// nadie cambió el vínculo desde que se leyó. KEYS: 1 vínculo, 2.. índices; ARGV: 1 teléfono, 2 vínculo leído,
+// 3 vínculo sin datos académicos. Conserva el vencimiento.
+export const SOLTAR_CODIGO_SCRIPT = `
+if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 'cambio' end
+redis.call('SET', KEYS[1], ARGV[3], 'KEEPTTL')
+for i = 2, #KEYS do
+  if redis.call('GET', KEYS[i]) == ARGV[1] then redis.call('DEL', KEYS[i]) end
+end
+return 'ok'
+`;
+
+export type ResultadoSoltarCodigo =
+  | { estado: 'formato' | 'no_encontrado' }
+  | { estado: 'simulado' | 'listo' | 'cambio'; telefono: string; email: string };
+
+/**
+ * Atar un código solo prueba que alguien conocía el par código+cédula; si fue otra persona, el dueño real recibe
+ * `en_uso`. TI, tras confirmar por otro medio quién es el titular, suelta el código con
+ * tools/soltar-codigo.ts: el vínculo de correo de quien lo tenía sigue, sin código, nombre, programa ni cédula, y sus
+ * índices se borran. Con `aplicar: false` solo dice a quién se lo quitaría. Índices huérfanos de ese código se limpian.
+ */
+export async function soltarCodigoEstudiantil(codigo: string, opts: { aplicar: boolean }): Promise<ResultadoSoltarCodigo> {
+  const c = normalizarCodigo(codigo);
+  if (!c) return { estado: 'formato' };
+  const claves = codigoIdxs(c);
+  for (const clave of claves) {
+    const telefono = await redis.get(clave);
+    if (!telefono) continue;
+    const raw = await redis.get(identityKey(telefono));
+    if (!raw) continue;
+    let vinculo: Identity;
+    try { vinculo = JSON.parse(raw) as Identity; } catch { continue; }
+    const campos = extraerCamposAcademicos(vinculo);
+    if (campos.codigo !== c) continue;
+    if (!opts.aplicar) return { estado: 'simulado', telefono, email: vinculo.email };
+    const cedula = cedulaDelVinculo(telefono, campos);
+    const indices = [...new Set([
+      ...claves,
+      ...(campos.cedulaIndice ? [indiceCedulaDeHuella(campos.cedulaIndice)] : []),
+      ...(cedula ? cedulaIdxs(cedula) : []),
+    ])];
+    const r = await redis.eval(
+      SOLTAR_CODIGO_SCRIPT, 1 + indices.length, identityKey(telefono), ...indices,
+      telefono, raw, JSON.stringify(sinCamposAcademicos(vinculo)),
+    );
+    return { estado: r === 'ok' ? 'listo' : 'cambio', telefono, email: vinculo.email };
+  }
+  // Ningún vínculo vigente tiene ese código: si quedó algún índice suelto, se borra.
+  if (opts.aplicar) for (const clave of claves) await redis.del(clave);
+  return { estado: 'no_encontrado' };
 }
 
 /**

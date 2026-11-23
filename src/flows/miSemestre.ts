@@ -275,7 +275,7 @@ export async function handleVincularCedula(ctx: FlowContext): Promise<void> {
       return;
     case 'en_uso':
       await track('codigo_vinculo_fallido');
-      await messaging.sendText({ to: from, text: 'Ese código ya está vinculado a otra cuenta institucional. Si es tuyo, escribe *asesor* para que lo revisemos.' });
+      await messaging.sendText({ to: from, text: 'Ese código ya está vinculado a otra cuenta institucional. Si es tuyo, escribe *asesor*: el equipo confirma que eres tú y lo libera para que lo vincules.' });
       return;
     case 'sin_identidad':
       return startVerificationFlow(from, 'semestre', area);

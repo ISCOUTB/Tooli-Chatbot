@@ -120,8 +120,9 @@ describe('paso a TI: identidad (seguridad) + oferta de cita (agenda) juntos', { 
     assert.equal(conversaciones.length, 1, 'se creó la conversación en Chatwoot');
     const c = conversaciones[0] as { initialMessage: string; labels: string[]; customAttributes: Record<string, string> };
     assert.match(c.initialMessage, /Correo verificado con código/);
-    // Ana tiene el código comprobado por académico en su vínculo: el asesor lo ve así, no como «lo escribió».
-    assert.match(c.initialMessage, /Código: T00012345 \(comprobado por académico\)/);
+    // Ana tiene el código atado a su vínculo: el asesor ve qué se comprobó (el par aceptado por el portal), no «lo escribió».
+    assert.match(c.initialMessage, /Código: T00012345 \(vinculado: el portal aceptó código \+ cédula\)/);
+    assert.doesNotMatch(c.initialMessage, /comprobado por académico/);
     assert.doesNotMatch(c.initialMessage, /Código y cédula: los escribió la persona/);
     assert.ok(c.labels.includes('correo-verificado'));
     assert.equal(c.customAttributes.email_verificado, ANA_EMAIL);

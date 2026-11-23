@@ -168,6 +168,21 @@ test('índices con clave propia (#38): respaldo, «un código, un correo», migr
     assert.equal((await id.buscarIdentidadPorCodigo(codigo))?.telefono, tel(1), 'ya no depende de la clave AES');
     assert.equal((await id.buscarIdentidadPorCedula(cedula))?.telefono, tel(1));
 
+    // Soltar el código (SOLTAR_CODIGO_SCRIPT): primero el simulacro, después de verdad; el correo sigue vinculado.
+    await sembrar(tel(3), correo(3));
+    const otroCodigo = codigo.replace(/\d$/, (d) => String((Number(d) + 1) % 10));
+    creadas.push(clavesIndice('codigo', otroCodigo, nuevas)[0]);
+    assert.equal(await id.guardarCodigoEstudiantil(tel(3), { codigo: otroCodigo, verificado: true, fuente: 'iceberg', cedula: '55667788' }), 'ok');
+    creadas.push(clavesIndice('cedula', '55667788', nuevas)[0]);
+    assert.equal((await id.soltarCodigoEstudiantil(otroCodigo, { aplicar: false })).estado, 'simulado');
+    const ttl3 = await redis.ttl(`identity:${tel(3)}`);
+    assert.equal((await id.soltarCodigoEstudiantil(otroCodigo, { aplicar: true })).estado, 'listo');
+    assert.equal((await id.getIdentity(tel(3)))?.email, correo(3));
+    assert.equal((await id.getIdentity(tel(3)))?.codigo, undefined);
+    assert.ok((await redis.ttl(`identity:${tel(3)}`)) <= ttl3, 'KEEPTTL');
+    assert.equal(await id.buscarIdentidadPorCodigo(otroCodigo), null);
+    assert.equal(await id.buscarIdentidadPorCedula('55667788'), null);
+
     // Revocar suelta los dos índices.
     const huella = (await id.getIdentity(tel(1)))?.cedulaIndice;
     assert.match(huella ?? '', /^[0-9a-f]{64}$/);
@@ -179,7 +194,7 @@ test('índices con clave propia (#38): respaldo, «un código, un correo», migr
     delete process.env.TOOLI_BUSQUEDA_CLAVE;
     const llaves = await redis.keys(`*${sfx}*`);
     if (llaves.length) await redis.del(...llaves);
-    await redis.del(...creadas, emailKey(correo(1)), emailKey(correo(2)));
+    await redis.del(...creadas, emailKey(correo(1)), emailKey(correo(2)), emailKey(correo(3)));
     redis.disconnect();
     id.closeIdentityService();
   }

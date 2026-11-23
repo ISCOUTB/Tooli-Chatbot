@@ -108,6 +108,13 @@ before(async () => {
       for (const k of [K[0], K[2]]) { R.datos.delete(k); R.vence.delete(k); }
       return 'ok';
     },
+    // Port de SOLTAR_CODIGO_SCRIPT (si existe: antes de este arreglo no había forma de soltar un código).
+    ...(id.SOLTAR_CODIGO_SCRIPT ? { [id.SOLTAR_CODIGO_SCRIPT]: (K: string[], A: string[]) => {
+      if (leer(K[0]) !== A[1]) return 'cambio';
+      R.poner(K[0], A[2], ['KEEPTTL']);
+      for (const k of K.slice(1)) if (leer(k) === A[0]) { R.datos.delete(k); R.vence.delete(k); }
+      return 'ok';
+    } } : {}),
     [SCRIPT_CAS_VINCULO]: (K, A) => {
       if (leer(K[0]) !== A[0]) return 0;
       R.poner(K[0], A[1], ['KEEPTTL']);
@@ -224,3 +231,33 @@ describe('#13: el índice de cédula se confirma y se borra al revocar', { skip:
     assert.equal(await id.buscarIdentidadPorCedula(CEDULA), null);
   });
 });
+
+describe('soltar un código atado por quien no es su dueño', { skip: SIN_MOCKS }, () => {
+  it('el dueño real recibía «en_uso» sin salida: TI suelta el código y entonces el dueño lo puede atar', async () => {
+    vincular(LUIS, 'luis.gomez@utb.edu.co');
+    assert.equal(await atar(LUIS), 'ok', 'Luis conocía el código y la cédula de Ana');
+    vincular(ANA, 'ana.perez@utb.edu.co');
+    assert.equal(await atar(ANA), 'en_uso');
+
+    assert.equal(typeof id.soltarCodigoEstudiantil, 'function', 'hace falta una forma de soltarlo');
+    const simulacro = await id.soltarCodigoEstudiantil(CODIGO, { aplicar: false });
+    assert.deepEqual(simulacro, { estado: 'simulado', telefono: LUIS, email: 'luis.gomez@utb.edu.co' });
+    assert.equal((await id.buscarIdentidadPorCodigo(CODIGO))?.telefono, LUIS, 'el simulacro no cambia nada');
+
+    const ttl = R.ttl(`identity:${LUIS}`);
+    assert.deepEqual(await id.soltarCodigoEstudiantil(CODIGO, { aplicar: true }), { estado: 'listo', telefono: LUIS, email: 'luis.gomez@utb.edu.co' });
+    const luis = await id.getIdentity(LUIS);
+    assert.equal(luis?.email, 'luis.gomez@utb.edu.co', 'el vínculo de correo de Luis sigue');
+    assert.equal(luis?.codigo, undefined);
+    assert.equal(luis?.cedulaCifrada, undefined);
+    assert.ok(R.ttl(`identity:${LUIS}`) <= ttl && R.ttl(`identity:${LUIS}`) > 0, 'sin tocar su vencimiento');
+    assert.deepEqual(indices('codigo'), []);
+    assert.deepEqual(indices('cedula'), []);
+
+    assert.equal(await atar(ANA), 'ok', 'ahora Ana lo ata');
+    assert.equal((await id.buscarIdentidadPorCodigo(CODIGO))?.telefono, ANA);
+    assert.deepEqual(await id.soltarCodigoEstudiantil('T00000001', { aplicar: true }), { estado: 'no_encontrado' });
+    assert.deepEqual(await id.soltarCodigoEstudiantil('basura', { aplicar: true }), { estado: 'formato' });
+  });
+});
+
