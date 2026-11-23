@@ -264,6 +264,8 @@ export const INJECTION_REPLY =
  */
 export const LEXICO: readonly [RegExp, string][] = [
   [/\bUTB\b/g, 'U T B'],
+  // El nombre del bot: la voz neuronal en español lee «Tooli» como «To-o-li»; se dice como suena la marca, «Túli».
+  [/\bTooli\b/gi, 'Túli'],
   [/\bICETEX\b/gi, 'Icetex'],
   [/\bSNIES\b/g, 'Snies'],
   [/\bSMMLV\b/g, 'salarios mínimos'],

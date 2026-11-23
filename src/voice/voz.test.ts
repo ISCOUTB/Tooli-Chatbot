@@ -150,6 +150,8 @@ describe('cómo suena', () => {
     assert.equal(aplicarLexico('La UTB tiene crédito ICETEX y el MBA'), 'La U T B tiene crédito Icetex y el eme be a');
     assert.equal(aplicarLexico('te llegó al WhatsApp'), 'te llegó al guasap');
     assert.match(aplicarLexico('8 SMMLV'), /salarios mínimos/);
+    assert.equal(aplicarLexico('Hola, soy Tooli. Escríbele a TOOLI'), 'Hola, soy Túli. Escríbele a Túli');
+    assert.equal(aplicarLexico('toolkit y Toolito no cambian'), 'toolkit y Toolito no cambian');
   });
   it('pesos hablados sin puntos de miles', () => {
     assert.equal(pesosParaVoz(17_900_000), '17 millones 900 mil pesos');
