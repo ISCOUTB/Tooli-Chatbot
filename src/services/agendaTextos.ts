@@ -31,8 +31,10 @@ export function textoConfirmacion(cita: Cita, ahoraMs?: number): string {
   );
 }
 
-export function textoReprogramada(cita: Cita, ahoraMs?: number): string {
-  return `🔁 *Cambiamos tu cita*\n\n${resumenCita(cita, ahoraMs)}\n\nTe avisaremos antes de la hora.`;
+/** Solo promete el aviso si de verdad quedó un recordatorio programado (`recordatorios` lo anota la agenda). */
+export function textoReprogramada(cita: Cita & { recordatorios?: string[] }, ahoraMs?: number): string {
+  const aviso = cita.recordatorios?.length ? '\n\nTe avisaremos antes de la hora.' : '';
+  return `🔁 *Cambiamos tu cita*\n\n${resumenCita(cita, ahoraMs)}${aviso}`;
 }
 
 export function textoRecordatorio(cita: Pick<Cita, 'inicio' | 'fin' | 'asesorNombre' | 'area'>, tipo: '24h' | '1h'): string {

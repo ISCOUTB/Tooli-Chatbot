@@ -80,8 +80,18 @@ describe('verificador contra Iceberg (el portal acepta el par solo si es de la m
     assert.deepEqual(await con({ ok: true, noRecibos: true, nombre: 'ANA', cedula: '1045678901' }).verificar('T00012345', '1045678901'), { estado: 'ok', nombre: 'ANA' });
   });
 
-  it('una descarga fallida después de entrar sigue siendo un par válido', async () => {
-    assert.equal((await con({ ok: false, error: 'falló la descarga', nombre: 'ANA' }).verificar('T00012345', '1045678901')).estado, 'ok');
+  it('una descarga fallida después de entrar sigue siendo un par válido (si el portal mostró la cédula)', async () => {
+    assert.equal((await con({ ok: false, error: 'falló la descarga', nombre: 'ANA', cedula: '1045678901' }).verificar('T00012345', '1045678901')).estado, 'ok');
+  });
+
+  it('si el portal no mostró la cédula, el par NO está comprobado: no se ata nada', async () => {
+    // {ok:true, noRecibos:true} sale también cuando el login «pasa» sin llegar a la página del estudiante.
+    for (const r of [{ ok: true, noRecibos: true }, { ok: true, noRecibos: true, nombre: 'ANA' }, { ok: false, error: 'falló la descarga', nombre: 'ANA' }]) {
+      assert.equal((await con(r).verificar('T00012345', '1045678901')).estado, 'error', JSON.stringify(r));
+    }
+    const { deps, guardados } = armar({ verificador: (c, d) => con({ ok: true, noRecibos: true }).verificar(c, d) });
+    assert.equal((await vincularCodigoEstudiantil(deps, ENTRADA)).estado, 'error');
+    assert.deepEqual(guardados, [], 'nada queda atado con codigoVerificado');
   });
 
   it('si el portal muestra OTRA cédula, no coincide', async () => {

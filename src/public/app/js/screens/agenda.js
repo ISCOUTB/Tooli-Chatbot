@@ -1,8 +1,8 @@
 import { api } from '../core/api.js';
 import {
   AREAS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS, agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia,
-  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, nombreDeCita, parseFestivos,
-  porMarcar, sumarDias,
+  etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, nombreDeCita,
+  opcionInicialFranja, OTRA_HORA, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 } from '../core/agenda.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible } from '../core/format.js';
@@ -25,6 +25,7 @@ const estado = {
   citas: [],
   franjas: [],
   cargaSeq: 0,
+  sinAsesor: { total: 0, primera: null },
 };
 
 async function pedir(ruta, opts) {
@@ -37,6 +38,8 @@ async function pedir(ruta, opts) {
 const esAdmin = () => sesion.user?.role === 'admin';
 const yo = () => sesion.user?.username?.toLowerCase();
 const nombreAsesor = (u) => estado.asesores.find(a => a.username.toLowerCase() === String(u).toLowerCase())?.nombre ?? u;
+/* Una cita de un asesor que se borró del panel no es de nadie, aunque alguien herede su nombre de usuario. */
+const asesorDeCita = (c) => (c.sinAsesor ? `Sin asesor (${c.asesorNombre ?? c.asesor} ya no está)` : nombreAsesor(c.asesor));
 const asesoresEditables = () => estado.asesores.filter(a => a.puedeEditar);
 
 function insignia(texto, color) {
@@ -90,6 +93,7 @@ async function renderAgenda(main) {
   if (!$('#agContenido')) return;
   if (!r.ok) { $('#agContenido').innerHTML = alertaError('No se pudo abrir la agenda.', 'agReintentar'); $('#agReintentar')?.addEventListener('click', () => renderAgenda(main)); return; }
   estado.asesores = r.data.asesores ?? [];
+  estado.sinAsesor = { total: r.data.citasSinAsesor ?? 0, primera: r.data.primeraSinAsesor ?? null };
   // Quien atiende ve primero su propia agenda; el administrador, la de todos.
   const mio = estado.asesores.find(a => a.esYo && a.activo);
   estado.asesor = mio && !esAdmin() ? mio.username : 'todos';
@@ -118,15 +122,18 @@ async function cargar() {
   if (rango) rango.textContent = estado.vista === 'dia' ? etiquetaDiaLarga(dias[0]) : `${etiquetaDia(dias[0])} – ${etiquetaDia(dias[6])}`;
   const filtro = estado.asesor !== 'todos' ? `&asesor=${encodeURIComponent(estado.asesor)}` : '';
   try {
-    const [rc, rf] = await Promise.all([
+    const [rc, rf, ra] = await Promise.all([
       pedir(`/citas?desde=${dias[0]}&dias=${dias.length}${filtro}`),
       // Los huecos libres solo se muestran en la vista de día de un asesor concreto.
       estado.vista === 'dia' && estado.asesor !== 'todos' ? pedir(`/franjas?asesor=${encodeURIComponent(estado.asesor)}&desde=${dias[0]}&dias=1`) : Promise.resolve({ ok: true, data: { franjas: [] } }),
+      // El administrador ve al día cuántas citas quedaron sin asesor (se borró su usuario).
+      esAdmin() ? pedir('/asesores') : Promise.resolve(null),
     ]);
     if (seq !== estado.cargaSeq || !cont.isConnected) return;
     if (!rc.ok) throw new Error(rc.data?.message || 'No se pudieron cargar las citas');
     estado.citas = rc.data.citas ?? [];
     estado.franjas = rf.ok ? (rf.data.franjas ?? []) : [];
+    if (ra?.ok) estado.sinAsesor = { total: ra.data.citasSinAsesor ?? 0, primera: ra.data.primeraSinAsesor ?? null };
   } catch (err) {
     if (seq !== estado.cargaSeq || !cont.isConnected) return;
     cont.innerHTML = alertaError(err.message || 'No se pudieron cargar las citas.', 'agReintentarCarga');
@@ -146,7 +153,7 @@ function filaCita(c, { conAsesor }) {
       <span class="ag-hora">${escapeHtml(horaCorta(c.inicio))}<small>${escapeHtml(horaCorta(c.fin))}</small></span>
       <span class="ag-cuerpo">
         <strong>${persona}</strong>
-        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor ? ` · ${escapeHtml(nombreAsesor(c.asesor))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}</small>
+        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor || c.sinAsesor ? ` · ${escapeHtml(asesorDeCita(c))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
       </span>
       ${insignia(meta.label, meta.color)}
     </button>`;
@@ -170,9 +177,19 @@ function pintar() {
   const hoy = hoyBogota();
 
   const pendientes = porMarcar(estado.citas);
-  $('#agAviso').innerHTML = pendientes.length
+  const huerfanas = estado.sinAsesor?.total ?? 0;
+  $('#agAviso').innerHTML = (pendientes.length
     ? `<div class="alert alert-warning" role="status">${pendientes.length === 1 ? 'Hay 1 cita que ya pasó y todavía no está marcada como atendida o sin asistencia.' : `Hay ${pendientes.length} citas que ya pasaron y todavía no están marcadas como atendidas o sin asistencia.`}</div>`
-    : '';
+    : '') + (huerfanas
+    ? `<div class="alert alert-warning" role="status">${huerfanas === 1 ? 'Hay 1 cita futura de un asesor que ya no está en el panel.' : `Hay ${huerfanas} citas futuras de asesores que ya no están en el panel.`} La persona la sigue teniendo: muévela a otro asesor o cancélala. ${estado.sinAsesor.primera ? `<button type="button" class="btn btn-secondary" id="agVerSinAsesor">Ver la primera</button>` : ''}</div>`
+    : '');
+  $('#agVerSinAsesor')?.addEventListener('click', () => {
+    estado.asesor = 'todos';
+    estado.fecha = estado.sinAsesor.primera;
+    const sel = $('#agAsesor');
+    if (sel) sel.value = 'todos';
+    cargar();
+  });
 
   if (estado.vista === 'dia') {
     const delDia = grupos[dias[0]] ?? [];
@@ -210,7 +227,7 @@ function detalleCita(c) {
   const filas = [
     ['phone', 'WhatsApp', c.telefono ? `+${c.telefono}` : c.telefonoMasc],
     ['user', 'Persona', String(c.nombre ?? '').trim() || 'Sin nombre'],
-    ['users', 'Asesor', nombreAsesor(c.asesor)],
+    ['users', 'Asesor', asesorDeCita(c)],
     ['tag', 'Área', AREAS[c.area] ?? c.area],
     ['send', 'Origen', nombreCanal(c.canal)],
     c.motivo ? ['note', 'Motivo', c.motivo] : null,
@@ -223,7 +240,7 @@ function detalleCita(c) {
       ${insignia(meta.label, meta.color)}
     </div>
     <dl class="perfil-datos">${filas.map(([i, k, v]) => `<div>${icon(i, 16)}<dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
-    ${c.recordatoriosPendientes?.length ? `<p class="field-help">${icon('bell', 12)} Sin recordatorio automático: WhatsApp exige una plantilla aprobada fuera de las 24 horas.</p>` : ''}`;
+    ${textoSinRecordatorio(c) ? `<p class="field-help">${icon('bellOff', 12)} ${escapeHtml(textoSinRecordatorio(c))}</p>` : ''}`;
   return el;
 }
 
@@ -323,9 +340,17 @@ function abrirModal({ titulo, ayuda, cuerpo, etiquetaGuardar = 'Guardar', ancho 
   };
 }
 
-/** Opciones de horario libre de un asesor para los próximos 14 días. */
-async function cargarFranjas(asesor) {
-  const r = await pedir(`/franjas?asesor=${encodeURIComponent(asesor)}&desde=${hoyBogota()}&dias=14`);
+/** Días entre dos fechas AAAA-MM-DD (b - a). */
+const diasEntre = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * Horarios libres de un asesor desde hoy: 14 días, o los que haga falta para llegar al hueco tocado (hasta 60, el
+ * máximo de la ventana). El servidor recorta a la ventana configurada.
+ */
+async function cargarFranjas(asesor, hasta) {
+  const hoy = hoyBogota();
+  const dias = Math.min(60, Math.max(14, hasta ? diasEntre(hoy, fechaDeIso(hasta)) + 1 : 14));
+  const r = await pedir(`/franjas?asesor=${encodeURIComponent(asesor)}&desde=${hoy}&dias=${dias}`);
   return r.ok ? (r.data.franjas ?? []) : [];
 }
 
@@ -338,7 +363,8 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
   const mover = modo === 'mover';
   const editables = asesoresEditables();
   if (!editables.length) { toast('No tienes una agenda propia para crear citas.'); return; }
-  const asesorInicial = (mover ? cita.asesor : asesor) ?? editables.find(a => a.esYo)?.username ?? editables[0].username;
+  // Una cita sin asesor (su usuario se borró) se mueve a otro: no se preselecciona el nombre viejo.
+  const asesorInicial = (mover ? (cita.sinAsesor ? null : cita.asesor) : asesor) ?? editables.find(a => a.esYo)?.username ?? editables[0].username;
   const areasDe = (u) => estado.asesores.find(a => a.username === u)?.areas ?? [];
   const cuerpo = `
     ${mover ? '' : `
@@ -366,7 +392,7 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
   const selFranja = m.overlay.querySelector('#agFranja');
   const otra = m.overlay.querySelector('#agOtra');
   let area = mover ? cita.area : (areasDe(asesorInicial)[0] ?? 'posgrados');
-  const OTRA = '__otra__';
+  const OTRA = OTRA_HORA;
 
   if (!mover) {
     m.overlay.querySelector('#agAreaWrap').appendChild(buildSegmented(
@@ -376,13 +402,16 @@ function abrirDialogoCita({ modo, cita, asesor, inicio }) {
 
   async function llenarFranjas(usuario, preseleccion) {
     selFranja.innerHTML = '<option>Cargando horarios…</option>';
-    const franjas = await cargarFranjas(usuario);
+    const franjas = await cargarFranjas(usuario, preseleccion);
     if (!m.overlay.isConnected) return;
-    selFranja.innerHTML = franjas.map(f => `<option value="${escapeHtml(f.inicio)}|${escapeHtml(f.fin)}">${escapeHtml(etiquetaFranja(f))}</option>`).join('')
+    const inicial = opcionInicialFranja(franjas, preseleccion);
+    selFranja.innerHTML = (inicial.valor === '' ? '<option value="">Elige un horario…</option>' : '')
+      + franjas.map(f => `<option value="${escapeHtml(f.inicio)}|${escapeHtml(f.fin)}">${escapeHtml(etiquetaFranja(f))}</option>`).join('')
       + `<option value="${OTRA}">Otra hora…</option>`;
-    m.overlay.querySelector('#agFranjaAyuda').textContent = franjas.length ? '' : 'Este asesor no tiene horarios libres en 14 días; usa "Otra hora".';
-    const buscada = preseleccion && franjas.find(f => f.inicio === preseleccion);
-    selFranja.value = buscada ? `${buscada.inicio}|${buscada.fin}` : (franjas.length ? selFranja.options[0].value : OTRA);
+    // Si el hueco tocado ya no está, se dice y no se elige otra hora por la persona.
+    m.overlay.querySelector('#agFranjaAyuda').textContent = inicial.aviso
+      ?? (franjas.length ? '' : 'Este asesor no tiene horarios libres en los días que se pueden agendar; usa "Otra hora".');
+    selFranja.value = inicial.valor;
     otra.classList.toggle('hidden', selFranja.value !== OTRA);
   }
   selAsesor.addEventListener('change', () => llenarFranjas(selAsesor.value));
@@ -568,9 +597,9 @@ async function abrirAjustes() {
         <label>Citas futuras por teléfono<input class="rem-input" type="number" id="agCfgMax" min="1" max="10" value="${escapeHtml(c.maxCitasFuturas)}"></label>
         <label>Días hacia adelante<input class="rem-input" type="number" id="agCfgVen" min="1" max="60" value="${escapeHtml(c.diasVentana)}"></label>
       </div>
-      <div class="field"><label for="agCfgFest">Festivos (AAAA-MM-DD, separados por coma o salto de línea)</label>
-        <textarea class="rem-input" id="agCfgFest" rows="4" placeholder="2026-12-08, 2026-12-25">${escapeHtml((c.festivos ?? []).join('\n'))}</textarea>
-        <div class="field-help">Ese día nadie recibe citas, aunque su horario semanal lo permita.</div></div>`,
+      <div class="field"><label for="agCfgFest">Días extra sin citas (AAAA-MM-DD, separados por coma o salto de línea)</label>
+        <textarea class="rem-input" id="agCfgFest" rows="4" placeholder="2026-12-24, 2026-12-31">${escapeHtml((c.festivos ?? []).join('\n'))}</textarea>
+        <div class="field-help">Ese día nadie recibe citas, aunque su horario semanal lo permita. Los festivos nacionales de Colombia ya se aplican solos${r.data.festivosNacionales?.length ? ` (próximos: ${escapeHtml(r.data.festivosNacionales.slice(0, 6).map(f => etiquetaDia(f)).join(', '))})` : ''}: aquí solo van cierres propios.</div></div>`,
   });
   m.form.addEventListener('submit', async (e) => {
     e.preventDefault();

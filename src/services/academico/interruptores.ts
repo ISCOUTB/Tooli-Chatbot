@@ -29,6 +29,14 @@ export const interruptoresDeEntorno: Interruptores = {
   cursos: () => encendido('TOOLI_SAVIO_ENABLED') && Boolean(process.env.SAVIO_WS_TOKEN?.trim()),
 };
 
+/**
+ * ¿Hay al menos una integración académica encendida? Con todas apagadas (lo de fábrica) «Mi semestre» no existe:
+ * ni en los menús, ni al escribirlo, ni en «Mi vida académica». Todo se comporta como antes de los datos académicos.
+ */
+export function miSemestreDisponible(i: Interruptores = interruptoresDeEntorno): boolean {
+  return i.notas() || i.recibo() || i.turno() || i.horario() || i.cursos();
+}
+
 export type CaminoNotas = 'A' | 'B';
 
 /**
@@ -73,3 +81,43 @@ export function proveedorHorario(): ProveedorHorarioNombre {
   if (pedido === 'simulado' && process.env.NODE_ENV !== 'production') return 'simulado';
   return 'banner';
 }
+
+export interface ProblemaConfigAcademica {
+  /** `bloqueo`: el preflight detiene el despliegue; `aviso`: solo se dice. El arranque muestra los dos. */
+  nivel: 'bloqueo' | 'aviso';
+  mensaje: string;
+}
+
+type Entorno = Record<string, string | undefined>;
+
+/**
+ * Lo que está encendido sin lo que necesita. Lo usan el arranque (src/config) y, con la misma regla,
+ * tools/deploy-preflight.py. Sin TOOLI_ACADEMICO_CLAVE la cédula no se guarda: con el recibo encendido cada intento
+ * terminaba en «vincula tu código» -> login a Iceberg -> la cédula se descartaba -> «vincula tu código» otra vez.
+ */
+export function problemasConfigAcademica(env: Entorno): ProblemaConfigAcademica[] {
+  const on = (k: string) => env[k] === '1';
+  const conClave = claveValida(env.TOOLI_ACADEMICO_CLAVE);
+  const salida: ProblemaConfigAcademica[] = [];
+  if (on('TOOLI_ACADEMIC_LOOKUP_ENABLED') && !conClave) {
+    salida.push({
+      nivel: 'bloqueo',
+      mensaje: 'TOOLI_ACADEMIC_LOOKUP_ENABLED=1 necesita TOOLI_ACADEMICO_CLAVE (32 bytes en hex o base64: openssl rand -hex 32): sin ella la cédula no se guarda y el recibo no se puede descargar. Pon la clave o apaga el interruptor.',
+    });
+  }
+  if (env.TOOLI_NOTAS_CAMINO?.trim().toUpperCase() === 'A' && !conClave) {
+    salida.push({ nivel: 'aviso', mensaje: 'TOOLI_NOTAS_CAMINO=A sin TOOLI_ACADEMICO_CLAVE válida: las notas usan el camino B (no se guarda la sesión).' });
+  }
+  const busqueda = env.TOOLI_BUSQUEDA_CLAVE?.trim();
+  if (busqueda && busqueda.length < 32) {
+    salida.push({ nivel: 'aviso', mensaje: 'TOOLI_BUSQUEDA_CLAVE tiene menos de 32 caracteres y se ignora: los índices siguen con TOOLI_ACADEMICO_CLAVE o JWT_SECRET.' });
+  } else if (!busqueda && on('TOOLI_ACADEMIC_LOOKUP_ENABLED')) {
+    salida.push({ nivel: 'aviso', mensaje: 'Sin TOOLI_BUSQUEDA_CLAVE los índices por código y cédula usan TOOLI_ACADEMICO_CLAVE o JWT_SECRET: rotar cualquiera los deja huérfanos. Define TOOLI_BUSQUEDA_CLAVE y corre tools/migrar-indices-busqueda.ts.' });
+  }
+  const horarioBanner = (env.TOOLI_HORARIO_PROVEEDOR?.trim().toLowerCase() !== 'simulado') || env.NODE_ENV === 'production';
+  if (on('TOOLI_HORARIO_ENABLED') && horarioBanner && (!conClave || env.TOOLI_NOTAS_CAMINO?.trim().toUpperCase() !== 'A')) {
+    salida.push({ nivel: 'aviso', mensaje: 'TOOLI_HORARIO_ENABLED=1 necesita TOOLI_NOTAS_CAMINO=A y TOOLI_ACADEMICO_CLAVE: sin la sesión guardada el horario solo manda al autoservicio.' });
+  }
+  return salida;
+}
+

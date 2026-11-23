@@ -67,7 +67,10 @@ export interface ConfigAgenda {
   maxCitasFuturas: number;
   /** Hasta cuántos días adelante se ofrecen franjas. */
   diasVentana: number;
-  /** Días festivos (YYYY-MM-DD) en los que nadie atiende. */
+  /**
+   * Días EXTRA (YYYY-MM-DD) en los que nadie atiende (cierres de la universidad…). Los festivos nacionales de
+   * Colombia no hace falta escribirlos: se calculan solos (`festivosColombia`).
+   */
   festivos: string[];
 }
 
@@ -203,6 +206,70 @@ export function diaEnPalabras(ms: number, ahoraMs?: number): string {
     else if (p.fecha === sumarDias(hoy, 1)) prefijo = 'mañana ';
   }
   return `${prefijo}${DIAS[p.dia]} ${d} de ${MESES[m - 1]}`;
+}
+
+/* ─────────────────────────── Festivos de Colombia ──────────────────────── */
+
+const fechaUTC = (a: number, m: number, d: number) => new Date(Date.UTC(a, m - 1, d));
+const textoFecha = (f: Date) => f.toISOString().slice(0, 10);
+const masDias = (f: Date, n: number) => new Date(f.getTime() + n * DIA_MS);
+
+/** Domingo de Pascua (calendario gregoriano, algoritmo de Meeus/Jones/Butcher). */
+export function domingoDePascua(anio: number): string {
+  const a = anio % 19;
+  const b = Math.floor(anio / 100);
+  const c = anio % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31);
+  const dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return textoFecha(fechaUTC(anio, mes, dia));
+}
+
+/** Ley Emiliani (Ley 51 de 1983): el festivo que no cae en lunes se corre al lunes siguiente. */
+function alLunes(f: Date): Date {
+  const dia = f.getUTCDay();
+  return dia === 1 ? f : masDias(f, (8 - dia) % 7);
+}
+
+const cacheFestivos = new Map<number, string[]>();
+
+/**
+ * Festivos nacionales de Colombia de un año, ordenados: los fijos, los que se corren al lunes (Ley Emiliani) y los
+ * que dependen de la Pascua (Jueves y Viernes Santo; Ascensión, Corpus Christi y Sagrado Corazón, corridos al lunes).
+ */
+export function festivosColombia(anio: number): string[] {
+  const guardado = cacheFestivos.get(anio);
+  if (guardado) return guardado;
+  const fijos = [[1, 1], [5, 1], [7, 20], [8, 7], [12, 8], [12, 25]].map(([m, d]) => fechaUTC(anio, m, d));
+  const emiliani = [[1, 6], [3, 19], [6, 29], [8, 15], [10, 12], [11, 1], [11, 11]].map(([m, d]) => alLunes(fechaUTC(anio, m, d)));
+  const pascua = new Date(`${domingoDePascua(anio)}T00:00:00Z`);
+  const deSemanaSanta = [-3, -2].map((n) => masDias(pascua, n));
+  // Ascensión (+39), Corpus Christi (+60) y Sagrado Corazón (+68) caen en jueves/viernes y se corren al lunes.
+  const corridos = [39, 60, 68].map((n) => alLunes(masDias(pascua, n)));
+  const lista = [...new Set([...fijos, ...emiliani, ...deSemanaSanta, ...corridos].map(textoFecha))].sort();
+  cacheFestivos.set(anio, lista);
+  return lista;
+}
+
+/** Festivos nacionales entre dos fechas AAAA-MM-DD (incluidas). */
+export function festivosColombiaEntre(desde: string, hasta: string): string[] {
+  const salida: string[] = [];
+  for (let a = Number(desde.slice(0, 4)); a <= Number(hasta.slice(0, 4)); a++) {
+    salida.push(...festivosColombia(a).filter((f) => f >= desde && f <= hasta));
+  }
+  return salida;
+}
+
+export function esFestivoColombia(fecha: string): boolean {
+  return fechaValida(fecha) && festivosColombia(Number(fecha.slice(0, 4))).includes(fecha);
 }
 
 /* ───────────────────────────── Validaciones ────────────────────────────── */
@@ -348,7 +415,8 @@ export interface ParamsFranjas {
 }
 
 function bloqueado(fecha: string, ini: number, fin: number, disp: Disponibilidad, festivos: string[]): boolean {
-  if (festivos.includes(fecha)) return true;
+  // Los festivos nacionales siempre; la configuración solo agrega días.
+  if (esFestivoColombia(fecha) || festivos.includes(fecha)) return true;
   for (const e of disp.excepciones) {
     if (fecha < e.desde || fecha > e.hasta) continue;
     if (!e.horaDesde || !e.horaHasta) return true;
@@ -433,27 +501,31 @@ const MARGEN_VENTANA_MS = 5 * MIN;
  * programar por la ventana de 24 h de WhatsApp.
  *
  * Con Meta Cloud el texto libre solo vale dentro de las 24 h siguientes al
- * último mensaje de la persona. Al reservar sabemos que acaba de escribir, así
- * que solo se sabe seguro que un recordatorio llega si sale antes de
- * `reservaMs + 24 h`. Los demás necesitan una plantilla aprobada: quedan
- * como pendientes documentados (ver docs/agenda-asesores.md). Con Evolution
- * (Baileys) no hay ventana.
+ * ÚLTIMO MENSAJE ENTRANTE de la persona (la marca de `activity:<tel>`, la misma
+ * que usa Conversaciones), no al momento de la reserva: una cita que agenda un
+ * asesor desde el panel, o por llamada, puede no tener ventana abierta. Sin
+ * mensaje entrante conocido no hay ventana. Lo que no cabe necesita una
+ * plantilla aprobada: queda «sin recordatorio» (ver docs/agenda-asesores.md).
+ * Con Evolution (Baileys) no hay ventana.
  */
 export function planearRecordatorios(opts: {
   inicioMs: number;
-  reservaMs: number;
+  ahoraMs: number;
+  /** Último mensaje de la persona por WhatsApp (epoch ms) o null si no se conoce. */
+  ultimoEntranteMs: number | null;
   adaptador: 'meta' | 'evolution';
 }): { programar: RecordatorioCita[]; sinVentana: RecordatorioCita[] } {
   const candidatos: RecordatorioCita[] = [
     { tipo: '24h', cuandoMs: opts.inicioMs - 24 * 60 * MIN },
     { tipo: '1h', cuandoMs: opts.inicioMs - 60 * MIN },
   ];
+  const cierraVentana = opts.ultimoEntranteMs === null ? -Infinity : opts.ultimoEntranteMs + VENTANA_WHATSAPP_MS - MARGEN_VENTANA_MS;
   const programar: RecordatorioCita[] = [];
   const sinVentana: RecordatorioCita[] = [];
   for (const c of candidatos) {
     // Debe quedar en el futuro con margen para que el worker lo alcance.
-    if (c.cuandoMs < opts.reservaMs + 2 * MIN) continue;
-    if (opts.adaptador === 'meta' && c.cuandoMs > opts.reservaMs + VENTANA_WHATSAPP_MS - MARGEN_VENTANA_MS) {
+    if (c.cuandoMs < opts.ahoraMs + 2 * MIN) continue;
+    if (opts.adaptador === 'meta' && c.cuandoMs > cierraVentana) {
       sinVentana.push(c);
     } else {
       programar.push(c);

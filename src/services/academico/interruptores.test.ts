@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import {
-  avisosProactivosActivos, caminoNotas, horasSesionNotas, interruptoresDeEntorno, proveedorHorario,
+  avisosProactivosActivos, caminoNotas, horasSesionNotas, interruptoresDeEntorno, problemasConfigAcademica, proveedorHorario,
 } from './interruptores';
 import { formatearPesos, leerValorPesos } from './pesos';
 
 const VARIABLES = [
   'TOOLI_NOTAS_SSO_ENABLED', 'TOOLI_ACADEMIC_LOOKUP_ENABLED', 'TOOLI_SAVIO_ENABLED', 'SAVIO_WS_TOKEN', 'TOOLI_HORARIO_ENABLED',
   'TOOLI_NOTAS_CAMINO', 'TOOLI_ACADEMICO_CLAVE', 'TOOLI_NOTAS_SESION_HORAS', 'TOOLI_AVISOS_ACADEMICOS_ENABLED',
-  'TOOLI_HORARIO_PROVEEDOR', 'NODE_ENV',
+  'TOOLI_HORARIO_PROVEEDOR', 'NODE_ENV', 'TOOLI_BUSQUEDA_CLAVE',
 ] as const;
 let guardado: Record<string, string | undefined>;
 beforeEach(() => {
@@ -114,3 +114,42 @@ describe('valores en pesos del portal', () => {
     assert.equal(formatearPesos(950), '$950');
   });
 });
+
+describe('configuración académica: lo que necesita TOOLI_ACADEMICO_CLAVE', () => {
+  const bloqueos = () => problemasConfigAcademica(process.env).filter((p) => p.nivel === 'bloqueo');
+  const avisos = () => problemasConfigAcademica(process.env).filter((p) => p.nivel === 'aviso');
+
+  it('todo apagado: nada que decir', () => {
+    assert.deepEqual(problemasConfigAcademica(process.env), []);
+  });
+
+  it('turno/recibo sin TOOLI_BUSQUEDA_CLAVE avisa (los índices dependen de otras claves, #38); con ella, no', () => {
+    process.env.TOOLI_ACADEMIC_LOOKUP_ENABLED = '1';
+    process.env.TOOLI_ACADEMICO_CLAVE = randomBytes(32).toString('hex');
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /TOOLI_BUSQUEDA_CLAVE/);
+    process.env.TOOLI_BUSQUEDA_CLAVE = 'x'.repeat(40);
+    assert.deepEqual(problemasConfigAcademica(process.env), []);
+    process.env.TOOLI_BUSQUEDA_CLAVE = 'corta';
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /menos de 32/);
+  });
+
+  it('recibo encendido sin clave: bloquea (el recibo no se podría bajar y cada intento haría un login)', () => {
+    process.env.TOOLI_ACADEMIC_LOOKUP_ENABLED = '1';
+    assert.equal(bloqueos().length, 1);
+    assert.match(bloqueos()[0].mensaje, /TOOLI_ACADEMIC_LOOKUP_ENABLED.*TOOLI_ACADEMICO_CLAVE/);
+    process.env.TOOLI_ACADEMICO_CLAVE = 'corta';
+    assert.equal(bloqueos().length, 1, 'una clave inválida es como no tenerla');
+    process.env.TOOLI_ACADEMICO_CLAVE = randomBytes(32).toString('hex');
+    assert.equal(bloqueos().length, 0);
+  });
+
+  it('camino A u horario sin clave: avisa (caen a B o no muestran el horario)', () => {
+    process.env.TOOLI_NOTAS_CAMINO = 'A';
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /TOOLI_NOTAS_CAMINO=A/);
+    process.env.TOOLI_HORARIO_ENABLED = '1';
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /TOOLI_HORARIO_ENABLED/);
+    process.env.TOOLI_ACADEMICO_CLAVE = randomBytes(32).toString('hex');
+    assert.deepEqual(avisos().filter((p) => /TOOLI_ACADEMICO_CLAVE/.test(p.mensaje)), []);
+  });
+});
+

@@ -1158,6 +1158,7 @@ const AG_CITAS = [
   inicio: agIso(agAt(d, h)), fin: agIso(agAt(d, h) + 1800000), canal, estado: est,
 }));
 const agPara = (c) => { const { telefono, ...r } = c; return { ...r, telefono, telefonoMasc: '****' + telefono.slice(-4), puedeEditar: ROL === 'admin' || c.asesor === AG_USUARIO }; };
+app.get('/api/tools/agenda/estado', (_q, res) => j(res, { activa: true }));
 app.get('/api/tools/agenda/asesores', (_q, res) => j(res, { asesores: AG_ASESORES.map(a => ({ ...a, activo: AG_DISPS[a.username].activo, areas: AG_DISPS[a.username].areas, duracionMin: 30, esYo: a.username === AG_USUARIO, puedeEditar: ROL === 'admin' || a.username === AG_USUARIO })) }));
 app.get('/api/tools/agenda/disponibilidad/:u', (req, res) => j(res, { disponibilidad: AG_DISPS[req.params.u] }));
 app.put('/api/tools/agenda/disponibilidad/:u', (req, res) => { AG_DISPS[req.params.u] = req.body; j(res, { ok: true, disponibilidad: req.body }); });

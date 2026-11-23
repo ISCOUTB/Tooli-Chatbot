@@ -42,6 +42,11 @@ export interface DepsNucleo {
   existeCodigoEnFuente(codigo: string): Promise<boolean>;
   /** Cédula descifrada del estudiante, si quedó guardada al vincular. */
   cedulaDe(telefono: string): Promise<string | null>;
+  /**
+   * ¿Se puede guardar la cédula (hay TOOLI_ACADEMICO_CLAVE)? Si no, volver a vincular no sirve de nada: el recibo
+   * falla claro en vez de pedir vincular en ciclo (cada vuelta era un login a Iceberg). Por defecto, sí.
+   */
+  puedeGuardarCedula?(): boolean;
   interruptores: Interruptores;
   proveedores: {
     notas?: ProveedorNotas;
@@ -382,6 +387,13 @@ export function crearAcademico(deps: DepsNucleo): AcademicoApi {
     if (!deps.proveedores.recibo) return apagado('recibo');
     if (!e.codigo || !e.codigoVerificado) return sinCodigo('recibo');
     const cedula = await deps.cedulaDe(e.telefono);
+    if (!cedula && deps.puedeGuardarCedula?.() === false) {
+      return falla(
+        'recibo', 'apagado',
+        'Por ahora no puedo descargar tu recibo desde aquí. Puedes bajarlo en el portal oficial de la universidad.',
+        `🧾 Por ahora no puedo descargar tu recibo desde el bot. Bájalo en el portal oficial de la UTB: ${PORTAL.recibo}\n\nNo envíes tu contraseña por WhatsApp.`,
+      );
+    }
     if (!cedula) {
       return falla(
         'recibo', 'sin_codigo',

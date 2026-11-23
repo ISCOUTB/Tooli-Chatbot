@@ -3,7 +3,8 @@ import { getIdentity } from '../services/identityService';
 import { track } from '../services/metrics';
 import { FlowContext, messaging, sendMenu } from './shared';
 import { startVerificationFlow } from './verificacion';
-import { parseGlobalCommand, parseOriginArea } from './commands';
+import { parseGlobalCommand, parseOriginArea, returnMenuStep } from './commands';
+import { config } from '../config';
 import type { FlowArea } from './commands';
 import type { TipoConsulta } from '../contratos/academico';
 import { academico, borrarSesionDeNotas, haySesionDeNotas, vincularCodigoEstudiantil } from '../services/academico/servicio';
@@ -11,6 +12,7 @@ import { caminoNotas, interruptoresDeEntorno } from '../services/academico/inter
 import { reglaNotas, leerNotasEscritas } from '../services/academico/calculos';
 import { armarCalculo } from '../services/academico/notasVista';
 import { normalizarCedula, normalizarCodigo } from '../services/academico/identidadAcademica';
+import { leerClave } from '../services/academico/cifrado';
 import { iniciarConsultaDeNotas } from './notas';
 import { RECURSOS_ACADEMICOS } from '../services/academicoLinks';
 
@@ -29,6 +31,7 @@ async function seguirEnMenu(from: string, area: FlowArea): Promise<void> {
 }
 
 export async function sendMenuSemestre(from: string, area: FlowArea): Promise<void> {
+  const i = interruptoresDeEntorno;
   const identidad = await getIdentity(from);
   const sinCodigo = !identidad?.codigoVerificado;
   const hayBorrable = await haySesionDeNotas(from);
@@ -42,11 +45,13 @@ export async function sendMenuSemestre(from: string, area: FlowArea): Promise<vo
     sections: [{
       title: 'Qué quieres ver',
       rows: [
-        { id: '1', title: '📊 Mis notas', description: 'Notas del período y promedio' },
-        { id: '2', title: '🗓️ Mi horario', description: 'Clases de hoy y de la semana' },
-        { id: '3', title: '📚 Cursos y tareas', description: 'Savio: cursos y entregas próximas' },
-        { id: '4', title: '📋 Mi turno', description: 'Turno y fecha de matrícula' },
-        { id: '5', title: '🧾 Mi recibo', description: 'Recibo de matrícula, valor y fecha límite' },
+        // Solo lo que está encendido: una opción apagada solo diría «Por ahora no consulto…».
+        ...(i.notas() ? [{ id: '1', title: '📊 Mis notas', description: 'Notas del período y promedio' }] : []),
+        ...(i.horario() ? [{ id: '2', title: '🗓️ Mi horario', description: 'Clases de hoy y de la semana' }] : []),
+        ...(i.cursos() ? [{ id: '3', title: '📚 Cursos y tareas', description: 'Savio: cursos y entregas próximas' }] : []),
+        ...(i.turno() ? [{ id: '4', title: '📋 Mi turno', description: 'Turno y fecha de matrícula' }] : []),
+        // Sin TOOLI_ACADEMICO_CLAVE la cédula no se guarda y el recibo no se puede bajar: no se ofrece.
+        ...(i.recibo() && leerClave() ? [{ id: '5', title: '🧾 Mi recibo', description: 'Recibo de matrícula, valor y fecha límite' }] : []),
         { id: '6', title: '🧮 ¿Cuánto necesito?', description: 'Qué nota te falta para pasar' },
         ...(sinCodigo && interruptoresDeEntorno.recibo()
           ? [{ id: '7', title: '🔗 Vincular mi código', description: 'Una sola vez: código estudiantil y cédula' }] : []),
@@ -59,10 +64,27 @@ export async function sendMenuSemestre(from: string, area: FlowArea): Promise<vo
   await track('academico_semestre');
 }
 
+/**
+ * Sin vínculo hay que verificar el correo, pero el código va por correo (Resend): sin RESEND_API_KEY la verificación
+ * no puede terminar, así que no se abre. Mismo criterio que «Mi cuenta vinculada» (academicAccount.ts).
+ */
+async function verificarOAvisar(from: string, area: FlowArea, after: string): Promise<void> {
+  if (!config.mail.apiKey) {
+    await setSession(from, { step: returnMenuStep({ originArea: area }), data: {} });
+    await messaging.sendText({
+      to: from,
+      text: 'Para mostrarte tus datos primero tengo que verificar tu correo institucional, y esa verificación todavía no está disponible. 🙏\n\n' +
+        'Mientras tanto, consúltalos en los canales oficiales de la UTB. Escribe *menu* para volver.',
+    });
+    return;
+  }
+  await startVerificationFlow(from, after, area);
+}
+
 /** Entrada desde los menús. `accion`: turno o recibo, si llegó desde esas opciones. */
 export async function iniciarMiSemestre(from: string, area: FlowArea, accion?: Accion): Promise<void> {
   if (!(await getIdentity(from))) {
-    await startVerificationFlow(from, accion ?? 'semestre', area);
+    await verificarOAvisar(from, area, accion ?? 'semestre');
     return;
   }
   if (accion) {
@@ -76,7 +98,7 @@ export async function iniciarMiSemestre(from: string, area: FlowArea, accion?: A
 async function ejecutar(from: string, area: FlowArea, tipo: TipoConsulta): Promise<void> {
   const r = await academico.consultar(from, tipo);
   if (!r.ok) {
-    if (r.motivo === 'no_verificado') return startVerificationFlow(from, 'semestre', area);
+    if (r.motivo === 'no_verificado') return verificarOAvisar(from, area, 'semestre');
     if (r.motivo === 'sin_codigo') return iniciarVinculo(from, area, tipo === 'turno' || tipo === 'recibo' ? tipo : undefined);
     if (r.motivo === 'sin_sesion' && tipo === 'notas') return iniciarConsultaDeNotas(from, area);
     if (r.motivo === 'sin_sesion' && tipo === 'horario' && caminoNotas() === 'B') {
@@ -253,7 +275,7 @@ export async function handleVincularCedula(ctx: FlowContext): Promise<void> {
       return;
     case 'en_uso':
       await track('codigo_vinculo_fallido');
-      await messaging.sendText({ to: from, text: 'Ese código ya está vinculado a otra cuenta institucional. Si es tuyo, escribe *asesor* para que lo revisemos.' });
+      await messaging.sendText({ to: from, text: 'Ese código ya está vinculado a otra cuenta institucional. Si es tuyo, escribe *asesor*: el equipo confirma que eres tú y lo libera para que lo vincules.' });
       return;
     case 'sin_identidad':
       return startVerificationFlow(from, 'semestre', area);
@@ -269,7 +291,7 @@ export async function handleVincularCedula(ctx: FlowContext): Promise<void> {
 /** Una consulta puntual (p. ej. el horario desde «Mi vida académica»), con la verificación de identidad si falta. */
 export async function consultarEnSemestre(from: string, area: FlowArea, tipo: TipoConsulta): Promise<void> {
   if (!(await getIdentity(from))) {
-    await startVerificationFlow(from, 'semestre', area);
+    await verificarOAvisar(from, area, 'semestre');
     return;
   }
   await seguirEnMenu(from, area);

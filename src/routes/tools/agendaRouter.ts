@@ -7,6 +7,9 @@
  * (ver toolsRoutes.ts), así que `req.user` siempre existe.
  *
  * Reglas:
+ *   - Con AGENDA_ACTIVA=false toda la API responde 404 `agenda_apagada` (salvo
+ *     `GET /agenda/estado`, que el panel usa para esconder la pestaña): nadie
+ *     agenda desde el panel una cita que el bot de WhatsApp no sabe atender.
  *   - Cada asesor edita SU disponibilidad y SUS citas; el administrador, las de todos.
  *   - Toda escritura queda en la auditoría: quién, qué y sobre quién (teléfono enmascarado).
  *   - El teléfono completo solo se devuelve al dueño de la agenda y al administrador.
@@ -17,7 +20,7 @@ import { z } from 'zod';
 import type { AuthedRequest } from '../../middleware/auth';
 import type { AuditAction } from '../../services/auditService';
 import {
-  AgendaValidacionError, fechaEnPalabras, fechaValida, inicioDelDia, msDeIso, sumarDias,
+  AgendaValidacionError, fechaEnPalabras, fechaValida, festivosColombiaEntre, inicioDelDia, msDeIso, partesBogota, sumarDias,
 } from '../../services/agendaLogica';
 import type { AgendaServicio, CitaAgenda } from '../../services/agendaService';
 import { AgendaError } from '../../services/agendaService';
@@ -32,6 +35,8 @@ export interface DepsRouterAgenda {
   /** Avisa por WhatsApp a la persona respetando la ventana de 24 h. Nunca lanza. */
   avisar: (telefono: string, texto: string) => Promise<AvisoPersona>;
   ahora?: () => number;
+  /** AGENDA_ACTIVA. Obligatorio a propósito: quien monte el router decide si la agenda está encendida. */
+  activa: () => boolean;
 }
 
 const HORA = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
@@ -88,7 +93,8 @@ const esquemaConsultaCitas = z.object({
 const esquemaConsultaFranjas = z.object({
   asesor: z.string().min(1).max(60),
   desde: FECHA.optional(),
-  dias: z.coerce.number().int().min(1).max(31).default(7),
+  // Hasta 60 (la ventana máxima): el servicio recorta igual a la ventana configurada.
+  dias: z.coerce.number().int().min(1).max(60).default(7),
 });
 
 const MENSAJE_RESERVA = {
@@ -108,6 +114,9 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
 
   const puedeEditar = (req: AuthedRequest, asesor: string) =>
     req.user!.role === 'admin' || req.user!.username.toLowerCase() === asesor.toLowerCase();
+  /** La cita de un asesor borrado (`sinAsesor`) solo la toca el administrador, aunque alguien herede ese nombre. */
+  const puedeEditarCita = (req: AuthedRequest, c: { asesor: string; sinAsesor?: boolean }) =>
+    req.user!.role === 'admin' || (!c.sinAsesor && puedeEditar(req, c.asesor));
 
   const prohibido = (res: Response) => {
     res.status(403).json({ error: 'forbidden', message: 'Solo puedes modificar tu propia agenda.' });
@@ -138,17 +147,32 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
 
   /** Lo que ve el panel de una cita: el teléfono completo solo si puede editarla. */
   const paraPanel = (req: AuthedRequest, c: CitaAgenda) => {
-    const editar = puedeEditar(req, c.asesor);
+    const editar = puedeEditarCita(req, c);
     const { telefono, ...resto } = c;
     return { ...resto, telefonoMasc: maskPhone(telefono), ...(editar ? { telefono } : {}), puedeEditar: editar };
   };
+
+  /* ── Interruptor ────────────────────────────────────────────────────── */
+
+  router.get('/agenda/estado', (_req, res: Response) => {
+    res.json({ activa: deps.activa() });
+  });
+
+  // Apagada, nada de la agenda responde: ni lectura ni escritura ni avisos por WhatsApp.
+  router.use('/agenda', (_req, res: Response, next) => {
+    if (deps.activa()) return next();
+    res.status(404).json({ error: 'agenda_apagada', message: 'La agenda de asesores está apagada (AGENDA_ACTIVA=false).' });
+  });
 
   /* ── Asesores y disponibilidad ──────────────────────────────────────── */
 
   router.get('/agenda/asesores', async (req: AuthedRequest, res: Response) => {
     try {
       const asesores = await servicio.asesores();
+      // Al administrador se le avisa de las citas que quedaron sin asesor (se borró su usuario).
+      const huerfanas = req.user!.role === 'admin' ? await servicio.citasSinAsesor() : undefined;
       res.json({
+        ...(huerfanas ? { citasSinAsesor: huerfanas.length, primeraSinAsesor: huerfanas[0]?.inicio.slice(0, 10) ?? null } : {}),
         asesores: asesores.map((a) => ({
           username: a.username, nombre: a.nombre, role: a.role,
           activo: a.disponibilidad.activo, areas: a.disponibilidad.areas, duracionMin: a.disponibilidad.duracionMin,
@@ -178,7 +202,11 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
   });
 
   router.get('/agenda/config', async (_req, res: Response) => {
-    try { res.json({ config: await servicio.obtenerConfig() }); } catch (err) { fallo(res, 'config', err); }
+    try {
+      // Los festivos nacionales se aplican solos; se devuelven los del próximo año para que el panel los muestre.
+      const hoy = partesBogota(ahora()).fecha;
+      res.json({ config: await servicio.obtenerConfig(), festivosNacionales: festivosColombiaEntre(hoy, sumarDias(hoy, 365)) });
+    } catch (err) { fallo(res, 'config', err); }
   });
 
   router.put('/agenda/config', async (req: AuthedRequest, res: Response) => {
@@ -244,7 +272,7 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
     if (!ID_CITA.test(id)) { res.status(400).json({ error: 'validation_error', message: 'id de cita inválido' }); return null; }
     const cita = await servicio.obtenerCita(id);
     if (!cita) { res.status(404).json({ error: 'no_encontrada', message: 'Esa cita ya no existe.' }); return null; }
-    if (!puedeEditar(req, cita.asesor)) { prohibido(res); return null; }
+    if (!puedeEditarCita(req, cita)) { prohibido(res); return null; }
     return cita;
   }
 

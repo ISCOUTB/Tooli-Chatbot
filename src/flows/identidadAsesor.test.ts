@@ -25,23 +25,24 @@ test('el asesor nunca ve «verificada» para datos que nadie comprobó', () => {
   assert.equal(etiquetaIdentidad('correo_verificado'), 'correo-verificado');
 });
 
-test('si académico ya comprobó el código del vínculo, el bloque lo dice en vez de «lo escribió la persona»', () => {
+test('con el código atado, el bloque dice lo que se comprobó (el par código+cédula), no que sea el titular', () => {
   const conCodigo = { ...vinculo, codigo: 'T00012345', codigoVerificado: true };
   const b = bloqueIdentidad(datos, estadoIdentidad(conCodigo, datos.verifEmail), conCodigo);
-  assert.match(b, /código estudiantil comprobado por académico/);
-  assert.match(b, /Código: T00012345 \(comprobado por académico\)/);
+  assert.match(b, /Código: T00012345 \(vinculado: el portal aceptó código \+ cédula\)/);
+  assert.match(b, /prueba que conocía ese par, no que sea su titular/);
+  assert.doesNotMatch(b, /comprobado por académico/, 'no se afirma más de lo que se comprobó');
   assert.doesNotMatch(b, /Código y cédula: los escribió la persona/);
   assert.match(b, /Cédula: la escribió la persona/);
 
-  // Escribió otro código: se muestra el comprobado y se avisa que no coincide.
+  // Escribió otro código: se muestra el vinculado y se avisa que no coincide.
   const otro = bloqueIdentidad({ ...datos, verifCodigo: 't00099999' }, 'correo_verificado', conCodigo);
-  assert.match(otro, /T00012345 \(comprobado por académico\) — escribió t00099999, NO coincide/);
+  assert.match(otro, /T00012345 \(vinculado: el portal aceptó código \+ cédula\) — escribió t00099999, NO coincide/);
 
   // Código guardado pero NO comprobado, o vínculo de otro correo: sigue siendo lo que escribió la persona.
   const sinComprobar = bloqueIdentidad(datos, 'correo_verificado', { codigo: 'T00012345', codigoVerificado: false });
   assert.match(sinComprobar, /Código y cédula: los escribió la persona/);
-  assert.doesNotMatch(sinComprobar, /comprobado por académico/);
+  assert.doesNotMatch(sinComprobar, /vinculado: el portal/);
   const otroCorreo = bloqueIdentidad(datos, 'sin_verificar', conCodigo);
-  assert.doesNotMatch(otroCorreo, /comprobado por académico/);
+  assert.doesNotMatch(otroCorreo, /vinculado: el portal/);
   assert.match(otroCorreo, /SIN verificar/);
 });

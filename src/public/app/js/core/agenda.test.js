@@ -2,8 +2,46 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga, formDesdeDisponibilidad,
-  horaCorta, hoyBogota, lineaDelDia, lunesDe, nombreDeCita, parseFestivos, porMarcar, sumarDias,
+  horaCorta, hoyBogota, lineaDelDia, lunesDe, nombreDeCita, opcionInicialFranja, parseFestivos, porMarcar, sumarDias,
+  textoSinRecordatorio,
 } from './agenda.js';
+
+describe('horario preseleccionado al tocar «Libre»', () => {
+  const f = (h) => ({ inicio: `2026-11-24T${h}:00-05:00`, fin: `2026-11-24T${h.slice(0, 2)}:30:00-05:00` });
+  const franjas = [f('09:00'), f('10:00'), f('11:00')];
+
+  it('si la hora tocada sigue libre, queda elegida', () => {
+    assert.deepEqual(opcionInicialFranja(franjas, '2026-11-24T10:00:00-05:00'), { valor: `${franjas[1].inicio}|${franjas[1].fin}`, aviso: null });
+  });
+
+  it('si ya no está, lo dice y NO elige otra hora en silencio', () => {
+    const r = opcionInicialFranja(franjas, '2026-11-24T15:00:00-05:00');
+    assert.equal(r.valor, '');
+    assert.match(r.aviso, /mar 24 nov · 3:00 p\. m\..*ya no está libre/);
+    assert.equal(opcionInicialFranja([], '2026-11-24T15:00:00-05:00').valor, '', 'ni pasa a «Otra hora» sola');
+  });
+
+  it('sin hora tocada, la primera libre (o «Otra hora» si no hay)', () => {
+    assert.equal(opcionInicialFranja(franjas).valor, `${franjas[0].inicio}|${franjas[0].fin}`);
+    assert.equal(opcionInicialFranja([]).valor, '__otra__');
+  });
+});
+
+describe('citas sin recordatorio', () => {
+  it('explica por qué una cita confirmada no tendrá recordatorio', () => {
+    const base = { estado: 'confirmada', recordatoriosPendientes: ['24h', '1h'] };
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'ventana' }), /24 horas.*último mensaje/);
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'sin_telefono' }), /no tiene número/);
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'error' }), /no se pudo programar/);
+    assert.match(textoSinRecordatorio({ ...base, recordatoriosPendientes: ['1h'] }), /el de 1 hora/, 'citas viejas sin motivo');
+  });
+
+  it('nada que decir si tiene recordatorio, si no le tocaba o si ya no está confirmada', () => {
+    assert.equal(textoSinRecordatorio({ estado: 'confirmada', recordatorios: ['24h', '1h'] }), null);
+    assert.equal(textoSinRecordatorio({ estado: 'confirmada' }), null);
+    assert.equal(textoSinRecordatorio({ estado: 'cancelada', recordatoriosPendientes: ['1h'], motivoSinRecordatorio: 'ventana' }), null);
+  });
+});
 
 describe('fechas de Bogotá', () => {
   it('hoyBogota usa UTC-5 aunque el navegador esté en otra zona', () => {

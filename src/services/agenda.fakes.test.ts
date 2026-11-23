@@ -13,7 +13,7 @@
  */
 
 import {
-  DepsAgenda, LUA_CAMBIAR_ESTADO, LUA_RESERVAR, RedisAgenda, UsuarioAgenda,
+  DepsAgenda, LUA_ASESOR_BORRADO, LUA_CAMBIAR_ESTADO, LUA_RENOMBRAR_ASESOR, LUA_RESERVAR, RedisAgenda, UsuarioAgenda,
 } from './agendaService';
 import type { HorarioEquipo } from './agendaLogica';
 
@@ -67,6 +67,8 @@ export class FakeRedis implements RedisAgenda {
     // Desde aquí NO hay ningún await: el script es atómico.
     if (script === LUA_RESERVAR) return this.reservar(keys, argv);
     if (script === LUA_CAMBIAR_ESTADO) return this.cambiarEstado(keys, argv);
+    if (script === LUA_RENOMBRAR_ASESOR) return this.renombrarAsesor(keys, argv);
+    if (script === LUA_ASESOR_BORRADO) return this.asesorBorrado(keys, argv);
     throw new Error('Script Lua desconocido para el doble');
   }
 
@@ -98,6 +100,42 @@ export class FakeRedis implements RedisAgenda {
     return 1;
   }
 
+  private renombrarAsesor(keys: string[], a: string[]): number {
+    const disp = this.strings.get(keys[0]);
+    if (disp !== undefined) { this.strings.set(keys[1], disp); this.strings.delete(keys[0]); }
+    for (const [m, sc] of this.z(keys[2])) this.z(keys[3]).set(m, sc);
+    this.zsets.delete(keys[2]);
+    let n = 0;
+    for (const id of this.z(keys[4]).keys()) {
+      const k = a[2] + id;
+      const raw = this.strings.get(k);
+      if (!raw) continue;
+      const c = JSON.parse(raw);
+      let cambio = false;
+      if (c.asesor === a[0] && !c.sinAsesor) { c.asesor = a[1]; cambio = true; n++; }
+      if (c.creadaPor === a[0]) { c.creadaPor = a[1]; cambio = true; }
+      if (cambio) this.strings.set(k, JSON.stringify(c));
+    }
+    return n;
+  }
+
+  private asesorBorrado(keys: string[], a: string[]): number {
+    this.strings.delete(keys[0]);
+    this.zsets.delete(keys[1]);
+    let n = 0;
+    for (const [id, score] of this.z(keys[2])) {
+      const k = a[1] + id;
+      const raw = this.strings.get(k);
+      if (!raw) continue;
+      const c = JSON.parse(raw);
+      if (c.asesor !== a[0] || c.sinAsesor) continue;
+      c.sinAsesor = true;
+      this.strings.set(k, JSON.stringify(c));
+      if (c.estado === 'confirmada' && score >= Number(a[2])) n++;
+    }
+    return n;
+  }
+
   private cambiarEstado(keys: string[], a: string[]): string {
     const raw = this.strings.get(keys[0]);
     if (!raw) return 'noexiste';
@@ -121,6 +159,8 @@ export interface MundoFake {
   reloj: { ahora: number };
   equipo: { horario: HorarioEquipo | null };
   adaptador: { valor: 'meta' | 'evolution' };
+  /** Último mensaje entrante por teléfono (la marca de `activity:<tel>`). Sin entrada: nunca escribió. */
+  entrantes: Map<string, number>;
 }
 
 export const USUARIOS_BASE: UsuarioAgenda[] = [
@@ -136,14 +176,17 @@ export function crearMundo(opts: { ahoraMs?: number; usuarios?: UsuarioAgenda[] 
   const reloj = { ahora: opts.ahoraMs ?? Date.parse('2026-11-23T08:00:00-05:00') };
   const equipo: { horario: HorarioEquipo | null } = { horario: null };
   const adaptador: { valor: 'meta' | 'evolution' } = { valor: 'evolution' };
-  const usuarios = opts.usuarios ?? USUARIOS_BASE;
+  const usuarios = (opts.usuarios ?? USUARIOS_BASE).map((u) => ({ ...u }));
+  const entrantes = new Map<string, number>();
   const deps: DepsAgenda = {
     redis,
     ahora: () => reloj.ahora,
     usuarios: {
       listar: async () => usuarios,
       obtener: async (u) => usuarios.find((x) => x.username === u.toLowerCase()) ?? null,
-    },
+      // Para que una prueba pueda renombrar a un usuario como lo haría usersService.
+      _lista: usuarios,
+    } as DepsAgenda['usuarios'],
     horarioEquipo: async () => equipo.horario,
     recordatorios: {
       programar: async (telefono, mensaje, cuandoMs) => {
@@ -154,8 +197,9 @@ export function crearMundo(opts: { ahoraMs?: number; usuarios?: UsuarioAgenda[] 
       cancelar: async (id) => { const r = recordatorios.find((x) => x.id === id); if (r) r.cancelado = true; },
     },
     adaptador: () => adaptador.valor,
+    ultimoEntrante: async (tel) => entrantes.get(tel) ?? null,
   };
-  return { redis, deps, recordatorios, reloj, equipo, adaptador };
+  return { redis, deps, recordatorios, reloj, equipo, adaptador, entrantes };
 }
 
 /** Lunes a viernes 09:00-12:00 y 14:00-17:00, citas de 30 min, áreas indicadas. */

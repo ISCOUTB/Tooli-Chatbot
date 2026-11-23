@@ -144,9 +144,30 @@ describe('WhatsApp de punta a punta', () => {
     assert.equal(estados.has(TEL), false);
   });
 
-  it('fuera del chat con asesor, un texto raro dentro del flujo repite la instrucción en vez de perderse', async () => {
+  it('lo que no es una opción de la agenda sale del flujo y sigue al bot normal (no atrapa 20 minutos)', async () => {
+    const pasos: Array<[string, string[]]> = [
+      ['franja', []],
+      ['confirmar', ['ag:s:0']],
+      ['area', []],
+    ];
+    const entradas = ['¿cuánto cuesta la maestría en gerencia de proyectos?', 'blablabla', '7', 'reco_si', 'hola'];
+    for (const [paso, previos] of pasos) {
+      for (const entrada of entradas) {
+        estados.clear();
+        await flujo.atender(TEL, 'agendar', { step: 'menu', data: paso === 'area' ? {} : { area: 'posgrados' } });
+        for (const p of previos) await flujo.atender(TEL, p, SESION_MENU);
+        assert.equal(estados.get(TEL)?.paso, paso);
+        const antes = enviados.length;
+        assert.equal(await flujo.atender(TEL, entrada, SESION_MENU), false, `${paso} · «${entrada}» debe seguir al bot`);
+        assert.equal(estados.has(TEL), false, `${paso} · «${entrada}» suelta el flujo`);
+        assert.equal(enviados.length, antes, 'la agenda no contesta: contesta el bot');
+      }
+    }
+  });
+
+  it('un botón de la propia agenda que no corresponde al paso sí se responde dentro del flujo', async () => {
     await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
-    assert.equal(await flujo.atender(TEL, 'blablabla', SESION_MENU), true);
+    assert.equal(await flujo.atender(TEL, 'ag:cok', SESION_MENU), true);
     assert.match(ultimo().texto, /No te entendí/);
     assert.equal(estados.get(TEL)?.paso, 'franja');
   });
@@ -172,6 +193,34 @@ describe('WhatsApp de punta a punta', () => {
     const siguientes = ultimo().filas.slice(0, 3).map((f) => f.title);
     assert.equal(siguientes.length, 3);
     assert.equal(siguientes.some((t) => primeros.includes(t)), false);
+  });
+
+  it('«ver más horarios» recorre toda la ventana sin saltarse días ni repetir', async () => {
+    // Laura: lunes a viernes, 12 citas al día, ventana de 14 días (del lun 23 nov al dom 6 dic).
+    await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
+    const vistas: string[] = [];
+    const anotar = () => { for (const f of estados.get(TEL)?.franjas ?? []) vistas.push(f.inicio); };
+    anotar();
+    const dias = () => [...new Set(vistas.map((i) => i.slice(0, 10)))].sort();
+    for (let pagina = 0; pagina < 6; pagina++) {
+      await flujo.atender(TEL, 'ag:mas', SESION_MENU);
+      assert.equal(ultimo().tipo, 'lista', `página ${pagina + 2}: ${ultimo().texto}`);
+      anotar();
+    }
+    assert.deepEqual(dias(), [
+      '2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27',
+      '2026-11-30', '2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04',
+    ], 'en 7 páginas aparecen todos los días hábiles de la ventana');
+    assert.equal(new Set(vistas).size, vistas.length, 'ninguna franja se repite');
+
+    // Siguiendo, aparecen también las horas que quedaron atrás; al final, y solo al final, dice que no hay más.
+    const total = (await agenda.franjasLibres({ area: 'posgrados', max: 1000 })).length;
+    for (let i = 0; i < 100 && ultimo().tipo === 'lista'; i++) {
+      await flujo.atender(TEL, 'ag:mas', SESION_MENU);
+      if (ultimo().tipo === 'lista') anotar();
+    }
+    assert.match(ultimo().texto, /Ya no tengo más horarios/);
+    assert.equal(new Set(vistas).size, total, 'se ofrecieron todas las franjas de la ventana');
   });
 
   it('«otro horario» al confirmar vuelve a la lista; «no agendar» cierra sin reservar', async () => {
@@ -334,6 +383,29 @@ describe('WhatsApp de punta a punta', () => {
     assert.equal(await flujo.atender(TEL, 'ag:ofrecer', SESION_POSGRADO), false);
     assert.equal(await flujo.ofrecerTrasHandoff(TEL, 'posgrados', 'fuera_horario'), false);
     assert.deepEqual(enviados, []);
+  });
+
+  it('reprogramar solo promete «te avisaremos» si de verdad quedó un recordatorio', async () => {
+    mundo.adaptador.valor = 'meta';
+    mundo.entrantes.set(TEL, mundo.reloj.ahora);
+    await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
+    await flujo.atender(TEL, 'ag:s:1', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    // Nueva hora a más de 24 h del último mensaje: con Meta no sale ningún recordatorio.
+    await flujo.atender(TEL, 'reprogramar', SESION_MENU);
+    await flujo.atender(TEL, 'ag:s:2', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    assert.match(ultimo().texto, /Cambiamos tu cita/);
+    assert.equal(mundo.recordatorios.filter((r) => !r.cancelado).length, 0);
+    assert.doesNotMatch(ultimo().texto, /avisaremos/i);
+
+    // Con Evolution (sin ventana) sí se programa y se dice.
+    mundo.adaptador.valor = 'evolution';
+    await flujo.atender(TEL, 'reprogramar', SESION_MENU);
+    await flujo.atender(TEL, 'ag:s:2', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    assert.ok(mundo.recordatorios.some((r) => !r.cancelado));
+    assert.match(ultimo().texto, /Te avisaremos antes de la hora/);
   });
 
   it('con Meta, la confirmación no promete un recordatorio que no se programó', async () => {

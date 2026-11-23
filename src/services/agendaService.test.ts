@@ -63,6 +63,17 @@ describe('franjasLibres', () => {
     assert.ok(ultimo <= '2026-12-06', `salió de la ventana de 14 días: ${ultimo}`);
   });
 
+  it('el panel tampoco ve huecos fuera de la ventana aunque pida un día lejano (no los podría reservar)', async () => {
+    // Ventana de 14 días desde el lunes 23: llega hasta el domingo 6 de diciembre.
+    const lejos = await ag.franjasDeAsesor('laura', { desde: new Date(bog('2026-12-10T00:00:00')), dias: 1 });
+    assert.deepEqual(lejos, [], 'el 10 de diciembre está fuera de la ventana');
+    const borde = await ag.franjasDeAsesor('laura', { desde: new Date(bog('2026-12-04T00:00:00')), dias: 7 });
+    assert.ok(borde.length > 0 && borde.every((f) => f.inicio < '2026-12-07'), 'recorta en el límite de la ventana');
+    assert.deepEqual(await ag.franjasLibres({ area: 'posgrados', desde: new Date(bog('2026-12-10T00:00:00')) }), []);
+    // Todo lo que se ofrece se puede reservar.
+    for (const f of borde) assert.equal((await reservar(`5730077${String(borde.indexOf(f)).padStart(5, '0')}`, f)).ok, true, f.inicio);
+  });
+
   it('una cita confirmada deja de ofrecerse y cancelarla la devuelve', async () => {
     const franja = fr('laura', '2026-11-24T10:00:00');
     const r = await reservar(TEL, franja);
@@ -306,6 +317,47 @@ describe('recordatorios 24 h y 1 h', () => {
     assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
   });
 
+  it('con Meta, la ventana se cuenta desde el último mensaje de la persona, no desde la reserva', async () => {
+    mundo.adaptador.valor = 'meta';
+    // Cita hoy a las 14:00: el de 1 h sale a las 13:00, 5 h después de la reserva.
+    mundo.entrantes.set(TEL, mundo.reloj.ahora - 3 * 24 * 3600_000);
+    const panel = await ag.reservarPanel({ telefono: TEL, area: 'posgrados', franja: fr('laura', '2026-11-23T14:00:00') }, 'laura', false);
+    assert.equal(panel.ok, true);
+    assert.equal(mundo.recordatorios.length, 0, 'escribió hace 3 días: el texto libre ya no llega');
+    const guardada = await ag.obtenerCita((panel as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['1h'], 'queda «sin recordatorio» y el panel lo muestra');
+    assert.equal(guardada?.motivoSinRecordatorio, 'ventana');
+    assert.deepEqual(guardada?.recordatorios ?? [], []);
+
+    // La misma cita para alguien que acaba de escribir por WhatsApp sí lleva el recordatorio.
+    mundo.entrantes.set(TEL2, mundo.reloj.ahora - 60_000);
+    const wa = await reservar(TEL2, fr('laura', '2026-11-23T14:30:00'));
+    assert.equal(mundo.recordatorios.length, 1);
+    assert.deepEqual((wa as { cita: { recordatorios?: string[] } }).cita.recordatorios, ['1h']);
+  });
+
+  it('un contacto con BSUID (sin teléfono) no rompe nada: queda marcado sin recordatorio', async () => {
+    const BSUID = 'CO.Ab12Cd34Ef56';
+    // Igual que reminderService: validarTelefono no acepta un BSUID.
+    mundo.deps.recordatorios.programar = async (t) => {
+      if (!/^\d+$/.test(t)) throw new Error('telefono inválido (usa E.164 de 10–15 dígitos)');
+      return 'rem_x';
+    };
+    const r = await reservar(BSUID, fr('laura', '2026-11-26T10:00:00'));
+    assert.equal(r.ok, true);
+    const guardada = await ag.obtenerCita((r as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
+    assert.equal(guardada?.motivoSinRecordatorio, 'sin_telefono');
+  });
+
+  it('si programar falla, la cita queda marcada sin recordatorio (no se promete lo que no salió)', async () => {
+    mundo.deps.recordatorios.programar = async () => { throw new Error('Redis caído'); };
+    const r = await reservar(TEL, fr('laura', '2026-11-26T10:00:00'));
+    const guardada = await ag.obtenerCita((r as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
+    assert.equal(guardada?.motivoSinRecordatorio, 'error');
+  });
+
   it('reprogramar cancela los recordatorios viejos y programa los nuevos', async () => {
     const r = await reservar(TEL, fr('laura', '2026-11-26T10:00:00'));
     await ag.reprogramar((r as { cita: { id: string } }).cita.id, TEL, fr('laura', '2026-11-27T10:00:00'));
@@ -388,3 +440,71 @@ describe('acciones del panel', () => {
     assert.equal(todos.find((a) => a.username === 'admin')?.disponibilidad.activo, false);
   });
 });
+
+describe('renombrar o borrar a un asesor', () => {
+  beforeEach(() => preparar());
+
+  const renombrarEnUsuarios = (viejo: string, nuevo: string) => {
+    const u = USUARIOS_DEL_MUNDO().find((x) => x.username === viejo)!;
+    u.username = nuevo;
+  };
+  const USUARIOS_DEL_MUNDO = () => (mundo.deps.usuarios as unknown as { _lista?: typeof USUARIOS_BASE })._lista ?? [];
+
+  it('renombrar migra disponibilidad, ocupación y citas: la hora tomada no se puede volver a reservar', async () => {
+    await ag.guardarDisponibilidad('mario', dispSemana(['posgrados'], { activo: false }));
+    const r = await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    const id = (r as { cita: { id: string } }).cita.id;
+    const cancelada = await reservar(TEL2, fr('laura', '2026-11-24T10:00:00'));
+    await ag.cancelar((cancelada as { cita: { id: string } }).cita.id, TEL2);
+
+    renombrarEnUsuarios('laura', 'laura.perez');
+    assert.equal(await ag.renombrarAsesor('laura', 'laura.perez'), 2, 'las dos citas de laura cambian de dueño');
+
+    assert.equal((await ag.disponibilidadDe('laura.perez')).activo, true, 'conserva su disponibilidad');
+    assert.equal(mundo.redis.strings.has('agenda:disp:laura'), false);
+    const libres = await ag.franjasDeAsesor('laura.perez', { desde: new Date(bog('2026-11-24T00:00:00')), dias: 1 });
+    assert.equal(libres.some((f) => f.inicio === '2026-11-24T09:00:00-05:00'), false, 'la hora ocupada sigue ocupada');
+    assert.deepEqual(await reservar(TEL2, fr('laura.perez', '2026-11-24T09:00:00')), { ok: false, motivo: 'ocupada' }, 'sin doble reserva');
+
+    const cita = await ag.obtenerCita(id);
+    assert.equal(cita?.asesor, 'laura.perez');
+    const dia = { desdeMs: bog('2026-11-24T00:00:00'), hastaMs: bog('2026-11-25T00:00:00') };
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura.perez' })).length, 2);
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura' })).length, 0);
+    // Cancelar después del cambio libera la hora del asesor nuevo (el ZSET correcto).
+    await ag.cancelarPanel(id);
+    assert.equal((await reservar(TEL2, fr('laura.perez', '2026-11-24T09:00:00'))).ok, true);
+  });
+
+  it('renombrar dos veces o a sí mismo no rompe nada', async () => {
+    await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    renombrarEnUsuarios('laura', 'lp');
+    assert.equal(await ag.renombrarAsesor('laura', 'lp'), 1);
+    assert.equal(await ag.renombrarAsesor('laura', 'lp'), 0, 'idempotente');
+    assert.equal(await ag.renombrarAsesor('lp', 'LP'), 0);
+    assert.equal((await ag.citasDe(TEL))[0].asesor, 'lp');
+  });
+
+  it('borrar: sus citas futuras no quedan huérfanas sin aviso', async () => {
+    const r = await reservar(TEL, fr('laura', '2026-11-24T09:00:00'));
+    const id = (r as { cita: { id: string } }).cita.id;
+    await reservar(TEL2, fr('mario', '2026-11-24T09:30:00'));
+    assert.equal(await ag.asesorBorrado('laura'), 1, 'una cita futura confirmada queda sin asesor');
+
+    const cita = await ag.obtenerCita(id);
+    assert.equal(cita?.sinAsesor, true);
+    assert.equal(cita?.estado, 'confirmada', 'la persona conserva su cita hasta que el equipo decida');
+    assert.deepEqual((await ag.citasSinAsesor()).map((c) => c.id), [id], 'el panel la lista');
+    assert.equal(mundo.redis.strings.has('agenda:disp:laura'), false);
+    assert.equal(mundo.redis.zsets.get('agenda:asesor:laura')?.size ?? 0, 0);
+    // Un usuario nuevo con el mismo nombre no hereda ni su agenda ni sus citas.
+    const dia = { desdeMs: bog('2026-11-24T00:00:00'), hastaMs: bog('2026-11-25T00:00:00') };
+    assert.equal((await ag.listarCitas({ ...dia, asesor: 'laura' })).length, 0);
+    assert.equal((await ag.disponibilidadDe('laura')).activo, false);
+    // El administrador la mueve a otro asesor y deja de estar huérfana.
+    const m = await ag.moverPanel(id, fr('mario', '2026-11-24T10:00:00'), 'admin', false);
+    assert.equal(m.ok, true);
+    assert.deepEqual(await ag.citasSinAsesor(), []);
+  });
+});
+

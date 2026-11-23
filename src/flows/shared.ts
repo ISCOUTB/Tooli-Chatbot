@@ -2,6 +2,7 @@ import { EvolutionAPIAdapter } from '../adapters/messaging/EvolutionAPIAdapter';
 import { MetaCloudAdapter } from '../adapters/messaging/MetaCloudAdapter';
 import { IMessagingAdapter } from '../adapters/messaging/IMessagingAdapter';
 import { config } from '../config';
+import { miSemestreDisponible } from '../services/academico/interruptores';
 import { Session, setSession } from '../services/session';
 import { returnMenuStep } from './commands';
 import type { FlowArea, SessionData } from './commands';
@@ -143,8 +144,12 @@ export async function sendMenuClasico(to: string): Promise<void> {
   });
 }
 
-/** Estudiantes verificados ven «Mi semestre» donde un aspirante ve «Cómo inscribirme» (el límite de WhatsApp es 10 filas). */
+/**
+ * Estudiantes verificados ven «Mi semestre» donde un aspirante ve «Cómo inscribirme» (el límite de WhatsApp es 10
+ * filas), pero solo si hay alguna integración académica encendida: con todo apagado el menú es el de siempre.
+ */
 async function esEstudianteVerificado(to: string): Promise<boolean> {
+  if (!miSemestreDisponible()) return false;
   try {
     const { isVerified } = await import('../services/identityService');
     return await isVerified(to);

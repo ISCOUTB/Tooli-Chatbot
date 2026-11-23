@@ -48,6 +48,7 @@ import {
 } from './agendaLogica';
 import { textoRecordatorio } from './agendaTextos';
 import { describeError } from './logSafe';
+import { ultimoEntranteVerificable } from './replyWindow';
 import { isBsuid, normalizeContactId } from './whatsappId';
 
 export type EstadoCita = Cita['estado'];
@@ -60,9 +61,21 @@ export interface CitaAgenda extends Cita {
   creadaPor?: string;
   /** Id de la cita que esta reemplaza (reprogramación). */
   reprogramadaDe?: string;
-  /** Recordatorios que no se programaron por la ventana de 24 h de WhatsApp. */
+  /** Recordatorios que sí quedaron programados. */
+  recordatorios?: Array<'24h' | '1h'>;
+  /** Recordatorios que NO se programaron: la cita queda «sin recordatorio» y el panel lo muestra. */
   recordatoriosPendientes?: Array<'24h' | '1h'>;
+  /**
+   * Por qué: `ventana` (Meta y fuera de las 24 h del último mensaje; falta plantilla aprobada),
+   * `sin_telefono` (contacto con BSUID: el programador de recordatorios solo acepta teléfonos)
+   * o `error` (el programador falló).
+   */
+  motivoSinRecordatorio?: MotivoSinRecordatorio;
+  /** El asesor dueño se borró del panel: la cita conserva `asesor` como historia, pero ya no es de nadie. */
+  sinAsesor?: boolean;
 }
+
+export type MotivoSinRecordatorio = 'ventana' | 'sin_telefono' | 'error';
 
 export type CodigoAgenda = 'no_encontrada' | 'ajena' | 'estado_invalido' | 'futura' | 'ocupada' | 'invalida' | 'limite' | 'asesor_invalido';
 
@@ -93,6 +106,8 @@ export interface DepsAgenda {
     cancelar(id: string): Promise<void>;
   };
   adaptador: () => 'meta' | 'evolution';
+  /** Último mensaje ENTRANTE de la persona por WhatsApp (epoch ms), o null. Marca la ventana de 24 h de Meta. */
+  ultimoEntrante: (telefono: string) => Promise<number | null>;
 }
 
 /** Lo que la agenda usa de ioredis; permite un doble en las pruebas. */
@@ -185,6 +200,74 @@ redis.call('SET', KEYS[1], cjson.encode(c), 'EX', ARGV[4])
 if ARGV[2] == 'cancelada' then redis.call('ZREM', KEYS[2], ARGV[5]) end
 redis.call('ZREM', KEYS[3], ARGV[5])
 return 'ok'
+`;
+
+/**
+ * Renombrar a un asesor en la agenda, en UNA operación (sin ventana para una doble reserva).
+ * KEYS: 1 disponibilidad vieja, 2 disponibilidad nueva, 3 zset del asesor viejo, 4 zset del nuevo, 5 índice general
+ * ARGV: 1 usuario viejo, 2 usuario nuevo, 3 prefijo de las citas ('agenda:cita:')
+ * La disponibilidad se copia tal cual (el JSON se valida con el usuario de la clave al leerla). Las citas de una
+ * persona borrada (`sinAsesor`) no se le asignan a nadie. Devuelve cuántas citas cambiaron de asesor.
+ */
+export const LUA_RENOMBRAR_ASESOR = `
+local disp = redis.call('GET', KEYS[1])
+if disp then
+  redis.call('SET', KEYS[2], disp)
+  redis.call('DEL', KEYS[1])
+end
+local ocupa = redis.call('ZRANGE', KEYS[3], 0, -1, 'WITHSCORES')
+for i = 1, #ocupa, 2 do
+  redis.call('ZADD', KEYS[4], ocupa[i + 1], ocupa[i])
+end
+redis.call('DEL', KEYS[3])
+local n = 0
+for _, id in ipairs(redis.call('ZRANGE', KEYS[5], 0, -1)) do
+  local k = ARGV[3] .. id
+  local raw = redis.call('GET', k)
+  if raw then
+    local ok, c = pcall(cjson.decode, raw)
+    if ok and type(c) == 'table' then
+      local cambio = false
+      if c.asesor == ARGV[1] and not c.sinAsesor then
+        c.asesor = ARGV[2]
+        cambio = true
+        n = n + 1
+      end
+      if c.creadaPor == ARGV[1] then
+        c.creadaPor = ARGV[2]
+        cambio = true
+      end
+      if cambio then redis.call('SET', k, cjson.encode(c), 'KEEPTTL') end
+    end
+  end
+end
+return n
+`;
+
+/**
+ * Un asesor se borró del panel: su disponibilidad y su ocupación se van (un usuario nuevo con el mismo nombre
+ * empieza limpio) y sus citas quedan marcadas `sinAsesor` para que el panel las muestre al administrador.
+ * KEYS: 1 disponibilidad, 2 zset del asesor, 3 índice general
+ * ARGV: 1 usuario, 2 prefijo de las citas, 3 ahora (ms)
+ * Devuelve cuántas citas FUTURAS y confirmadas quedaron sin asesor.
+ */
+export const LUA_ASESOR_BORRADO = `
+redis.call('DEL', KEYS[1], KEYS[2])
+local n = 0
+local todas = redis.call('ZRANGE', KEYS[3], 0, -1, 'WITHSCORES')
+for i = 1, #todas, 2 do
+  local k = ARGV[2] .. todas[i]
+  local raw = redis.call('GET', k)
+  if raw then
+    local ok, c = pcall(cjson.decode, raw)
+    if ok and type(c) == 'table' and c.asesor == ARGV[1] and not c.sinAsesor then
+      c.sinAsesor = true
+      redis.call('SET', k, cjson.encode(c), 'KEEPTTL')
+      if c.estado == 'confirmada' and tonumber(todas[i + 1]) >= tonumber(ARGV[3]) then n = n + 1 end
+    end
+  end
+end
+return n
 `;
 
 /* ─────────────────────────────── Utilidades ────────────────────────────── */
@@ -301,10 +384,16 @@ export function crearAgenda(deps: DepsAgenda) {
     return miembros.map(parseMiembro).filter((m): m is Ocupado & { id: string } => !!m);
   }
 
+  /** Fin (excluido) de lo que se puede reservar: medianoche de hoy + `diasVentana` días. Lo usan franjas y reservar. */
+  function limiteVentana(cfg: ConfigAgenda, ahoraMs: number): number {
+    return inicioDelDia(sumarDias(partesBogota(ahoraMs).fecha, cfg.diasVentana));
+  }
+
   function ventana(desde: Date | undefined, dias: number | undefined, cfg: ConfigAgenda, ahoraMs: number) {
     const desdeMs = Math.max(desde ? desde.getTime() : ahoraMs, 0);
     const n = Math.max(1, Math.min(dias ?? cfg.diasVentana, cfg.diasVentana));
-    const hastaMs = inicioDelDia(sumarDias(partesBogota(desdeMs).fecha, n));
+    // Pedir un día lejano no corre la ventana: nunca se ofrece (ni en el panel) lo que reservar rechazaría.
+    const hastaMs = Math.min(inicioDelDia(sumarDias(partesBogota(desdeMs).fecha, n)), limiteVentana(cfg, ahoraMs));
     return { desdeMs, hastaMs };
   }
 
@@ -343,7 +432,8 @@ export function crearAgenda(deps: DepsAgenda) {
         }
       }
     }
-    const max = Math.max(1, Math.min(opts.max ?? 10, 200));
+    // Hasta 1000: el flujo de WhatsApp pagina sobre toda la ventana (60 días como máximo).
+    const max = Math.max(1, Math.min(opts.max ?? 10, 1000));
     return [...porInicio.values()].map((v) => v.franja).sort((a, b) => a.inicio.localeCompare(b.inicio)).slice(0, max);
   }
 
@@ -383,7 +473,7 @@ export function crearAgenda(deps: DepsAgenda) {
       // dentro de la antelación mínima.
       if (!disp.activo || !disp.areas.includes(input.area)) return { ok: false, motivo: 'invalida' };
       if (finMs - inicioMs !== disp.duracionMin * MIN) return { ok: false, motivo: 'invalida' };
-      if (inicioMs > ahoraMs + cfg.diasVentana * DIA_MS) return { ok: false, motivo: 'invalida' };
+      if (inicioMs >= limiteVentana(cfg, ahoraMs)) return { ok: false, motivo: 'invalida' };
       const equipo = await deps.horarioEquipo().catch(() => null);
       const encaja = calcularFranjasAsesor({
         disp, ocupados: [], ahoraMs, desdeMs: inicioMs, hastaMs: inicioMs + 1,
@@ -426,26 +516,51 @@ export function crearAgenda(deps: DepsAgenda) {
   }
 
   async function programarRecordatorios(cita: CitaAgenda, ahoraMs: number): Promise<void> {
+    const programados: Array<'24h' | '1h'> = [];
+    const sinRecordatorio: Array<'24h' | '1h'> = [];
+    let motivo: MotivoSinRecordatorio | undefined;
     try {
-      const plan = planearRecordatorios({ inicioMs: msDeIso(cita.inicio), reservaMs: ahoraMs, adaptador: deps.adaptador() });
+      const adaptador = deps.adaptador();
+      const ultimoEntrante = adaptador === 'meta' ? await deps.ultimoEntrante(cita.telefono).catch(() => null) : null;
+      const plan = planearRecordatorios({ inicioMs: msDeIso(cita.inicio), ahoraMs, ultimoEntranteMs: ultimoEntrante, adaptador });
+      if (plan.sinVentana.length) {
+        sinRecordatorio.push(...plan.sinVentana.map((r) => r.tipo));
+        motivo = 'ventana';
+      }
       const ids: string[] = [];
       for (const r of plan.programar) {
+        // reminderService solo acepta teléfonos E.164: con un BSUID ni se intenta (lanzaría y no quedaría marca).
+        if (isBsuid(cita.telefono)) {
+          sinRecordatorio.push(r.tipo);
+          motivo ??= 'sin_telefono';
+          continue;
+        }
         try {
           ids.push(await deps.recordatorios.programar(cita.telefono, textoRecordatorio(cita, r.tipo), r.cuandoMs));
+          programados.push(r.tipo);
         } catch (err) {
           console.error('[agenda] no se pudo programar un recordatorio:', describeError(err));
+          sinRecordatorio.push(r.tipo);
+          motivo ??= 'error';
         }
       }
       if (ids.length) await redis.set(K.rec(cita.id), JSON.stringify(ids), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
-      if (plan.sinVentana.length) {
-        // Quedan anotados en la cita: falta la plantilla aprobada de Meta para enviarlos.
-        const guardada = { ...cita, recordatoriosPendientes: plan.sinVentana.map((r) => r.tipo) };
-        await redis.set(K.cita(cita.id), JSON.stringify(guardada), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
-        cita.recordatoriosPendientes = guardada.recordatoriosPendientes;
-      }
     } catch (err) {
       // Un recordatorio que falla no debe deshacer una cita ya reservada.
       console.error('[agenda] error al programar recordatorios:', describeError(err));
+      motivo ??= 'error';
+    }
+    if (programados.length) cita.recordatorios = programados;
+    if (sinRecordatorio.length) {
+      cita.recordatoriosPendientes = (['24h', '1h'] as const).filter((t) => sinRecordatorio.includes(t));
+      cita.motivoSinRecordatorio = motivo ?? 'error';
+    }
+    if (!programados.length && !sinRecordatorio.length) return;
+    try {
+      // Queda anotado en la cita: el panel muestra «sin recordatorio» y los textos no prometen lo que no salió.
+      await redis.set(K.cita(cita.id), JSON.stringify(cita), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
+    } catch (err) {
+      console.error('[agenda] no se pudo anotar los recordatorios en la cita:', describeError(err));
     }
   }
 
@@ -573,12 +688,42 @@ export function crearAgenda(deps: DepsAgenda) {
     raws.forEach((raw, i) => {
       const c = parseCita(raw);
       if (!c) { huerfanos.push(recortados[i]); return; }
-      if (opts.asesor && c.asesor !== opts.asesor.toLowerCase()) return;
+      // Las de un asesor borrado no son de nadie: no aparecen al filtrar por ese nombre (ni para quien lo herede).
+      if (opts.asesor && (c.asesor !== opts.asesor.toLowerCase() || c.sinAsesor)) return;
       if (opts.estado && c.estado !== opts.estado) return;
       citas.push(c);
     });
     if (huerfanos.length) await redis.zrem(K.todas, ...huerfanos).catch(() => 0);
     return citas.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }
+
+  /* ── Cambios de usuarios del panel (los llama usersService) ─────────── */
+
+  /** Renombrar: disponibilidad, ocupación y citas pasan al usuario nuevo en una sola operación atómica. */
+  async function renombrarAsesor(viejo: string, nuevo: string): Promise<number> {
+    const v = viejo.toLowerCase();
+    const n = nuevo.toLowerCase();
+    if (!v || !n || v === n) return 0;
+    return Number(await redis.eval(
+      LUA_RENOMBRAR_ASESOR, 5, K.disp(v), K.disp(n), K.asesorZ(v), K.asesorZ(n), K.todas, v, n, K.cita(''),
+    ));
+  }
+
+  /** Borrar: ver LUA_ASESOR_BORRADO. Devuelve cuántas citas futuras quedaron sin asesor. */
+  async function asesorBorrado(usuario: string): Promise<number> {
+    const u = usuario.toLowerCase();
+    if (!u) return 0;
+    return Number(await redis.eval(LUA_ASESOR_BORRADO, 3, K.disp(u), K.asesorZ(u), K.todas, u, K.cita(''), deps.ahora()));
+  }
+
+  /** Citas futuras y confirmadas de asesores borrados: el administrador las mueve o las cancela. */
+  async function citasSinAsesor(): Promise<CitaAgenda[]> {
+    const ids = await redis.zrangebyscore(K.todas, deps.ahora(), '+inf');
+    if (!ids.length) return [];
+    const raws = await redis.mget(ids.slice(0, 2000).map(K.cita));
+    return raws.map(parseCita)
+      .filter((c): c is CitaAgenda => !!c && c.sinAsesor === true && c.estado === 'confirmada')
+      .sort((a, b) => a.inicio.localeCompare(b.inicio));
   }
 
   const api: AgendaApi = {
@@ -596,6 +741,7 @@ export function crearAgenda(deps: DepsAgenda) {
     franjasDeAsesor,
     obtenerCita, listarCitas,
     reservarPanel, moverPanel, cancelarPanel, marcarPanel,
+    renombrarAsesor, asesorBorrado, citasSinAsesor,
   };
 }
 
@@ -636,6 +782,14 @@ function depsReales(): DepsAgenda {
       },
     },
     adaptador: () => config.messagingAdapter,
+    // La misma marca que usa Conversaciones para la ventana de 24 h: el historial `activity:<tel>` (botUserService).
+    async ultimoEntrante(telefono) {
+      const historial = await (redis as unknown as Redis).lrange(`activity:${telefono}`, 0, 49);
+      const mensajes = historial.flatMap((raw) => {
+        try { return [JSON.parse(raw) as { ts: number; direction: 'in' | 'out' }]; } catch { return []; }
+      });
+      return ultimoEntranteVerificable(mensajes, Date.now());
+    },
   };
 }
 

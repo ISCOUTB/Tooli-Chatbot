@@ -35,6 +35,7 @@ import {
   ReminderValidationError, validarTelefono, validarMensaje, validarFecha,
 } from './reminderValidation';
 import { describeError } from './logSafe';
+import { isBsuid } from './whatsappId';
 
 const redis = new Redis(config.redis.url);
 
@@ -81,6 +82,11 @@ function nuevoId(): string {
 }
 
 export async function scheduleReminder(input: ScheduleInput): Promise<Reminder> {
+  // Un BSUID (usuario de WhatsApp sin número) no es un teléfono: el worker no podría enviarlo. Se dice claro
+  // para que quien programa (la agenda lo marca «sin recordatorio») no lo confunda con un número mal escrito.
+  if (isBsuid(String(input.telefono ?? '').trim())) {
+    throw new ReminderValidationError('Este contacto no tiene número de teléfono (usuario de WhatsApp sin número): los recordatorios programados solo se envían a teléfonos.');
+  }
   const telefono = validarTelefono(input.telefono ?? '');
   const mensaje = validarMensaje(input.mensaje ?? '');
   const scheduledAt = validarFecha(input.scheduledAt);

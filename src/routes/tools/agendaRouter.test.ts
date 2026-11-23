@@ -17,6 +17,7 @@ let servicio: AgendaServicio;
 let auditoria: Array<{ username: string; action: string; detail?: string }>;
 let avisos: Array<{ telefono: string; texto: string }>;
 let ventanaCerrada: boolean;
+let agendaActiva: boolean;
 
 before(async () => {
   const app = express();
@@ -40,6 +41,7 @@ beforeEach(async () => {
   auditoria = [];
   avisos = [];
   ventanaCerrada = false;
+  agendaActiva = true;
   await servicio.guardarDisponibilidad('laura', dispSemana(['posgrados']));
   await servicio.guardarDisponibilidad('mario', dispSemana(['posgrados', 'ti']));
   router = crearAgendaRouter({
@@ -51,6 +53,7 @@ beforeEach(async () => {
       return { enviado: true };
     },
     ahora: () => mundo.reloj.ahora,
+    activa: () => agendaActiva,
   });
 });
 
@@ -68,6 +71,28 @@ const MARIO = 'mario:asesor';
 const ADMIN = 'admin:admin';
 const cita = (extra: Record<string, unknown> = {}) => ({
   telefono: TEL, nombre: 'Ana', area: 'posgrados', asesor: 'laura', inicio: '2026-11-24T09:00:00-05:00', ...extra,
+});
+
+describe('AGENDA_ACTIVA=false: la API de la agenda está apagada', () => {
+  it('el panel pregunta el estado y, apagada, ninguna ruta de la agenda responde ni escribe', async () => {
+    assert.deepEqual((await llamar(LAURA, 'GET', '/agenda/estado')).json, { activa: true });
+    agendaActiva = false;
+    assert.deepEqual((await llamar(LAURA, 'GET', '/agenda/estado')).json, { activa: false });
+    const rutas: Array<[string, string, unknown?]> = [
+      ['GET', '/agenda/asesores'], ['GET', '/agenda/config'], ['GET', '/agenda/disponibilidad/laura'],
+      ['GET', '/agenda/franjas?asesor=laura'], ['GET', '/agenda/citas?desde=2026-11-24'],
+      ['POST', '/agenda/citas', cita()], ['PUT', '/agenda/disponibilidad/laura', dispSemana()],
+      ['PUT', '/agenda/config', { antelacionMin: 60, maxCitasFuturas: 3, diasVentana: 10 }],
+    ];
+    for (const [metodo, ruta, cuerpo] of rutas) {
+      const r = await llamar(ADMIN, metodo, ruta, cuerpo);
+      assert.equal(r.status, 404, `${metodo} ${ruta}`);
+      assert.equal(r.json.error, 'agenda_apagada');
+    }
+    assert.equal(avisos.length, 0, 'nadie recibe «escribe cancelar cita» de un flujo apagado');
+    assert.equal(auditoria.length, 0);
+    assert.deepEqual(await servicio.listarCitas({ desdeMs: 0, hastaMs: Date.parse('2100-01-01') }), []);
+  });
 });
 
 describe('disponibilidad y configuración', () => {
@@ -103,7 +128,9 @@ describe('disponibilidad y configuración', () => {
     assert.equal((await llamar(ADMIN, 'PUT', '/agenda/config', { ...cfg, maxCitasFuturas: 0 })).status, 400);
     const ok = await llamar(ADMIN, 'PUT', '/agenda/config', cfg);
     assert.equal(ok.status, 200);
-    assert.equal((await llamar(LAURA, 'GET', '/agenda/config')).json.config.maxCitasFuturas, 3);
+    const leida = (await llamar(LAURA, 'GET', '/agenda/config')).json;
+    assert.equal(leida.config.maxCitasFuturas, 3);
+    assert.deepEqual(leida.festivosNacionales.slice(0, 3), ['2026-12-08', '2026-12-25', '2027-01-01'], 'los nacionales se muestran aparte');
     assert.equal(auditoria[0].action, 'agenda_config_actualizada');
   });
 
@@ -233,3 +260,23 @@ describe('citas desde el panel', () => {
     assert.equal((await llamar(LAURA, 'GET', '/agenda/franjas')).status, 400);
   });
 });
+
+describe('citas de un asesor borrado', () => {
+  it('solo el administrador las ve como suyas para mover o cancelar, y sabe cuántas hay', async () => {
+    const c = (await llamar(LAURA, 'POST', '/agenda/citas', cita())).json.cita;
+    await servicio.asesorBorrado('laura');
+    const q = '/agenda/citas?desde=2026-11-24&dias=1';
+    const comoLaura = (await llamar(LAURA, 'GET', q)).json.citas[0];
+    assert.equal(comoLaura.sinAsesor, true);
+    assert.equal(comoLaura.puedeEditar, false, 'un usuario nuevo con el mismo nombre no la hereda');
+    assert.equal(comoLaura.telefono, undefined);
+    assert.equal((await llamar(LAURA, 'POST', `/agenda/citas/${c.id}/cancelar`)).status, 403);
+    assert.equal((await llamar(ADMIN, 'GET', q)).json.citas[0].puedeEditar, true);
+    assert.equal((await llamar(ADMIN, 'GET', '/agenda/asesores')).json.citasSinAsesor, 1);
+    assert.equal((await llamar(MARIO, 'GET', '/agenda/asesores')).json.citasSinAsesor, undefined, 'el aviso es para el administrador');
+    const movida = await llamar(ADMIN, 'POST', `/agenda/citas/${c.id}/mover`, { inicio: '2026-11-24T10:00:00-05:00', asesor: 'mario' });
+    assert.equal(movida.status, 200);
+    assert.equal((await llamar(ADMIN, 'GET', '/agenda/asesores')).json.citasSinAsesor, 0);
+  });
+});
+

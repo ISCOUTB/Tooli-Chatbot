@@ -3,10 +3,14 @@ import { createHash, createHmac, randomInt } from 'crypto';
 import { config } from '../config';
 import { sendOtpEmail } from './mailService';
 import {
-  CamposAcademicos, claveBusqueda, conservarAlRenovar, extraerCamposAcademicos, FuenteCodigo,
-  normalizarCedula, normalizarCodigo,
+  CamposAcademicos, conservarAlRenovar, extraerCamposAcademicos, FuenteCodigo,
+  normalizarCedula, normalizarCodigo, sinCamposAcademicos,
 } from './academico/identidadAcademica';
-import { cifrar, leerClave } from './academico/cifrado';
+import { cifrar, descifrar, leerClave } from './academico/cifrado';
+import {
+  clavesIndice, huellaDeIndice, indiceCedulaDeHuella, migrarIndicesBusqueda, secretosBusqueda,
+  type RedisIndices, type ResultadoMigracion,
+} from './academico/indicesBusqueda';
 import {
   clavesVoz, type LimitesVoz, type PendienteVoz, type ResultadoIntentoVoz, type ResultadoReservaVoz,
 } from './academico/nucleo';
@@ -94,7 +98,7 @@ redis.call('DEL', KEYS[1])
 return 'ok'
 `;
 
-const REVOKE_IDENTITY_SCRIPT = `
+export const REVOKE_IDENTITY_SCRIPT = `
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 'missing' end
 local valid, identity = pcall(cjson.decode, raw)
@@ -304,23 +308,42 @@ export function emailMatchesIdentity(identity: Identity, portalEmail?: string | 
 // Identidad fuerte: código estudiantil atado al vínculo (compatible hacia atrás).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const secretoBusqueda = () => process.env.TOOLI_ACADEMICO_CLAVE?.trim() || config.auth.jwtSecret;
-const codigoIdx = (codigo: string) => claveBusqueda('codigo', codigo, secretoBusqueda());
-const cedulaIdx = (cedula: string) => claveBusqueda('cedula', cedula, secretoBusqueda());
+// Índices inversos por código y por cédula con su clave propia (TOOLI_BUSQUEDA_CLAVE, derivada con HKDF; #38).
+// Se escriben con el secreto actual y se LEEN también con el de antes (TOOLI_ACADEMICO_CLAVE || JWT_SECRET) mientras
+// no se haya corrido tools/migrar-indices-busqueda.ts. Ver src/services/academico/indicesBusqueda.ts.
+const secretos = () => secretosBusqueda({
+  busqueda: process.env.TOOLI_BUSQUEDA_CLAVE, academico: process.env.TOOLI_ACADEMICO_CLAVE, jwt: config.auth.jwtSecret,
+});
+const codigoIdxs = (codigo: string) => clavesIndice('codigo', codigo, secretos());
+const cedulaIdxs = (cedula: string) => clavesIndice('cedula', cedula, secretos());
 
-// Un código pertenece a un solo correo. Si otro vínculo VIGENTE (otro correo)
-// ya lo tiene, se rechaza; un vínculo vencido o revocado no bloquea.
-const ATAR_CODIGO_SCRIPT = `
-local owner = redis.call('GET', KEYS[1])
-if owner and owner ~= ARGV[1] then
+/** Borra cada índice que todavía apunte a `from` (nunca el de otra persona). */
+async function soltarSiApunta(from: string, claves: string[]): Promise<void> {
+  for (const clave of claves) if ((await redis.get(clave)) === from) await redis.del(clave);
+}
+
+/** Cédula en claro de un vínculo, si quedó cifrada y hay clave. */
+function cedulaDelVinculo(from: string, campos: CamposAcademicos): string | null {
+  const clave = leerClave();
+  if (!campos.cedulaCifrada || !clave) return null;
+  try { return normalizarCedula(descifrar(campos.cedulaCifrada, `cedula:${from}`, clave)); } catch { return null; }
+}
+
+// Un código pertenece a un solo correo. Si otro vínculo VIGENTE (otro correo) ya lo tiene, se rechaza; un vínculo
+// vencido o revocado no bloquea. Se mira el índice con el secreto actual Y con el de antes: sin migrar, el dueño real
+// solo aparece en el viejo y, si no se mirara, el mismo código se podría atar a un segundo correo.
+// KEYS: 1 índice del código, 2 vínculo, 3 índice de la cédula (o KEYS[1]), 4 índice del código con el secreto de antes
+//       (o KEYS[1]). ARGV: 1 teléfono, 2 vínculo nuevo (JSON), 3 código, 4 correo.
+export const ATAR_CODIGO_SCRIPT = `
+local function ajeno(clave)
+  local owner = redis.call('GET', clave)
+  if not owner or owner == ARGV[1] then return false end
   local raw = redis.call('GET', 'identity:' .. owner)
-  if raw then
-    local ok, other = pcall(cjson.decode, raw)
-    if ok and type(other) == 'table' and other.codigo == ARGV[3] and other.email ~= ARGV[4] then
-      return 'en_uso'
-    end
-  end
+  if not raw then return false end
+  local ok, other = pcall(cjson.decode, raw)
+  return ok and type(other) == 'table' and other.codigo == ARGV[3] and other.email ~= ARGV[4]
 end
+if ajeno(KEYS[1]) or (KEYS[4] ~= KEYS[1] and ajeno(KEYS[4])) then return 'en_uso' end
 local cur = redis.call('GET', KEYS[2])
 if not cur then return 'sin_identidad' end
 local okc, curObj = pcall(cjson.decode, cur)
@@ -330,6 +353,7 @@ if ttl < 1 then return 'sin_identidad' end
 redis.call('SET', KEYS[2], ARGV[2], 'EX', ttl)
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ttl)
 if KEYS[3] ~= KEYS[1] then redis.call('SET', KEYS[3], ARGV[1], 'EX', ttl) end
+if KEYS[4] ~= KEYS[1] and redis.call('GET', KEYS[4]) == ARGV[1] then redis.call('DEL', KEYS[4]) end
 return 'ok'
 `;
 
@@ -355,6 +379,8 @@ export async function guardarCodigoEstudiantil(from: string, datos: DatosVinculo
   if (!actual) return 'sin_identidad';
   const cedula = datos.cedula ? normalizarCedula(datos.cedula) : null;
   const clave = leerClave();
+  const [idxCodigo, idxCodigoViejo = idxCodigo] = codigoIdxs(codigo);
+  const idxCedula = cedula ? cedulaIdxs(cedula)[0] : null;
   const nueva: Identity = {
     ...actual,
     codigo,
@@ -364,16 +390,20 @@ export async function guardarCodigoEstudiantil(from: string, datos: DatosVinculo
     ...(datos.programa ? { programa: datos.programa.slice(0, 120) } : {}),
     ...(datos.nivel ? { nivel: datos.nivel } : {}),
   };
+  // La cédula y su índice son del código que se ata: lo de un código anterior no se arrastra.
+  if (cedula || actual.codigo !== codigo) { delete nueva.cedulaCifrada; delete nueva.cedulaIndice; }
   if (cedula && clave) nueva.cedulaCifrada = cifrar(cedula, `cedula:${from}`, clave);
+  if (idxCedula) nueva.cedulaIndice = huellaDeIndice(idxCedula);
   const resultado = await redis.eval(
-    ATAR_CODIGO_SCRIPT, 3,
-    codigoIdx(codigo), identityKey(from), cedula ? cedulaIdx(cedula) : codigoIdx(codigo),
+    ATAR_CODIGO_SCRIPT, 4,
+    idxCodigo, identityKey(from), idxCedula ?? idxCodigo, idxCodigoViejo,
     from, JSON.stringify(nueva), codigo, actual.email,
   );
-  if (resultado === 'ok' && actual.codigo && actual.codigo !== codigo) {
-    // Cambió de código: el índice del anterior deja de apuntar a este número.
-    const anterior = codigoIdx(actual.codigo);
-    if ((await redis.get(anterior)) === from) await redis.del(anterior);
+  if (resultado === 'ok') {
+    // Cambió de código o de cédula: los índices anteriores dejan de apuntar a este número.
+    if (actual.codigo && actual.codigo !== codigo) await soltarSiApunta(from, codigoIdxs(actual.codigo));
+    if (actual.cedulaIndice && actual.cedulaIndice !== nueva.cedulaIndice) await soltarSiApunta(from, [indiceCedulaDeHuella(actual.cedulaIndice)]);
+    if (cedula) await soltarSiApunta(from, cedulaIdxs(cedula).slice(1));
   }
   return resultado === 'ok' || resultado === 'en_uso' ? resultado : 'sin_identidad';
 }
@@ -386,46 +416,132 @@ async function datosAcademicosAConservar(from: string, previous: Identity | null
   const raw = await redis.get(identityKey(dueno));
   if (!raw) return propios;
   try {
-    const { cedulaCifrada: _noViaja, ...heredados } = conservarAlRenovar(JSON.parse(raw), email);
+    // La cédula cifrada (atada al número anterior) y su índice (que apunta a ese número) no viajan.
+    const { cedulaCifrada: _noViaja, cedulaIndice: _noApunta, ...heredados } = conservarAlRenovar(JSON.parse(raw), email);
     return heredados;
   } catch {
     return propios;
   }
 }
 
-/** El índice inverso del código apunta ahora a este número (y vive lo que vive el vínculo). */
+/** Los índices inversos apuntan ahora a este número (y viven lo que vive el vínculo). */
 async function renovarIndicesAcademicos(from: string): Promise<void> {
   const raw = await redis.get(identityKey(from));
   if (!raw) return;
   let campos: CamposAcademicos;
   try { campos = extraerCamposAcademicos(JSON.parse(raw)); } catch { return; }
-  if (campos.codigo) await redis.set(codigoIdx(campos.codigo), from, 'EX', IDENTITY_TTL);
+  if (campos.codigo) {
+    const [nuevo, ...viejos] = codigoIdxs(campos.codigo);
+    await redis.set(nuevo, from, 'EX', IDENTITY_TTL);
+    await soltarSiApunta(from, viejos);
+  }
+  if (campos.cedulaIndice) await redis.set(indiceCedulaDeHuella(campos.cedulaIndice), from, 'EX', IDENTITY_TTL);
 }
 
+/** Al revocar: ningún índice (código ni cédula, con el secreto actual ni con el de antes) sigue apuntando a `from`. */
 async function soltarIndicesAcademicos(from: string, campos: CamposAcademicos): Promise<void> {
-  if (!campos.codigo) return;
-  const llave = codigoIdx(campos.codigo);
-  if ((await redis.get(llave)) === from) await redis.del(llave);
+  if (campos.codigo) await soltarSiApunta(from, codigoIdxs(campos.codigo));
+  if (campos.cedulaIndice) await soltarSiApunta(from, [indiceCedulaDeHuella(campos.cedulaIndice)]);
+  const cedula = cedulaDelVinculo(from, campos);
+  if (cedula) await soltarSiApunta(from, cedulaIdxs(cedula));
 }
 
 /** Vínculo vigente que tiene ese código (o null). El índice se confirma contra el propio vínculo. */
 export async function buscarIdentidadPorCodigo(codigo: string): Promise<{ telefono: string; identity: Identity } | null> {
   const c = normalizarCodigo(codigo);
   if (!c) return null;
-  const telefono = await redis.get(codigoIdx(c));
-  if (!telefono) return null;
-  const identity = await getIdentity(telefono);
-  return identity?.codigo === c ? { telefono, identity } : null;
+  for (const clave of codigoIdxs(c)) {
+    const telefono = await redis.get(clave);
+    if (!telefono) continue;
+    const identity = await getIdentity(telefono);
+    if (identity?.codigo === c) return { telefono, identity };
+  }
+  return null;
 }
 
-/** Igual por cédula. Solo existe el índice de quien vinculó con una cédula comprobada. */
+/**
+ * Igual por cédula. El índice se CONFIRMA contra el vínculo al que apunta: el código tiene que estar comprobado y el
+ * vínculo tiene que reconocer ese mismo índice (`cedulaIndice`) o, en vínculos anteriores a esa huella, su cédula
+ * cifrada tiene que ser esa. Un índice viejo (la persona cambió de código o de cédula) ya no devuelve a nadie.
+ */
 export async function buscarIdentidadPorCedula(cedula: string): Promise<{ telefono: string; identity: Identity } | null> {
   const c = normalizarCedula(cedula);
   if (!c) return null;
-  const telefono = await redis.get(cedulaIdx(c));
-  if (!telefono) return null;
-  const identity = await getIdentity(telefono);
-  return identity ? { telefono, identity } : null;
+  for (const clave of cedulaIdxs(c)) {
+    const telefono = await redis.get(clave);
+    if (!telefono) continue;
+    const identity = await getIdentity(telefono);
+    if (!identity?.codigoVerificado) continue;
+    const confirmado = identity.cedulaIndice
+      ? identity.cedulaIndice === huellaDeIndice(clave)
+      : cedulaDelVinculo(telefono, identity) === c;
+    if (confirmado) return { telefono, identity };
+  }
+  return null;
+}
+
+// Soltar un código: deja el vínculo de correo como estaba pero sin los datos académicos, y borra sus índices, solo si
+// nadie cambió el vínculo desde que se leyó. KEYS: 1 vínculo, 2.. índices; ARGV: 1 teléfono, 2 vínculo leído,
+// 3 vínculo sin datos académicos. Conserva el vencimiento.
+export const SOLTAR_CODIGO_SCRIPT = `
+if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 'cambio' end
+redis.call('SET', KEYS[1], ARGV[3], 'KEEPTTL')
+for i = 2, #KEYS do
+  if redis.call('GET', KEYS[i]) == ARGV[1] then redis.call('DEL', KEYS[i]) end
+end
+return 'ok'
+`;
+
+export type ResultadoSoltarCodigo =
+  | { estado: 'formato' | 'no_encontrado' }
+  | { estado: 'simulado' | 'listo' | 'cambio'; telefono: string; email: string };
+
+/**
+ * Atar un código solo prueba que alguien conocía el par código+cédula; si fue otra persona, el dueño real recibe
+ * `en_uso`. TI, tras confirmar por otro medio quién es el titular, suelta el código con
+ * tools/soltar-codigo.ts: el vínculo de correo de quien lo tenía sigue, sin código, nombre, programa ni cédula, y sus
+ * índices se borran. Con `aplicar: false` solo dice a quién se lo quitaría. Índices huérfanos de ese código se limpian.
+ */
+export async function soltarCodigoEstudiantil(codigo: string, opts: { aplicar: boolean }): Promise<ResultadoSoltarCodigo> {
+  const c = normalizarCodigo(codigo);
+  if (!c) return { estado: 'formato' };
+  const claves = codigoIdxs(c);
+  for (const clave of claves) {
+    const telefono = await redis.get(clave);
+    if (!telefono) continue;
+    const raw = await redis.get(identityKey(telefono));
+    if (!raw) continue;
+    let vinculo: Identity;
+    try { vinculo = JSON.parse(raw) as Identity; } catch { continue; }
+    const campos = extraerCamposAcademicos(vinculo);
+    if (campos.codigo !== c) continue;
+    if (!opts.aplicar) return { estado: 'simulado', telefono, email: vinculo.email };
+    const cedula = cedulaDelVinculo(telefono, campos);
+    const indices = [...new Set([
+      ...claves,
+      ...(campos.cedulaIndice ? [indiceCedulaDeHuella(campos.cedulaIndice)] : []),
+      ...(cedula ? cedulaIdxs(cedula) : []),
+    ])];
+    const r = await redis.eval(
+      SOLTAR_CODIGO_SCRIPT, 1 + indices.length, identityKey(telefono), ...indices,
+      telefono, raw, JSON.stringify(sinCamposAcademicos(vinculo)),
+    );
+    return { estado: r === 'ok' ? 'listo' : 'cambio', telefono, email: vinculo.email };
+  }
+  // Ningún vínculo vigente tiene ese código: si quedó algún índice suelto, se borra.
+  if (opts.aplicar) for (const clave of claves) await redis.del(clave);
+  return { estado: 'no_encontrado' };
+}
+
+/**
+ * Pasa los índices al secreto actual (TOOLI_BUSQUEDA_CLAVE). Idempotente; con `aplicar: false` solo cuenta.
+ * La usa tools/migrar-indices-busqueda.ts (ver docs/datos-academicos.md).
+ */
+export async function migrarIndicesDeBusqueda(opts: { aplicar: boolean }): Promise<ResultadoMigracion> {
+  return migrarIndicesBusqueda(redis as unknown as RedisIndices, secretos(), {
+    aplicar: opts.aplicar,
+    descifrarCedula: (telefono, blob) => cedulaDelVinculo(telefono, { cedulaCifrada: blob }),
+  });
 }
 
 /** Teléfonos con vínculo vigente (para avisos proactivos). Recorre con SCAN, sin bloquear Redis. */
