@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { PENDIENTE_VIGENTE_MS, pendienteVigente, perfilDeDatos, soloConsentimiento } from './perfilService';
+import { PENDIENTE_VIGENTE_MS, juntarPerfil, pendienteVigente, perfilDeDatos, sesionParaElPerfil, soloConsentimiento } from './perfilService';
 
 describe('perfil de quien vuelve', () => {
   it('solo recuerda los valores cerrados, el nombre y la autorización; nunca lo que escribió', () => {
@@ -34,5 +34,24 @@ describe('perfil de quien vuelve', () => {
 
   it('recorta valores largos', () => {
     assert.equal(perfilDeDatos({ nombre: 'x'.repeat(500) }).nombre.length, 120);
+  });
+});
+
+describe('perfil: canal de contacto', () => {
+  it('completar no pisa con vacíos, pero vacía lo que ya no aplica', () => {
+    const antes = { datos: 'si', nombre: 'Ana', contactoCanal: 'llamada', contactoTel: '3015551234', contactoFranja: 'noche' };
+    assert.deepEqual(juntarPerfil(antes, { nombre: '', contactoCanal: 'chat' }, ['contactoTel', 'contactoFranja']),
+      { datos: 'si', nombre: 'Ana', contactoCanal: 'chat' });
+    assert.deepEqual(juntarPerfil(antes, { correo: '' }), antes);
+  });
+
+  it('la sesión de la conversación no borra el canal, el correo ni el nombre guardados', () => {
+    const guardado = { datos: 'si', nombre: 'Ana', correo: 'ana@x.com', filaCrm: '7', contactoCanal: 'llamada', contactoTel: 'este', contactoFranja: 'tarde' };
+    assert.deepEqual(sesionParaElPerfil(guardado, { datos: 'si', relacion: 'externo' }),
+      { datos: 'si', relacion: 'externo', nombre: 'Ana', correo: 'ana@x.com', filaCrm: '7', contactoCanal: 'llamada', contactoTel: 'este', contactoFranja: 'tarde' });
+    // Un canal a medio elegir en la sesión no pisa el completo del perfil; el nombre nuevo sí manda.
+    assert.deepEqual(sesionParaElPerfil(guardado, { datos: 'si', nombre: 'Laura', contactoCanal: 'correo', contactoTel: '' }),
+      { datos: 'si', nombre: 'Laura', correo: 'ana@x.com', filaCrm: '7', contactoCanal: 'llamada', contactoTel: 'este', contactoFranja: 'tarde' });
+    assert.deepEqual(sesionParaElPerfil(null, { datos: 'si' }), { datos: 'si' });
   });
 });

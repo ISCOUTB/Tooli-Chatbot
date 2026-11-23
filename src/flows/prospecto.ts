@@ -114,6 +114,11 @@ export interface DatosAsesorPosgrado {
   lineas?: readonly string[];
   /** Etiquetas extra de la conversación, además de `posgrado-prospecto`. */
   etiquetas?: readonly string[];
+  /**
+   * Lo que lee la persona en vez de "te responderá en breve" (quien pidió una
+   * llamada o un correo). `proxima` es el próximo horario, si es fuera de horario.
+   */
+  aviso?: (proxima: string | null) => string;
 }
 
 /**
@@ -174,11 +179,13 @@ export async function conectarConAsesorPosgrado(from: string, datos: DatosAsesor
       },
     });
 
+    const proxima = fueraHorario ? await textoProximaAtencion() : null;
+    const aviso = datos.aviso?.(proxima) ?? (proxima
+      ? `Tu solicitud quedó registrada. Un asesor de Posgrados te responderá en el próximo horario de atención: *${proxima}*.`
+      : 'Un asesor de Posgrados te responderá en breve.');
     await messaging.sendText({
       to: from,
-      text: fueraHorario
-        ? `✅ *Listo, ${nombre}!*\n\nTu solicitud quedó registrada. Un asesor de Posgrados te responderá en el próximo horario de atención: *${await textoProximaAtencion()}*.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`
-        : `✅ *Listo, ${nombre}!*\n\nUn asesor de Posgrados te responderá en breve.\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`,
+      text: `✅ *Listo, ${nombre}!*\n\n${aviso}\n\nCualquier mensaje que escribas le llegará directamente.\nPara terminar la conversación, escribe *salir*.`,
     });
   } catch (err) {
     console.error('[prospecto] no se pudo crear conversación Chatwoot');

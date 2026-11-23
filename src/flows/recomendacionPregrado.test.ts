@@ -259,6 +259,16 @@ describe('programasAfines', () => {
     assert.ok(programasAfines({ familiaId: 'salud' }).some((p) => p.id === 'virtual-gerencia-servicios-salud'));
   });
 
+  it('incluye la gemela virtual de un afín (mismo programa y nivel en UTB Virtual), justo después', () => {
+    const industrial = programasAfines({ pregradoId: 'ingenieria-industrial' }).map((p) => p.id);
+    const presencial = industrial.indexOf('especializacion-en-gerencia-de-la-seguridad-y-salud-en-el-trabajo');
+    assert.ok(presencial >= 0);
+    assert.equal(industrial[presencial + 1], 'virtual-seguridad-y-salud-trabajo', industrial.join(', '));
+    // Sin repetir: Salud ya trae las dos.
+    const salud = programasAfines({ familiaId: 'salud' }).map((p) => p.id);
+    assert.equal(salud.length, new Set(salud).size);
+  });
+
   it('sin perfil conocido no hay afines', () => {
     assert.deepEqual(programasAfines({}), []);
     assert.deepEqual(programasAfines({ pregradoId: 'medicina' }), []);

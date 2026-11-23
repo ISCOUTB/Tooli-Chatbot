@@ -6,6 +6,7 @@ import {
   limpiarNombre, nivelDeBoton, pareceUnaPregunta, parseBoton, parseSugerencia, saludoCortoRegreso, saludoEnConversacion, saludoRegreso,
   SALUDO_CONVERSACION, SALUDO_CORTO, SUGERENCIAS_SALUDO,
   separarSugerencias, sinPregrado, siguientePregunta, textoPregrado,
+  buscaNivel, cambioDeNombre, carreraEnLaFrase, datosDeLaFrase, esCancelar, esCorreccion, nombraUnPosgrado, soloCuentaDatos,
 } from './conversacionView';
 
 describe('conversación: botones', () => {
@@ -420,5 +421,149 @@ describe('conversación: lo que encontraron las 500 simulaciones', () => {
 
   it('«la más corta» es la especialización', () => {
     assert.deepEqual(interpretarRespuestaEscrita('nivel', 'la más corta'), { boton: 'conv_esp' });
+  });
+});
+
+// Frases reales que se perdían (nov-2026): el bot volvía a pedir la carrera o no dejaba cambiar el nombre.
+describe('conversación: lo que trae una frase escrita', () => {
+  const carrera = (t: string) => {
+    const c = carreraEnLaFrase(t);
+    return c ? ('pregradoId' in c ? c.pregradoId : c.familiaId) : null;
+  };
+
+  it('saca la carrera dicha de paso, con tildes, mayúsculas, abreviada o mal escrita', () => {
+    for (const [t, id] of [
+      ['No, estudio ingeniería de sistemas', 'ingenieria-de-sistemas-y-computacion'],
+      ['NO ESTUDIO INGENIERIA DE SISTEMAS', 'ingenieria-de-sistemas-y-computacion'],
+      ['no estudio ing sistemas 😅', 'ingenieria-de-sistemas-y-computacion'],
+      ['estudiando sistemas', 'ingenieria-de-sistemas-y-computacion'],
+      ['nop, estudie derecho', 'derecho'],
+      ['sí, soy egresado de industrial', 'ingenieria-industrial'],
+      ['estudio ingenieria indsutrial', 'ingenieria-industrial'],
+      ['Soy abogada', 'derecho'],
+      ['soy ingeniero civil', 'ingenieria-civil'],
+      ['estudio quinto semestre de psicologia', 'psicologia'],
+      ['Me gradué como contador público', 'contaduria-publica'],
+      ['estudio en la utb ingenieria industrial', 'ingenieria-industrial'],
+      ['no, me equivoqué, estudio civil', 'ingenieria-civil'],
+      ['estudio enfermería', 'salud'],
+    ] as const) assert.equal(carrera(t), id, t);
+  });
+
+  it('no toma por carrera el posgrado que busca ni lo que no es una carrera', () => {
+    for (const t of ['quiero una maestría en finanzas', 'estudio una maestría en finanzas', 'estudio en la UTB', 'estudio en otra universidad',
+      'soy de cartagena', 'soy Laura', 'estudio y trabajo', '¿qué maestrías hay en finanzas?']) assert.equal(carrera(t), null, t);
+  });
+
+  it('saca la relación con la UTB aunque no la diga con las palabras del botón', () => {
+    assert.equal(detectarPerfil('soy egresado de la tecnológica').relacion, 'egresado_utb');
+    assert.equal(detectarPerfil('me gradue de economia en la utb').relacion, 'egresado_utb');
+    assert.equal(detectarPerfil('soy ingeniera de sistemas de la UTB').relacion, 'egresado_utb');
+    assert.equal(detectarPerfil('no, estudié en la Universidad de Cartagena, derecho').relacion, 'externo');
+    assert.equal(detectarPerfil('estudie medicina en otra universidad').relacion, 'externo');
+    assert.equal(detectarPerfil('Soy egresado').relacion, undefined, 'sin decir de dónde no se asume nada');
+  });
+
+  it('«una especialización», «no, un posgrado»: dice solo qué nivel busca', () => {
+    assert.deepEqual(buscaNivel('Especialización'), { nivel: 'especializacion', virtual: false });
+    assert.deepEqual(buscaNivel('no, una especialización'), { nivel: 'especializacion', virtual: false });
+    assert.deepEqual(buscaNivel('quiero hacer un doctorado'), { nivel: 'doctorado', virtual: false });
+    assert.deepEqual(buscaNivel('MAESTRIA'), { nivel: 'maestria', virtual: false });
+    assert.deepEqual(buscaNivel('una especializacion en linea porfa'), { nivel: 'especializacion', virtual: true });
+    assert.deepEqual(buscaNivel('no, un posgrado'), { nivel: '', virtual: false }, 'posgrado a secas no fija nivel');
+    for (const t of ['maestria en finanzas', '¿cuánto cuesta la maestría?', 'ok', 'no']) assert.equal(buscaNivel(t), null, t);
+    assert.equal(datosDeLaFrase('no, una especialización').buscaNivel?.nivel, 'especializacion');
+  });
+
+  it('un «no» seguido de datos sigue siendo un «no»; una corrección no contesta la pregunta', () => {
+    assert.deepEqual(interpretarRespuestaEscrita('tiene_programa', 'No, estudio ingeniería de sistemas'), { boton: 'conv_elegir' });
+    assert.deepEqual(interpretarRespuestaEscrita('tiene_programa', 'no, un posgrado'), { boton: 'conv_elegir' });
+    assert.deepEqual(interpretarRespuestaEscrita('tiene_programa', 'Especialización'), { boton: 'conv_elegir' });
+    assert.equal(interpretarRespuestaEscrita('tiene_programa', 'no, pero quiero saber cuánto cuesta'), null, 'eso es una pregunta');
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'no, soy de otra universidad, estudié derecho'), { boton: 'conv_utb_no' });
+    assert.deepEqual(interpretarRespuestaEscrita('estudia_utb', 'egresado de otra universidad'), { boton: 'conv_utb_no' });
+    assert.equal(interpretarRespuestaEscrita('estudia_utb', 'no, me equivoqué, estudio civil'), null);
+    assert.equal(interpretarRespuestaEscrita('estudia_utb', 'ya te dije que estudio sistemas'), null);
+    assert.ok(esCorreccion('No, me equivoqué'));
+    assert.ok(!esCorreccion('no gracias'));
+  });
+
+  it('«estudio sistemas en la UTB» solo cuenta datos; una pregunta no', () => {
+    assert.ok(soloCuentaDatos('estudio sistemas en la UTB'));
+    assert.ok(soloCuentaDatos('no, me equivoqué, estudio civil'));
+    for (const t of ['soy egresado de la UTB, ¿cuánto cuesta la maestría?', 'estudio derecho y quiero saber los horarios', 'estudié derecho, hay becas']) {
+      assert.ok(!soloCuentaDatos(t), t);
+    }
+  });
+
+  it('nombrar un programa no es solo contar datos: va a la IA', () => {
+    for (const t of ['busco la maestría en ingeniería de sistemas', 'estoy interesado en la especialización en gerencia de proyectos',
+      'Me llamó la atención la maestría en finanzas', 'Hola, busco la maestría en finanzas', 'soy administrador y quiero un MBA',
+      'me interesa el doctorado en ingeniería', 'la especialización virtual en seguridad y salud']) {
+      assert.ok(nombraUnPosgrado(t), t);
+      assert.ok(!soloCuentaDatos(t), t);
+    }
+    for (const t of ['busco una maestría', 'quiero una especialización virtual', 'una maestría en la UTB', 'estudio derecho',
+      'un doctorado en el exterior', 'especialización de un año', 'maestría en línea', 'soy egresado de la UTB']) {
+      assert.ok(!nombraUnPosgrado(t), t);
+    }
+  });
+});
+
+describe('conversación: pedir el asesor diciendo el canal', () => {
+  it('«quiero que un asesor me escriba por aquí» es pedir el asesor', () => {
+    for (const t of ['quiero que un asesor me escriba por aquí', 'que un asesor me escriba a mi correo ana@x.com', 'que una asesora me llame',
+      'llámenme al 300 222 3344']) {
+      assert.ok(esPedidoAsesor(t), t);
+    }
+    assert.ok(!esPedidoAsesor('quiero que me expliquen la maestría'));
+  });
+});
+
+describe('conversación: cambiar el nombre', () => {
+  it('reconoce el nombre nuevo en las formas en que se dice', () => {
+    for (const [t, nombre] of [
+      ['me llamo Laura', 'Laura'], ['Me llamo LAURA GÓMEZ', 'LAURA GÓMEZ'], ['mi nombre es Laura Gómez', 'Laura Gómez'],
+      ['cámbiame el nombre a Laura', 'Laura'], ['cambia mi nombre a Laura Pérez', 'Laura Pérez'], ['ese no es mi nombre, soy Laura', 'Laura'],
+      ['no me llamo Pedro, me llamo Laura', 'Laura'], ['no soy Pedro, soy Laura', 'Laura'], ['mi nombre real es Laura', 'Laura'],
+      ['ponme de nombre Laura', 'Laura'], ['me llamo ana 👋', 'ana'], ['me llamo laura.', 'laura'],
+      ['mi nombre es María José de la Hoz', 'María José de la Hoz'],
+    ] as const) {
+      const r = cambioDeNombre(t);
+      assert.ok(r && 'nombre' in r && r.nombre === nombre, `${t} → ${JSON.stringify(r)}`);
+    }
+  });
+
+  it('separa lo que dijo después del nombre', () => {
+    assert.deepEqual(cambioDeNombre('hola, me llamo Laura y estudio derecho'), { nombre: 'Laura', resto: 'estudio derecho' });
+    assert.deepEqual(cambioDeNombre('me llamo Laura, quiero info de la maestría'), { nombre: 'Laura', resto: 'quiero info de la maestría' });
+    assert.deepEqual(cambioDeNombre('me llamo Laura pero me dicen Lau'), { nombre: 'Laura', resto: '' });
+  });
+
+  it('«quiero cambiar mi nombre» sin decir cuál: se le pregunta', () => {
+    for (const t of ['quiero cambiar mi nombre', 'Quiero cambiar mi nombre por favor', 'cambiar nombre', 'Ese no es mi nombre']) {
+      assert.deepEqual(cambioDeNombre(t), { pedir: true }, t);
+    }
+  });
+
+  it('no confunde con un cambio de nombre lo que no lo es', () => {
+    for (const t of ['me llamo la atención la maestría', 'me llamó mucho la atención', '¿cómo se llama el programa?', 'me llamaron ayer',
+      'Me llamaron de la UTB', 'no soy de cartagena, soy de barranquilla', 'no soy egresado, soy estudiante', 'mi nombre es 😀',
+      'me llamo jajaja', 'soy ingeniera', 'estudio derecho', '__image__']) {
+      assert.equal(cambioDeNombre(t), null, t);
+    }
+  });
+
+  it('«olvídalo», «mejor no» o «cancelar» nunca son un nombre', () => {
+    for (const t of ['olvídalo', 'olvidalo', 'mejor no', 'no', 'cancelar', 'cancela', 'déjalo así', 'dejalo', 'así está bien', 'ya no', 'no importa']) {
+      assert.equal(limpiarNombre(t), null, t);
+      assert.ok(esCancelar(t), t);
+    }
+    for (const t of ['Laura', 'Mejía', 'Nora', 'Dejanira']) assert.ok(!esCancelar(t), t);
+  });
+
+  it('«estudio derecho» o «soy ingeniero» no se registran como nombre', () => {
+    assert.equal(limpiarNombre('estudio derecho'), null);
+    assert.equal(limpiarNombre('soy ingeniero'), null);
   });
 });
