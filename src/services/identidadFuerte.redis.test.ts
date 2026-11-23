@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 
@@ -110,7 +110,6 @@ test('código estudiantil atado al vínculo: compatibilidad, unicidad, herencia 
     if (llaves.length) await redis.del(...llaves);
     for (const e of [correo(1), correo(2), correo(4), correo(5), correo(6), correo(7)]) await redis.del(emailKey(e));
     redis.disconnect();
-    id.closeIdentityService();
   }
 });
 
@@ -196,6 +195,12 @@ test('índices con clave propia (#38): respaldo, «un código, un correo», migr
     if (llaves.length) await redis.del(...llaves);
     await redis.del(...creadas, emailKey(correo(1)), emailKey(correo(2)), emailKey(correo(3)));
     redis.disconnect();
-    id.closeIdentityService();
   }
+});
+
+// La conexión del servicio es una sola para todo el archivo: cerrarla dentro de una
+// prueba deja a la siguiente con «Connection is closed».
+after(async () => {
+  if (process.env.TOOLI_TEST_REDIS !== '1') return;
+  (await import('./identityService')).closeIdentityService();
 });
