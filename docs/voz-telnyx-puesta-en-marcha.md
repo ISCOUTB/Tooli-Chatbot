@@ -233,6 +233,8 @@ El simulador **no prueba**:
 - Los tiempos reales del silencio: el botón lo dispara a mano.
 - La voz, la firma, la transferencia real ni los costos.
 
+**Llamar con voz** (botón junto a *Iniciar llamada simulada*) usa el mismo simulador, pero hablando: el navegador escucha con su reconocimiento de voz y contesta con su voz (`ui/llamada-voz.js`, lógica en `core/llamada-voz.js`). Se acerca más a una llamada: el silencio corre solo a los 6 y 7 s, como `silencioMs`, y con *Puedo interrumpir (uso audífonos)* hablar encima calla al bot. Funciona en **Microsoft Edge** (trae a Gonzalo y a Salomé, las mismas voces de Azure de la línea) o en Chrome, con https o en localhost. Firefox y Safari muestran un aviso y dejan el simulador escrito. Sin audífonos, el micrófono se cierra mientras habla el bot, para que no se oiga a sí mismo. Sigue sin probar la red telefónica ni la voz de Telnyx.
+
 Todo eso queda para C2.
 
 ### C2. Primera llamada real

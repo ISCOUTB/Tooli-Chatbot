@@ -342,7 +342,8 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
     const fin = $('.lv-fin');
     const transferida = e.motivoFin === 'transferida';
     $('.lv-fin-titulo').textContent = transferida ? 'Te pasó con un asesor' : e.motivoFin === 'colgaste' ? 'Colgaste' : `${nombre} colgó`;
-    const resultado = e.resultado && e.resultado !== 'en_curso' ? resultadoLlamada(e.resultado).label : '';
+    // «Colgaste · Colgó» sobra: el resultado solo se dice si agrega algo (silencio, consulta, asesor…).
+    const resultado = e.resultado && !['en_curso', 'colgo'].includes(e.resultado) ? resultadoLlamada(e.resultado).label : '';
     // La duración ya va en la píldora de estado («Llamada terminada · 0:24»).
     $('.lv-fin-detalle').textContent = resultado;
     $('.lv-fin-detalle').hidden = !resultado;
