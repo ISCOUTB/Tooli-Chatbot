@@ -1,5 +1,5 @@
 // Firma de los webhooks de Telnyx (API v2): Ed25519 sobre `${telnyx-timestamp}|${cuerpo crudo}` con la llave
-// pública de la cuenta (base64 de 32 bytes, la da el portal de Telnyx en «Keys & Credentials → Public Key»).
+// pública de la cuenta (base64 de 32 bytes, la da el portal de Telnyx en «API Keys → Public Key»).
 // Se verifica sobre los BYTES crudos que llegaron, nunca sobre un JSON re-serializado. Con hora fuera de la
 // ventana (±5 min) se rechaza aunque la firma sea buena: así un evento grabado no se puede reenviar después.
 import { createPublicKey, verify, type KeyObject } from 'node:crypto';
