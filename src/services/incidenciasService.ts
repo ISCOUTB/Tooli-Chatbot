@@ -8,6 +8,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { describeExternalError } from './logSafe';
+import { saltarEnSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 const CLAVE = 'incidencias:lista';
@@ -32,6 +33,8 @@ export function detalleSeguro(detalle: string, err?: unknown): string {
 }
 
 export async function registrarIncidencia(tipo: TipoIncidencia, detalle: string, err?: unknown): Promise<void> {
+  // Lo que falle en una prueba se ve en el simulador, no en las incidencias del panel.
+  if (saltarEnSimulacion('Incidencias', `Incidencia «${tipo}» que no se registró en el panel: ${detalleSeguro(detalle, err)}`)) return;
   try {
     // Se carga aquí: el módulo de métricas abre Redis al importarse.
     const { track } = await import('./metrics');

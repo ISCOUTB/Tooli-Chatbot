@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { config } from '../config';
 import { maskEmail, maskPhone } from './logSafe';
 import { contactIdLabel } from './whatsappId';
+import { saltarEnSimulacion } from './simulacion';
 
 export interface RegistroProspecto {
   nombre: string;
@@ -29,6 +30,8 @@ export function filaDeRango(rango: string | null | undefined): number | null {
 
 /** Agrega el prospecto y devuelve la fila escrita, para completarla después sin duplicarla. */
 export async function guardarRegistroProspecto(data: RegistroProspecto): Promise<number | null> {
+  // Sin fila: lo que viene después (completar o cambiar el nombre) tampoco escribe.
+  if (saltarEnSimulacion('Google Sheets', `No se agregó a la hoja de prospectos: ${data.nombre || 'sin nombre'} · ${data.programa || 'sin programa'} · ${data.area ?? 'Posgrado'}.`, data.whatsapp)) return null;
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) {
     console.warn('[registro] POSGRADO_REGISTRO_SHEET_ID no configurado — prospecto no persistido', {
@@ -83,6 +86,7 @@ export async function guardarRegistroProspecto(data: RegistroProspecto): Promise
  * fila por persona en el CRM.
  */
 export async function actualizarRegistroProspecto(fila: number, data: RegistroProspecto): Promise<void> {
+  if (saltarEnSimulacion('Google Sheets', `No se completó la fila del prospecto: ${data.nombre || 'sin nombre'} · ${data.programa || 'sin programa'}.`, data.whatsapp)) return;
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId || !Number.isInteger(fila) || fila < 2) throw new Error('fila de registro inválida');
   const auth = new google.auth.GoogleAuth({
@@ -111,6 +115,7 @@ export function pedidoNombreProspecto(fila: number, nombre: string): { range: st
  * sesión puede no tenerlos y se borrarían de la hoja.
  */
 export async function actualizarNombreProspecto(fila: number, nombre: string): Promise<void> {
+  if (saltarEnSimulacion('Google Sheets', `No se cambió el nombre en la hoja de prospectos (ahora sería «${nombre}»).`)) return;
   const sheetId = config.google.registroPosgradoSheetId;
   if (!sheetId) throw new Error('POSGRADO_REGISTRO_SHEET_ID no configurado');
   const { range, values } = pedidoNombreProspecto(fila, nombre);

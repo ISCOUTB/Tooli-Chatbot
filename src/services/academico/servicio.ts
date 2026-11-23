@@ -11,6 +11,7 @@ import { crearProveedorReciboIceberg, crearVerificadorCodigoIceberg } from './pr
 import { crearProveedorTurnoSheets } from './proveedores/turnoSheets';
 import { crearProveedorCursosSavio } from './proveedores/cursosSavio';
 import { vincularCodigoEstudiantil as vincularConDeps, type EstadoVinculo } from './vinculo';
+import { saltarEnSimulacion } from '../simulacion';
 
 /**
  * Punto de entrada de los datos académicos: `academico` implementa el contrato
@@ -129,6 +130,10 @@ export const academico: AcademicoApi = crearAcademico(depsReales);
 export async function vincularCodigoEstudiantil(
   telefono: string, codigo: string, cedula: string,
 ): Promise<{ estado: EstadoVinculo; nombre?: string }> {
+  // Atar un código real a un número de prueba se lo quitaría al estudiante (y consultaría Iceberg con sus datos).
+  if (saltarEnSimulacion('Código estudiantil', 'No se consultó Iceberg ni se ató el código: el simulador no usa datos de estudiantes reales.', telefono)) {
+    return { estado: 'apagado' };
+  }
   const id = await identidad();
   return vincularConDeps({
     interruptores: interruptoresDeEntorno,

@@ -1,4 +1,5 @@
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { saltarEnSimulacion } from './simulacion';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Consulta de NOTAS vía login SSO (Microsoft) automatizado con Playwright.
@@ -149,6 +150,10 @@ export async function consultarHorarioHtmlConSesion(estadoJson: string) {
 export async function startNotasLogin(
   id: string, email: string, password: string, opciones: OpcionesLogin = {},
 ): Promise<NotasLoginResult> {
+  // Nadie escribe una contraseña real del portal en el panel: en el simulador no se entra a Banner.
+  if (saltarEnSimulacion('Portal de notas', 'No se entró al portal de notas: el simulador nunca usa contraseñas reales.', id)) {
+    return { status: 'error', error: 'En el simulador no se consulta el portal de notas.' };
+  }
   await closeNotasSession(id);
   let browser: Browser | undefined;
   try {

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { config } from '../config';
 import { describeError, maskEmail } from './logSafe';
 import { isBsuid } from './whatsappId';
+import { saltarEnSimulacion } from './simulacion';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 
@@ -36,6 +37,7 @@ export interface HubspotLead {
  * contacto y solo se guardan los datos básicos.
  */
 export async function upsertContactoHubspot(lead: HubspotLead): Promise<void> {
+  if (saltarEnSimulacion('HubSpot', `No se creó ni actualizó el contacto en HubSpot (${lead.nombre || 'sin nombre'} · ${lead.posgradoInteres || 'sin programa'}).`, lead.whatsapp)) return;
   if (!config.hubspot.activo || !config.hubspot.token) {
     console.log('[hubspot] inactivo o sin token — omitido');
     return;

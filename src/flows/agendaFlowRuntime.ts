@@ -10,14 +10,23 @@ import { agendaServicio } from '../services/agendaService';
 import { describeError } from '../services/logSafe';
 import { crearFlujoAgenda, EstadoFlujoAgenda, SesionMinima } from './agendaFlow';
 import { messaging } from './shared';
+import { conAgendaDePrueba } from './agendaDePrueba';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 const KEY = (tel: string) => `agenda:flujo:${tel}`;
 /** La conversación de agendar caduca sola a los 20 minutos de silencio. */
 const TTL_FLUJO_S = 20 * 60;
 
+/** La agenda real, salvo en el simulador del panel: ahí las citas son de prueba (ver agendaDePrueba.ts). */
+const agendaDelFlujo = conAgendaDePrueba(agendaServicio);
+
+/** «Empezar de nuevo» en el simulador: olvida las citas de prueba de ese número. */
+export function soltarAgendaDePrueba(telefono: string): void {
+  agendaDelFlujo.soltar(telefono);
+}
+
 const flujo = crearFlujoAgenda({
-  agenda: agendaServicio,
+  agenda: agendaDelFlujo,
   mensajes: messaging,
   estado: {
     async get(tel) {

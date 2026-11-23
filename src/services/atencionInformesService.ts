@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 import { config } from '../config';
 import { EventoAtencion, suscribirAtencion } from './atencionEventos';
 import type { PublicUser } from './usersService';
+import { saltarEnSimulacion } from './simulacion';
 
 // Las pruebas de las funciones puras pueden importar este módulo sin abrir Redis.
 const redis = new Redis(config.redis.url, { lazyConnect: true });
@@ -162,6 +163,7 @@ export async function registrarReapertura(conversacionId: number): Promise<void>
 
 export async function registrarCsat(conversacionId: number, csat: number, csatEn = Date.now()): Promise<void> {
   if (!Number.isInteger(csat) || csat < 1 || csat > 5) return;
+  if (saltarEnSimulacion('Informes de atención', `Calificación ${csat}/5 que no cuenta en los informes (simulador).`) || conversacionId <= 0) return;
   await sinInterrumpir('la calificación', async () => {
     await asegurarCreada(conversacionId, csatEn);
     await redis.hset(KEY(conversacionId), { csat: String(csat), csatEn: String(csatEn) });

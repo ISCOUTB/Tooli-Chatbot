@@ -12,6 +12,7 @@ import Redis from 'ioredis';
 import { config } from '../config';
 import { describeExternalError } from './logSafe';
 import { registrarIncidencia } from './incidenciasService';
+import { saltarEnSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 
@@ -44,6 +45,7 @@ export function horaDeEnvio(desde: number, espera = ESPERA_MS): number | null {
 /** Programa el seguimiento de la pregunta pendiente (reemplaza al anterior, si había). */
 export async function programarSeguimiento(telefono: string, pendiente: string, ahora = Date.now()): Promise<void> {
   if (!config.seguimiento.activo) return;
+  if (saltarEnSimulacion('Seguimiento', 'No se programó el mensaje de seguimiento por si la persona deja de responder.', telefono)) return;
   try {
     if (await redis.exists(ENVIADO(telefono))) return;
     const cuando = horaDeEnvio(ahora);

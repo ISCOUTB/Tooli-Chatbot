@@ -55,7 +55,8 @@ export type AuditAction =
   | 'agenda_disponibilidad_actualizada'
   | 'agenda_config_actualizada'
   | 'voz_ajustes_actualizados'
-  | 'voz_devolucion_hecha';
+  | 'voz_devolucion_hecha'
+  | 'simulador_whatsapp_iniciado';
 
 export interface AuditEntry {
   ts: number;

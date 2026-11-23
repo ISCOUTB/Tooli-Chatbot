@@ -7,6 +7,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { describeExternalError } from './logSafe';
+import { saltarEnSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 const CLAVE = 'noreconocido:textos';
@@ -30,6 +31,7 @@ export function textoSeguro(texto: string): string {
 }
 
 export async function registrarNoReconocido(paso: string, texto: string): Promise<void> {
+  if (saltarEnSimulacion('No reconocido', `El bot no reconoció «${textoSeguro(texto)}» en el paso ${paso} (no se cuenta en el panel).`)) return;
   // Se carga aquí: el módulo de métricas abre Redis al importarse y las pruebas de textoSeguro no lo necesitan.
   const { track } = await import('./metrics');
   await track('no_reconocido', { paso });

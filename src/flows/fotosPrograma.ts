@@ -6,7 +6,8 @@
  */
 import { config } from '../config';
 import { POSGRADOS_UTB, ProgramaUtb } from '../services/catalogoUtb';
-import { idDeFlyer, precalentarFlyers } from '../services/fotoProgramaService';
+import { claveFlyer, generarFlyer, idDeFlyer, precalentarFlyers } from '../services/fotoProgramaService';
+import { enSimulacion } from '../services/simulacion';
 import { describeExternalError } from '../services/logSafe';
 import { registrarIncidencia } from '../services/incidenciasService';
 import { esperarSalida } from '../services/entregasMeta';
@@ -21,9 +22,24 @@ const subir = (jpg: Buffer) => messaging.subirImagen!(jpg, 'image/jpeg');
 /** Flyers enviados a cada persona cuya salida todavía no se confirmó. */
 const flyersEnCamino = new Map<string, string[]>();
 
+/** Flyers ya dibujados para el simulador (no se suben a Meta): uno por programa y versión. */
+const flyersDePrueba = new Map<string, Buffer>();
+
 export async function enviarFlyerPrograma(to: string, programa: ProgramaUtb, pie: string): Promise<boolean> {
   if (!fotosDisponibles()) return false;
   try {
+    if (enSimulacion()) {
+      // En el simulador el flyer se dibuja aquí y viaja como imagen: nada se sube a Meta ni toca su caché.
+      const clave = claveFlyer(programa);
+      let jpg = flyersDePrueba.get(clave);
+      if (!jpg) {
+        jpg = await generarFlyer(programa);
+        if (flyersDePrueba.size >= 40) flyersDePrueba.delete(flyersDePrueba.keys().next().value!);
+        flyersDePrueba.set(clave, jpg);
+      }
+      await messaging.sendImage({ to, buffer: jpg, mimetype: 'image/jpeg', caption: pie });
+      return true;
+    }
     const id = await idDeFlyer(programa, subir);
     let idMensaje: string | void;
     try {

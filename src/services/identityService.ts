@@ -2,6 +2,7 @@ import Redis from 'ioredis';
 import { createHash, createHmac, randomInt } from 'crypto';
 import { config } from '../config';
 import { sendOtpEmail } from './mailService';
+import { correoSimulado, esNumeroSimulado, saltarEnSimulacion } from './simulacion';
 import {
   CamposAcademicos, conservarAlRenovar, extraerCamposAcademicos, FuenteCodigo,
   normalizarCedula, normalizarCodigo, sinCamposAcademicos,
@@ -111,8 +112,14 @@ return 'ok'
 /** Genera un OTP, lo guarda (TTL 10 min) y lo envía al correo institucional. */
 export async function startVerification(from: string, email: string): Promise<void> {
   const code = String(randomInt(100000, 1000000)); // 6 dígitos
-  const normalizedEmail = email.trim().toLowerCase();
+  let normalizedEmail = email.trim().toLowerCase();
   if (!INSTITUTIONAL_EMAIL.test(normalizedEmail)) throw new Error('Correo institucional inválido');
+  // Un número del simulador nunca reclama el correo de un estudiante real (le quitaría su vínculo):
+  // el vínculo de prueba queda con un correo ficticio que no existe en la UTB.
+  if (esNumeroSimulado(from)) {
+    saltarEnSimulacion('Verificación', `El vínculo de prueba usa ${correoSimulado(from)} en lugar de ${normalizedEmail}: así no toca el vínculo de nadie.`, from);
+    normalizedEmail = correoSimulado(from);
+  }
   const cooldown = await redis.set(otpSendKey(from), '1', 'EX', SEND_COOLDOWN, 'NX');
   if (cooldown !== 'OK') throw new VerificationRateLimitError();
   const state: OtpState = { email: normalizedEmail, codeHash: codeHash(from, code), tries: 0 };
@@ -281,6 +288,22 @@ export const pendientesVoz = {
   },
 };
 
+/**
+ * Perfil «estudiante verificado» del simulador de WhatsApp: el mismo vínculo que deja el OTP, pero con el correo
+ * ficticio del número de prueba (nunca uno real) y por un día. Solo acepta números de la zona de pruebas.
+ * Se borra con `revokeIdentity` al empezar de nuevo.
+ */
+export async function vincularIdentidadSimulada(from: string): Promise<Identity> {
+  if (!esNumeroSimulado(from)) throw new Error('Solo un número del simulador puede tener un vínculo de prueba');
+  const identity: Identity = { email: correoSimulado(from), verifiedAt: Date.now() };
+  const UN_DIA = 24 * 60 * 60;
+  await redis.multi()
+    .setex(identityKey(from), UN_DIA, JSON.stringify(identity))
+    .setex(emailKey(identity.email), UN_DIA, from)
+    .exec();
+  return identity;
+}
+
 /** Cierra la conexión al detener el proceso o al terminar una prueba aislada. */
 export function closeIdentityService(): void {
   redis.disconnect();
@@ -373,6 +396,8 @@ export type ResultadoVinculoCodigo = 'ok' | 'sin_identidad' | 'en_uso' | 'format
 
 /** Ata el código estudiantil al vínculo vigente de `from`. No toca el TTL del vínculo. */
 export async function guardarCodigoEstudiantil(from: string, datos: DatosVinculoCodigo): Promise<ResultadoVinculoCodigo> {
+  // El código de un estudiante real nunca se ata a un número de prueba (se le quitaría a él).
+  if (esNumeroSimulado(from)) return 'sin_identidad';
   const codigo = normalizarCodigo(datos.codigo);
   if (!codigo) return 'formato';
   const actual = await getIdentity(from);

@@ -28,6 +28,7 @@
 import Redis from 'ioredis';
 import { normalizeContactId } from './whatsappId';
 import { config } from '../config';
+import { saltarEnSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 
@@ -137,7 +138,9 @@ export async function getFichas(): Promise<Record<string, FichaCrm>> {
   return out;
 }
 
-async function guardar(ficha: FichaCrm, autor: string): Promise<FichaCrm> {
+async function guardar(ficha: FichaCrm, autor: string, detalle = 'un cambio'): Promise<FichaCrm> {
+  // Las conversaciones del simulador no aparecen en el CRM del panel.
+  if (saltarEnSimulacion('CRM del panel', `No se guardó en la ficha del CRM ${detalle}.`, ficha.phone)) return ficha;
   ficha.actualizadoEn = Date.now();
   ficha.actualizadoPor = autor;
   const pipe = redis.pipeline();
@@ -162,7 +165,7 @@ export async function agregarNota(phone: string, texto: string, autor: string): 
   // Se acota por tamaño, no por tiempo: la ficha no debe crecer sin límite.
   if (ficha.notas.length > MAX_NOTAS) ficha.notas = ficha.notas.slice(0, MAX_NOTAS);
 
-  return guardar(ficha, autor);
+  return guardar(ficha, autor, `la nota «${limpio}»`);
 }
 
 export async function eliminarNota(phone: string, notaId: string, autor: string): Promise<FichaCrm> {
@@ -195,5 +198,5 @@ export async function setEtiquetas(phone: string, etiquetas: string[], autor: st
 
   const ficha = await getFicha(phone);
   ficha.etiquetas = limpias;
-  return guardar(ficha, autor);
+  return guardar(ficha, autor, `las etiquetas ${limpias.join(', ') || '(ninguna)'}`);
 }

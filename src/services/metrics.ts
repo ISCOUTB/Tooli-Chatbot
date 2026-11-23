@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 import { recordEvent } from './promMetrics';
+import { enSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true });
 
@@ -127,6 +128,8 @@ function dayKey(d: Date = new Date()): string {
 }
 
 export async function track(event: MetricEvent, props: MetricProps = {}): Promise<void> {
+  // Las conversaciones del simulador de WhatsApp no cuentan en las métricas del panel.
+  if (enSimulacion()) return;
   const day = dayKey();
   const propsStr = Object.entries(props)
     .filter(([, v]) => v !== undefined)
