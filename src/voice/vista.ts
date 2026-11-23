@@ -2,6 +2,7 @@
 // (huella del código, franjas) nunca sale.
 import { maskPhone } from '../services/logSafe';
 import { bogotaClock } from './horario';
+import { taparDictadoPartido } from './texto';
 import type { LineaTranscripcion, LlamadaVoz } from './tipos';
 
 export function vistaLlamada(l: LlamadaVoz, admin: boolean) {
@@ -40,13 +41,16 @@ export function pareceDatosAcademicos(texto: string): boolean {
 }
 
 /**
- * Lo que ve el panel de una llamada REAL: sin códigos que la persona dictó y sin líneas del bot que lean datos
- * académicos. La simulada se ve completa.
+ * Lo que ve el panel de una llamada REAL: sin códigos ni números que la persona dictó (también partidos entre frases
+ * seguidas suyas, con el mismo lector que los entiende) y sin líneas del bot que lean datos académicos. La simulada se
+ * ve completa.
  */
 export function vistaTranscripcion(lineas: readonly LineaTranscripcion[], simulada: boolean): LineaTranscripcion[] {
   if (simulada) return [...lineas];
-  return lineas.map((x) => {
-    if (x.r === 'c') return { ...x, t: x.t.replace(/(\d[\s-]?){6}/g, '••••••') };
+  const deQuienLlama = lineas.map((x, i) => ({ x, i })).filter(({ x }) => x.r === 'c');
+  const tapadas = new Map(taparDictadoPartido(deQuienLlama.map(({ x }) => x.t)).map((t, k) => [deQuienLlama[k].i, t]));
+  return lineas.map((x, i) => {
+    if (x.r === 'c') return { ...x, t: (tapadas.get(i) ?? x.t).replace(/(\d[\s-]?){6}/g, '••••••') };
     if (x.r === 'a' && !x.t.startsWith('[datos académicos leídos') && pareceDatosAcademicos(x.t)) return { ...x, t: '[datos académicos leídos]' };
     return x;
   });

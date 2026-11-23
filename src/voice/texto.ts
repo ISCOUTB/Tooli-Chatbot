@@ -320,70 +320,209 @@ export function fechaHablada(iso: string): string {
   return `${dia} ${get('day')} de ${MESES[Number(get('month')) - 1]} a ${hora}`;
 }
 
-const DIGITOS: Record<string, string> = {
-  cero: '0', uno: '1', un: '1', una: '1', dos: '2', tres: '3', cuatro: '4', cinco: '5', seis: '6', siete: '7', ocho: '8', nueve: '9',
-};
+// ------------------------------------------------------------------ números dictados (un solo lector)
 
-/** Dígitos dictados: «uno dos 3 4 cinco seis», «123 456» → «123456». Ignora el resto de palabras. */
-export function digitosDictados(text: string): string {
-  return normalizeSpeech(text)
-    .split(' ')
-    .map((w) => (/^\d+$/.test(w) ? w : DIGITOS[w] ?? ''))
-    .join('');
+// Un solo lector de números dictados para ENTENDER (código de verificación, código estudiantil) y para TAPAR lo que va a
+// la transcripción (#35 R3): lo que se acepta como dígitos es exactamente lo que se tapa.
+const UNIDADES = new Map(Object.entries({ cero: 0, uno: 1, un: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9 }));
+const DIEZ_A_29 = new Map(Object.entries({
+  diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19,
+  veinte: 20, veintiun: 21, veintiuno: 21, veintiuna: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25,
+  veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29,
+}));
+const DECENAS = new Map(Object.entries({ treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90 }));
+const CENTENAS = new Map(Object.entries({
+  cien: 100, ciento: 100, doscientos: 200, doscientas: 200, trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400,
+  quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700, setecientas: 700, ochocientos: 800,
+  ochocientas: 800, novecientos: 900, novecientas: 900,
+}));
+
+function menorQueCien(ws: readonly string[], j: number): { valor: number; largo: number } | null {
+  const w = ws[j];
+  if (w === undefined) return null;
+  const especial = DIEZ_A_29.get(w);
+  if (especial !== undefined) return { valor: especial, largo: 1 };
+  const decena = DECENAS.get(w);
+  if (decena !== undefined) {
+    // «treinta y uno» es un número; «treinta, uno» son dos.
+    const u = ws[j + 1] === 'y' ? UNIDADES.get(ws[j + 2] ?? '') : undefined;
+    return u ? { valor: decena + u, largo: 3 } : { valor: decena, largo: 1 };
+  }
+  const unidad = UNIDADES.get(w);
+  return unidad !== undefined ? { valor: unidad, largo: 1 } : null;
 }
 
-const PALABRA_DIGITO = /^(cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)$/;
+/**
+ * El número dictado que empieza en `ws[i]` (palabras ya normalizadas): sus dígitos y cuántas palabras ocupa. Entiende
+ * cifras («482»), dígitos sueltos («cuatro»), pares («doce», «cuarenta y ocho», «veintinueve») y centenas
+ * («cuatrocientos ochenta y dos»). null si ahí no empieza un número.
+ */
+export function numeroDictado(ws: readonly string[], i: number): { digitos: string; largo: number } | null {
+  const w = ws[i];
+  if (w === undefined) return null;
+  if (/^\d+$/.test(w)) return { digitos: w, largo: 1 };
+  const centena = CENTENAS.get(w);
+  if (centena !== undefined) {
+    if (w === 'cien') return { digitos: '100', largo: 1 };
+    const resto = menorQueCien(ws, i + 1);
+    if (resto && resto.valor > 0) return { digitos: String(centena + resto.valor), largo: 1 + resto.largo };
+    return w === 'ciento' ? null : { digitos: String(centena), largo: 1 };
+  }
+  const r = menorQueCien(ws, i);
+  return r ? { digitos: String(r.valor), largo: r.largo } : null;
+}
+
+const esUnion = (w: string | undefined) => w === 'y' || w === 'e';
+
+export interface TramoDictado {
+  /** Palabras [desde, hasta) del tramo. */
+  desde: number;
+  hasta: number;
+  digitos: string;
+  /** Empieza por «T»/«te» (código estudiantil). */
+  t: boolean;
+  /** Es solo «un»/«una» (casi siempre un artículo, no un dígito). */
+  articulo: boolean;
+}
 
 /**
- * Lo que va a la transcripción guardada (180 días): se tapan los números dictados (código de verificación de 6
- * dígitos, cédula, teléfono) y el código estudiantil. Cuenta como dictado una racha de dígitos en cifras o en palabras
- * («cuatro ocho dos…», «4-8-2…», «1.045.678») con 4 o más dígitos; si la precede una «T»/«te», es el código
- * estudiantil. Lo demás queda igual.
+ * Rachas de números dictados en una lista de palabras normalizadas. Una racha sigue mientras vengan números («doce
+ * quince veinte») y salta un «y» entre grupos largos («000 y 123 y 45», «482 y 913»); entre grupos cortos el «y» corta
+ * («las once y cuarenta» no es un código).
  */
-export function taparDatosDictados(text: string): string {
-  const partes = text.split(/([\s,.;:\-–—/]+)/);
-  const digitosDe = (p: string): string | null => {
-    const w = p.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
-    if (/^\d+$/.test(w)) return w;
-    if (PALABRA_DIGITO.test(w)) return '0';
-    if (/^t\d+$/.test(w)) return w.slice(1);
-    return null;
-  };
-  const esSep = (i: number) => i % 2 === 1;
-  const out = [...partes];
+export function tramosDictados(ws: readonly string[]): TramoDictado[] {
+  const out: TramoDictado[] = [];
   let i = 0;
-  while (i < partes.length) {
-    if (esSep(i) || digitosDe(partes[i]) === null) { i++; continue; }
+  while (i < ws.length) {
     let j = i;
-    let n = 0;
-    let fin = i;
-    while (j < partes.length) {
-      if (esSep(j)) { j++; continue; }
-      const d = digitosDe(partes[j]);
-      if (d === null) break;
-      n += d.length;
-      fin = j;
-      j++;
+    let digitos = '';
+    let t = false;
+    if ((ws[i] === 't' || ws[i] === 'te') && numeroDictado(ws, i + 1)) { t = true; j = i + 1; }
+    else if (/^t\d+$/.test(ws[i])) { t = true; digitos = ws[i].slice(1); j = i + 1; }
+    else if (!numeroDictado(ws, i)) { i++; continue; }
+    for (;;) {
+      const n = numeroDictado(ws, j);
+      if (n) { digitos += n.digitos; j += n.largo; continue; }
+      const sigue = esUnion(ws[j]) ? numeroDictado(ws, j + 1) : null;
+      if (sigue && (t || digitos.length >= 3 || sigue.digitos.length >= 3)) { j += 1; continue; }
+      break;
     }
-    if (n >= 4) {
-      // ¿Lo precede una «T» suelta (código estudiantil)?
-      let ini = i;
-      const previo = i - 2;
-      const pegadaT = /^t\d/i.test(partes[i].replace(/[^a-z0-9]/gi, ''));
-      if (previo >= 0 && /^(t|te)$/i.test(partes[previo].trim())) ini = previo;
-      const codigo = ini !== i || pegadaT;
-      out[ini] = codigo ? '[código estudiantil]' : '[dígitos]';
-      // Se borra la racha entera (con sus separadores); el separador que la sigue queda.
-      for (let k = ini + 1; k <= fin; k++) out[k] = '';
-      i = fin + 1;
-    } else i = j;
+    out.push({ desde: i, hasta: j, digitos, t, articulo: !t && j - i === 1 && (ws[i] === 'un' || ws[i] === 'una') });
+    i = Math.max(j, i + 1);
+  }
+  return out;
+}
+
+/** Dígitos dictados: «uno dos 3 4 cinco seis», «123 456», «doce quince veinte» → «123456». Ignora el resto de palabras. */
+export function digitosDictados(text: string): string {
+  const ws = normalizeSpeech(text).split(' ');
+  let out = '';
+  for (let i = 0; i < ws.length;) {
+    const n = numeroDictado(ws, i);
+    if (n) { out += n.digitos; i += n.largo; } else i++;
+  }
+  return out;
+}
+
+const RELLENO_DICTADO = new Set(['y', 'e', 'es', 'el', 'la', 'los', 'mi', 'codigo', 'numero', 'numeros', 'digitos', 'son', 'seria', 'entonces', 'ok', 'listo', 'va', 'ahi', 'a', 'ver']);
+
+/** La frase es solo un dictado de números («cuatro ocho dos», «es el 482»): sirve para juntarla con la siguiente. */
+export function soloDictado(text: string): boolean {
+  const ws = normalizeSpeech(text).split(' ').filter(Boolean);
+  let numeros = 0;
+  for (let i = 0; i < ws.length;) {
+    const n = numeroDictado(ws, i);
+    if (n) { numeros++; i += n.largo; continue; }
+    if (!RELLENO_DICTADO.has(ws[i]) && palabrasConContenido(ws[i]).length) return false;
+    i++;
+  }
+  return numeros > 0;
+}
+
+interface Analisis {
+  partes: string[];
+  /** Palabras normalizadas y la parte de `partes` de la que salen. */
+  palabras: { w: string; parte: number }[];
+  tramos: TramoDictado[];
+}
+
+const SEPARADOR = /([\s,.;:\-–—/]+)/;
+const normalizarPalabra = (p: string) => p.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9ñ]/g, '');
+
+function analizar(text: string): Analisis {
+  const partes = text.split(SEPARADOR);
+  const palabras: Analisis['palabras'] = [];
+  partes.forEach((p, k) => {
+    if (k % 2 === 1) return;
+    const w = normalizarPalabra(p);
+    if (w) palabras.push({ w, parte: k });
+  });
+  return { partes, palabras, tramos: tramosDictados(palabras.map((x) => x.w)) };
+}
+
+/** Reemplaza cada tramo por su marcador; el separador que lo sigue queda. */
+function taparTramos(a: Analisis, tramos: readonly TramoDictado[]): string {
+  const out = [...a.partes];
+  for (const tr of tramos) {
+    const ini = a.palabras[tr.desde].parte;
+    const fin = a.palabras[tr.hasta - 1].parte;
+    // Signos pegados a la palabra («¿482?»): el que abre y el que cierra quedan.
+    const abre = out[ini].match(/^[^\p{L}\p{N}]*/u)?.[0] ?? '';
+    const cierra = a.partes[fin].match(/[^\p{L}\p{N}]*$/u)?.[0] ?? '';
+    out[ini] = `${abre}${tr.t ? '[código estudiantil]' : '[dígitos]'}${ini === fin ? cierra : ''}`;
+    for (let k = ini + 1; k <= fin; k++) out[k] = k === fin ? cierra : '';
   }
   return out.join('').replace(/\s{2,}/g, ' ').trim();
 }
 
+const tapable = (tr: TramoDictado, minimo: number) =>
+  !tr.articulo && (tr.digitos.length >= minimo || (tr.t && tr.digitos.length >= Math.min(3, minimo)));
+
 /**
- * Código estudiantil dictado: «T 0 0 0 1 2 3 4 5», «te cero cero…», «00012345». Devuelve «T00012345» o null.
- * La UTB usa T + 8 dígitos.
+ * Lo que va a la transcripción guardada (180 días): se tapan los números dictados (código de verificación de 6
+ * dígitos, cédula, teléfono) y el código estudiantil, leídos con el MISMO lector que los entiende (`numeroDictado`).
+ * Cuenta como dictado una racha con `minimo` dígitos o más (4 por defecto; 1 mientras la línea pide un código); si la
+ * precede una «T»/«te», es el código estudiantil. Lo demás queda igual.
+ */
+export function taparDatosDictados(text: string, minimo = 4): string {
+  const a = analizar(text);
+  const tapar = a.tramos.filter((tr) => tapable(tr, minimo));
+  return tapar.length ? taparTramos(a, tapar) : text;
+}
+
+/**
+ * Un dictado partido entre frases seguidas de quien llama («uno cero cuatro» / «cinco seis siete ocho»): cada parte
+ * es corta, pero juntas forman un número. Recibe las líneas de quien llama en orden y tapa las partes que, sumadas con
+ * las del final de la anterior o el comienzo de la siguiente, llegan a `minimo` dígitos.
+ */
+export function taparDictadoPartido(textos: readonly string[], minimo = 4): string[] {
+  const analisis = textos.map(analizar);
+  const tapar = analisis.map(() => new Set<TramoDictado>());
+  let cadena: { linea: number; tramo: TramoDictado }[] = [];
+  const cerrar = () => {
+    const total = cadena.reduce((n, c) => n + c.tramo.digitos.length, 0);
+    if (cadena.length > 1 && total >= minimo) for (const c of cadena) if (!c.tramo.articulo) tapar[c.linea].add(c.tramo);
+    cadena = [];
+  };
+  analisis.forEach((a, linea) => {
+    const n = a.palabras.length;
+    const primero = a.tramos[0];
+    const empieza = primero && primero.desde === 0 ? primero : null;
+    const sigueCadena = cadena.length > 0 && empieza;
+    if (!sigueCadena) cerrar();
+    if (empieza) cadena.push({ linea, tramo: empieza });
+    const ultimo = a.tramos.at(-1);
+    const terminaLinea = ultimo && ultimo.hasta === n;
+    if (!terminaLinea) { cerrar(); return; }
+    if (ultimo !== empieza) { cerrar(); cadena.push({ linea, tramo: ultimo }); }
+  });
+  cerrar();
+  return analisis.map((a, k) => (tapar[k].size ? taparTramos(a, a.tramos.filter((tr) => tapar[k].has(tr) || tapable(tr, minimo))) : textos[k]));
+}
+
+/**
+ * Código estudiantil dictado: «T 0 0 0 1 2 3 4 5», «te cero cero…», «T 000 y 123 y 45», «00012345». Devuelve
+ * «T00012345» o null. La UTB usa T + 8 dígitos.
  */
 export function codigoEstudiantilDictado(text: string): string | null {
   const t = normalizeSpeech(text).replace(/\bte\b/g, 't');
@@ -393,10 +532,12 @@ export function codigoEstudiantilDictado(text: string): string | null {
   const desde = toks.indexOf('t');
   if (desde >= 0) {
     let tras = '';
-    for (const w of toks.slice(desde + 1)) {
-      const d = /^\d+$/.test(w) ? w : DIGITOS[w];
-      if (d === undefined) { if (tras) break; continue; }
-      tras += d;
+    for (let j = desde + 1; j < toks.length;) {
+      const n = numeroDictado(toks, j);
+      if (n) { tras += n.digitos; j += n.largo; continue; }
+      if (!tras) { j++; continue; }
+      if (esUnion(toks[j]) && numeroDictado(toks, j + 1)) { j++; continue; }
+      break;
     }
     if (tras.length === 8) return `T${tras}`;
   }

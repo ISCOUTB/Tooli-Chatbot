@@ -136,6 +136,11 @@ export interface LlamadaVoz {
    * gane el compare-and-set que la pone en null, así que «¿sigues ahí?» se dice una sola vez.
    */
   silencioVence: number | null;
+  /**
+   * Dígitos de frases seguidas que eran solo un dictado mientras la línea pedía el código («cuatro ocho dos» /
+   * «nueve uno tres»): se juntan con la siguiente. Se vacía al usarlos, con cualquier otra frase y al colgar.
+   */
+  dictado: string;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];

@@ -281,3 +281,55 @@ describe('#35 R4: sin número que llama no se ofrece verificación', () => {
     assert.deepEqual(await api.confirmarVerificacion!('', '123456'), { ok: false, motivo: 'vencido' });
   });
 });
+
+describe('#35 R3 y punto 13: se tapa con el mismo lector que entiende los dictados', () => {
+  it('grupos con «y», pares y centenas: se entienden y se tapan igual', async () => {
+    const { codigoEstudiantilDictado, digitosDictados, taparDatosDictados } = await import('./texto');
+    assert.equal(codigoEstudiantilDictado('T 000 y 123 y 45'), 'T00012345');
+    assert.equal(taparDatosDictados('mi código es T 000 y 123 y 45'), 'mi código es [código estudiantil]');
+    assert.equal(taparDatosDictados('el código es 482 y 913'), 'el código es [dígitos]');
+    assert.equal(digitosDictados('doce quince veinte'), '121520');
+    assert.equal(taparDatosDictados('doce quince veinte'), '[dígitos]');
+    assert.equal(digitosDictados('cuarenta y ocho, veintinueve, trece'), '482913');
+    assert.equal(taparDatosDictados('cuarenta y ocho, veintinueve, trece'), '[dígitos]');
+    assert.equal(digitosDictados('cuatrocientos ochenta y dos, novecientos trece'), '482913');
+    assert.equal(taparDatosDictados('es cuatrocientos ochenta y dos novecientos trece'), 'es [dígitos]');
+    assert.equal(codigoEstudiantilDictado('te cero cero cero, doce, treinta y cuatro, cinco'), 'T00012345');
+    // Lo que no es un dictado queda igual.
+    for (const t of ['¿piden 2 cartas y 3 semestres de experiencia?', 'a las doce y media', 'tengo treinta y cinco años', 'llego a las once y cuarenta', 'te doy mi número después']) {
+      assert.equal(taparDatosDictados(t), t);
+    }
+  });
+
+  it('el código de 6 dígitos dictado en pares se acepta y no queda en la transcripción', async () => {
+    const x = montar();
+    await contestar(x);
+    await decir(x, 'quiero mi turno');
+    assert.equal(x.codigos.at(-1)!.codigo, '482913');
+    await decir(x, 'cuarenta y ocho, veintinueve, trece');
+    assert.match(x.dichos().at(-1)!, /quedaste verificado/);
+    assert.doesNotMatch((await x.lineas()).map((l) => l.t).join('\n'), /cuarenta|veintinueve|trece/);
+  });
+
+  it('el código partido en dos frases finales se acepta y ninguna parte queda en claro', async () => {
+    const x = montar();
+    await contestar(x);
+    await decir(x, 'quiero mi turno');
+    await decir(x, 'cuatro ocho dos');
+    await decir(x, 'nueve uno tres');
+    assert.match(x.dichos().at(-1)!, /quedaste verificado/);
+    assert.doesNotMatch((await x.lineas()).map((l) => l.t).join('\n'), /cuatro|ocho|nueve|uno tres/);
+  });
+
+  it('la vista tapa un dictado partido entre dos líneas seguidas de quien llama', () => {
+    const at = '2026-11-23T15:00:00Z';
+    const v = vistaTranscripcion([
+      { r: 'c', t: 'mi cédula es uno cero cuatro', at },
+      { r: 'a', t: 'Perdona, no te entendí.', at },
+      { r: 'c', t: 'cinco seis siete ocho', at },
+      { r: 'c', t: 'tengo 2', at },
+      { r: 'c', t: 'hijos', at },
+    ], false).map((l) => l.t);
+    assert.deepEqual(v, ['mi cédula es [dígitos]', 'Perdona, no te entendí.', '[dígitos]', 'tengo 2', 'hijos']);
+  });
+});

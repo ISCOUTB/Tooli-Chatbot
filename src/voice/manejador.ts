@@ -19,7 +19,7 @@ import type { AlmacenVoz } from './almacen';
 import { DESPEDIDA_SILENCIO, SIGUES_AHI, correrTurno, frasePuente, textoSaludo, type DepsTurno, type ResultadoTurno } from './dialogo';
 import { decideRouteNow } from './horario';
 import type { ProviderCredentials, VoiceEvent, VoiceProvider } from './proveedor/tipos';
-import { aplicarLexico, cleanForSpeech, taparDatosDictados } from './texto';
+import { aplicarLexico, cleanForSpeech, digitosDictados, soloDictado, taparDatosDictados } from './texto';
 import type { LlamadaVoz, Resultado } from './tipos';
 import { crearCodigoWhatsAppVoz, pendientesVozEnMemoria, type CodigoWhatsAppVoz } from '../services/academico/verificacionVoz';
 
@@ -283,8 +283,10 @@ export function crearManejador(d: DepsManejador) {
           }
           return { handled: false, note: 'parcial' };
         }
-        // La transcripción se guarda 180 días: sin el código de verificación, el código estudiantil ni la cédula.
-        await d.almacen.agregarLinea(l0.id, { r: 'c', t: taparDatosDictados(texto), at: ahora().toISOString() }, a.retencionDias);
+        // La transcripción se guarda 180 días: sin el código de verificación, el código estudiantil ni la cédula. Mientras
+        // la línea pide un código, cualquier número dictado se tapa (también la primera parte de un código partido).
+        const pideCodigo = l0.dialogo.fase === 'pide_otp' || l0.dialogo.fase === 'pide_codigo_estudiantil';
+        await d.almacen.agregarLinea(l0.id, { r: 'c', t: taparDatosDictados(texto, pideCodigo ? 1 : 4), at: ahora().toISOString() }, a.retencionDias);
         if (l0.hablando) await cmd('playback_stop', (c) => d.proveedor.stopSpeaking(c, ev.callId, `${ev.eventId}-stop`));
 
         const inicio = Date.parse(l0.contestada ?? l0.iniciada);
@@ -295,16 +297,22 @@ export function crearManejador(d: DepsManejador) {
           return { handled: true, note: 'tope de la llamada' };
         }
 
-        // Cada frase final se numera: si llega otra más nueva mientras esta piensa, la nueva gana.
+        // Cada frase final se numera: si llega otra más nueva mientras esta piensa, la nueva gana. En el mismo paso se
+        // juntan los dígitos de frases seguidas que son solo un dictado mientras se pide el código (punto 13).
         let miFrase = 0;
+        let digitosPrevios = '';
+        const dictadoSolo = soloDictado(texto);
         await actualizar(l0.id, (x) => {
           miFrase = (x.frase ?? 0) + 1;
-          return { ...x, frase: miFrase, hablando: false, silencio: 0, actividad: tick(x) };
+          const junta = x.dialogo.fase === 'pide_otp' && dictadoSolo;
+          digitosPrevios = junta ? x.dictado ?? '' : '';
+          const dictado = junta ? `${digitosPrevios}${digitosDictados(texto)}`.slice(-12) : '';
+          return { ...x, frase: miFrase, dictado, hablando: false, silencio: 0, actividad: tick(x) };
         });
         const base = d.depsTurno(l0, a);
         // Código por WhatsApp: siempre por el almacén atómico compartido (topes y bloqueo valen para todas las instancias).
         const deps: DepsTurno = { ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp };
-        const promesa = correrTurno(texto, l0.dialogo, deps);
+        const promesa = correrTurno(texto, l0.dialogo, deps, { digitosPrevios });
         let puente = false;
         let cancelarPuente: (() => void) | null = null;
         const tardo = await Promise.race([
@@ -334,6 +342,7 @@ export function crearManejador(d: DepsManejador) {
             resultado: mejorResultado(x.resultado, r.resultado),
             despuesDeHablar: accion === 'none' ? x.despuesDeHablar : accion,
             resumen: r.aviso ?? x.resumen,
+            dictado: r.dictadoUsado ? '' : x.dictado,
           };
         });
         if (!l) return { handled: false, note: descartado ? 'turno viejo descartado' : 'llamada cerrada' };

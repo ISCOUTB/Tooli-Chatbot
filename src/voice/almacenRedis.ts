@@ -81,7 +81,12 @@ function deserializar(raw: string | null): LlamadaVoz | null {
   if (!raw) return null;
   try {
     const o = JSON.parse(raw) as LlamadaVoz;
-    return { ...o, silencioVence: Number.isFinite(o.silencioVence) ? o.silencioVence : null, dialogo: leerDialogo(o.dialogo) };
+    return {
+      ...o,
+      silencioVence: Number.isFinite(o.silencioVence) ? o.silencioVence : null,
+      dictado: typeof o.dictado === 'string' ? o.dictado.slice(0, 12) : '',
+      dialogo: leerDialogo(o.dialogo),
+    };
   } catch {
     return null;
   }

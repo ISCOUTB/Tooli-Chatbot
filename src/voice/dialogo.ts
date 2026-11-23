@@ -14,7 +14,7 @@ import {
 import {
   INJECTION_REPLY, cleanForSpeech, codigoEstudiantilDictado, digitosDictados, fechaHablada, isCallbackRequest, isExplicitNo,
   isExplicitYes, isGoodbye, isHoldRequest, isHumanRequest, isNoiseOnly, isRepeatRequest, lineCheck, looksLikeInjection,
-  normalizeSpeech, palabrasConContenido, sanitizeCallerText,
+  normalizeSpeech, palabrasConContenido, sanitizeCallerText, soloDictado,
 } from './texto';
 import { DIALOGO_VACIO, type Accion, type EstadoDialogo, type Resultado } from './tipos';
 
@@ -55,6 +55,13 @@ export interface ResultadoTurno {
   /** Nota corta para el panel (transferencia, cita, devolución). */
   aviso?: string | null;
   cita?: Cita | null;
+  /** Usó (o descartó) los dígitos que venían de frases anteriores: el manejador los borra. */
+  dictadoUsado?: boolean;
+}
+
+export interface OpcionesTurno {
+  /** Dígitos de las frases anteriores que eran solo un dictado (el código partido en varias frases, punto 13). */
+  digitosPrevios?: string;
 }
 
 const OTP_TTL_MS = 10 * 60_000;
@@ -101,7 +108,7 @@ export const DESPEDIDA = '¡Con gusto! Que tengas un excelente día.';
 
 // ------------------------------------------------------------------ el turno
 
-export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialogo, deps: DepsTurno): Promise<ResultadoTurno> {
+export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialogo, deps: DepsTurno, opciones: OpcionesTurno = {}): Promise<ResultadoTurno> {
   const texto = sanitizeCallerText(textoCrudo);
   let s: EstadoDialogo = { ...DIALOGO_VACIO, ...estadoPrevio, turnos: estadoPrevio.turnos + 1 };
   const fin = (respuesta: string, extra: Partial<ResultadoTurno> = {}): ResultadoTurno => {
@@ -146,14 +153,17 @@ export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialog
     case 'pide_otp': {
       if (isHumanRequest(texto) || isCallbackRequest(texto)) break;
       const dig = digitosDictados(texto);
-      if (dig.length !== 6) {
-        if (/\b(no (me )?(llego|ha llegado)|no tengo|no lo tengo|no puedo|reenvia|otra vez el codigo)\b/.test(t)) {
-          return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null }, deps, 'Entiendo.', fin);
-        }
-        const donde = s.verificacion?.canal === 'correo' ? 'a tu correo institucional' : 'al WhatsApp';
-        return fin(`Necesito los seis dígitos del código que te llegó ${donde}. Díctamelos uno por uno, por favor.`);
+      const previos = opciones.digitosPrevios ?? '';
+      // El código puede llegar partido en frases seguidas («cuatro ocho dos» / «nueve uno tres»).
+      const codigo = dig.length === 6 ? dig : previos && (previos + dig).length === 6 ? previos + dig : null;
+      if (codigo) return { ...(await verificarOtp(codigo, s, deps, fin)), dictadoUsado: true };
+      if (dig.length && (previos + dig).length < 6 && soloDictado(texto)) return soloDecir('Ajá, sigue.', s);
+      if (previos) return { ...fin('Se me mezclaron los números. Dime los seis dígitos del código otra vez, por favor.'), dictadoUsado: true };
+      if (/\b(no (me )?(llego|ha llegado)|no tengo|no lo tengo|no puedo|reenvia|otra vez el codigo)\b/.test(t)) {
+        return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null }, deps, 'Entiendo.', fin);
       }
-      return verificarOtp(dig, s, deps, fin);
+      const donde = s.verificacion?.canal === 'correo' ? 'a tu correo institucional' : 'al WhatsApp';
+      return fin(`Necesito los seis dígitos del código que te llegó ${donde}. Díctamelos uno por uno, por favor.`);
     }
     case 'pide_codigo_estudiantil': {
       if (isHumanRequest(texto) || isCallbackRequest(texto)) break;
