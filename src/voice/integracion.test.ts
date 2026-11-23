@@ -215,6 +215,25 @@ describe('voz + datos académicos reales', () => {
     assert.equal(mem.turnosLeidos.length, 0);
   });
 
+  it('verificación bloqueada por demasiados intentos: lo dice, da la hora y ofrece asesor sin pedir otro código', async () => {
+    const mem = academicoEnMemoria();
+    const api: AcademicoApi = { ...mem.api, iniciarVerificacionPorDato: async () => ({ estado: 'bloqueado' as const }) };
+    conectarContratosVoz({ academico: api, agendaActiva: false });
+    const { d } = depsDesdeRegistro();
+    const [, r2] = await conversar(['quiero mi turno', 'T00012345'], d);
+    assert.match(r2.respuesta, /demasiados intentos/);
+    assert.match(r2.respuesta, /una hora/);
+    assert.match(r2.respuesta, /asesor|devuelvan la llamada/);
+    assert.doesNotMatch(r2.respuesta, /no puedo verificarte/i);
+    assert.equal(r2.estado.fase, 'ofrece_asesor');
+    assert.equal(r2.estado.consultaPendiente, null);
+    // Insistir en la misma llamada ya no vuelve a pedir el código.
+    const r3 = await correrTurno('quiero mi turno', { ...r2.estado, fase: 'libre' }, d);
+    assert.doesNotMatch(r3.respuesta, /código estudiantil/);
+    assert.equal(mem.correos.length, 0);
+    assert.equal(mem.turnosLeidos.length, 0);
+  });
+
   it('recibo sin cédula guardada: lo dice, no la pide por voz y ofrece seguir por WhatsApp', async () => {
     const mem = academicoEnMemoria();
     conectarContratosVoz({ academico: mem.api, agendaActiva: false });

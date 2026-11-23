@@ -380,6 +380,13 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
       return fin('Te mandé un código de seis dígitos a tu correo institucional. Cuando te llegue, díctamelo.', { estado: { ...s, fase: 'pide_otp', verificacion } });
     }
     if (r.estado === 'espera') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se pidieron varios códigos hace poco. Espera unos minutos.', fin);
+    // Bloqueo de una hora tras agotar los intentos: se dice tal cual y no se vuelve a pedir el código en esta llamada.
+    if (r.estado === 'bloqueado') {
+      return ofrecerAsesor(
+        { ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO },
+        deps, 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.', fin,
+      );
+    }
     if (r.estado === 'error') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
     return noSePudo();
   }
