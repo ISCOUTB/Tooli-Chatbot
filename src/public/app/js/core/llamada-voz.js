@@ -343,7 +343,7 @@ export function crearLlamadaVoz({
   silencioMs = [6000, 7000], finFraseMs = 900, parcialMs = 8000, transferirMs = 2600,
 }) {
   const nuevo = (previo = {}) => ({
-    fase: 'lista', llamadaId: null, bot: { frases: [], actual: -1 }, persona: '', transcripcion: [],
+    fase: 'lista', llamadaId: null, bot: { frases: [], actual: -1 }, persona: '', dijo: '', transcripcion: [],
     microApagado: Boolean(previo.microApagado), interrumpir: Boolean(previo.interrumpir),
     inicio: null, fin: null, motivoFin: null, transferirA: null, error: null, aviso: null, sistema: null,
     resultado: null, faseDialogo: null, verificado: false,
@@ -486,6 +486,7 @@ export function crearLlamadaVoz({
     t.silencio = null;
     if (e.fase !== 'escuchando') return;
     silencios++;
+    e.dijo = '';
     pensar(() => api.silencio(e.llamadaId));
   }
 
@@ -496,6 +497,7 @@ export function crearLlamadaVoz({
     if (e.fase !== 'escuchando') return;
     if (!texto) { escuchar(); return; }
     silencios = 0;
+    e.dijo = texto; // queda a la vista mientras la línea piensa y contesta
     e.transcripcion.push({ r: 'c', t: texto, provisional: true });
     pensar(() => api.decir(e.llamadaId, texto.slice(0, 300)));
   }

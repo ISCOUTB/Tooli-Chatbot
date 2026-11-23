@@ -469,6 +469,7 @@ describe('llamada con voz: la llamada entera', () => {
     assert.equal(m.oido.encendido, false, 'mientras piensa no se escucha');
     assert.deepEqual(m.api.ultima('decir').args, [ID, 'quiero información de la maestría en gerencia']);
     assert.deepEqual(m.e.transcripcion.at(-1), { r: 'c', t: 'quiero información de la maestría en gerencia', provisional: true });
+    assert.equal(m.e.dijo, 'quiero información de la maestría en gerencia', 'lo dicho sigue a la vista mientras piensa');
     await m.api.responder('decir', resp([decir('Claro, te cuento.')], { transcripcion: [{ r: 'a', t: 'Hola' }, { r: 'c', t: 'quiero información de la maestría en gerencia' }, { r: 'a', t: 'Claro, te cuento.' }] }));
     assert.equal(m.e.fase, 'hablando');
     assert.equal(m.e.transcripcion.length, 3, 'la del servidor reemplaza la provisional');
@@ -495,6 +496,7 @@ describe('llamada con voz: la llamada entera', () => {
     await m.reloj.avanzar(1);
     assert.equal(m.api.de('silencio').length, 1);
     assert.equal(m.e.fase, 'pensando');
+    assert.equal(m.e.dijo, '', 'en silencio no queda nada dicho');
     await m.api.responder('silencio', resp([decir('¿Sigues ahí? Si necesitas algo, dímelo.')]));
     await m.boca.terminarTodo();
     assert.equal(m.e.fase, 'escuchando');

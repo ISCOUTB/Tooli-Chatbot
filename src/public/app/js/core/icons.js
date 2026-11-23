@@ -70,6 +70,12 @@ const ICONS = {
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
   expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  // Llamada con voz (ui/llamada-voz.js).
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M9 21h6"/>',
+  micOff: '<path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.6 2.5"/><path d="M5.5 11a6.5 6.5 0 0 0 10.6 5M18.5 11c0 .7-.1 1.4-.3 2"/><path d="M12 17.5V21M9 21h6"/><path d="m4 4 16 16"/>',
+  handset: '<path d="M6.2 3.5h2.6l1.6 4.4-2.1 1.3a11 11 0 0 0 6.5 6.5l1.3-2.1 4.4 1.6v2.6a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.2 5.7a2 2 0 0 1 2-2.2Z"/>',
+  headphones: '<path d="M4 17v-5a8 8 0 0 1 16 0v5"/><path d="M4 15.5A1.5 1.5 0 0 1 5.5 14H7a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2Zm16 0a1.5 1.5 0 0 0-1.5-1.5H17a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h1a2 2 0 0 0 2-2Z"/>',
+  captions: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 11h4M13 11h4M7 15h7M16 15h1"/>',
 };
 
 /* Los emojis de la interfaz (estados, filas de contacto, acciones) se dibujan
@@ -85,6 +91,7 @@ const EMOJI_ICONO = {
   '🗑': 'trash', '🎯': 'target', '📣': 'megaphone', '🔔': 'bell', '📝': 'note', '📄': 'note', '🙋': 'hand',
   '🥇': 'award', '🥈': 'award', '🥉': 'award', '🏫': 'building', '🧭': 'compass', '📚': 'book', '🎒': 'book',
   '🎁': 'gift', '💳': 'card', '⚠': 'alert', '💤': 'moon', '📭': 'inbox', '📶': 'pulse',
+  '🎙': 'mic', '🎤': 'mic',
 };
 function iconoDeEmoji(caracter, size = '1em') {
   const nombre = EMOJI_ICONO[String(caracter ?? '').replace(/\uFE0F/g, '').trim()];

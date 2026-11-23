@@ -1,0 +1,363 @@
+/* Llamar con voz (pantalla Llamadas) — ui/llamada-voz.js
+   Pantalla de llamada tipo teléfono con los colores de la UTB: el «teléfono»
+   en azul profundo y, al lado (o debajo en el celular), la transcripción que
+   guarda la línea. Todo usa los tokens de styles.css. */
+
+html.lv-abierta, html.lv-abierta body { overflow: hidden; }
+
+.lv-fondo {
+  position: fixed; inset: 0; z-index: 700;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(0, 22, 63, 0.55);
+  backdrop-filter: blur(6px) saturate(140%); -webkit-backdrop-filter: blur(6px) saturate(140%);
+  opacity: 0; transition: opacity 0.22s var(--ease-out);
+}
+.lv-fondo.lv-abre { opacity: 1; }
+.lv-fondo.lv-saliendo { opacity: 0; pointer-events: none; }
+.lv [hidden] { display: none !important; }
+
+.lv {
+  --lv-tinta: #ffffff;
+  --lv-suave: rgba(255, 255, 255, 0.8);
+  --lv-vidrio: rgba(255, 255, 255, 0.09);
+  --lv-borde: rgba(255, 255, 255, 0.16);
+  --lv-turquesa: var(--utb-accent);
+  --lv-rojo: #d93025;
+  --lv-rojo-hondo: #b3261e;
+  display: grid; grid-template-columns: minmax(0, 410px) minmax(0, 380px);
+  width: min(100%, 790px); height: min(780px, calc(100dvh - 48px));
+  border-radius: var(--radius-xl); overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 30px 80px -20px rgba(0, 16, 48, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateY(18px) scale(0.97); opacity: 0;
+  transition: transform 0.38s var(--ease-spring), opacity 0.24s var(--ease-out);
+}
+.lv-abre .lv { transform: none; opacity: 1; }
+.lv.lv-solo { grid-template-columns: minmax(0, 1fr); width: min(100%, 420px); height: auto; max-height: min(780px, calc(100dvh - 48px)); }
+.lv.lv-solo .lv-registro { display: none; }
+.lv-saliendo .lv { transform: translateY(10px) scale(0.98); opacity: 0; transition-duration: 0.2s; }
+
+/* ── El teléfono ── */
+.lv-tel {
+  --nivel: 0;
+  position: relative; isolation: isolate; min-height: 0; overflow: hidden auto;
+  display: flex; flex-direction: column;
+  padding: 14px 22px 20px; color: var(--lv-tinta);
+  background:
+    radial-gradient(120% 60% at 50% -8%, rgba(94, 234, 212, 0.2), transparent 62%),
+    linear-gradient(172deg, #00307f 0%, #001f5c 52%, #00153f 100%);
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.lv-brillo {
+  position: absolute; z-index: -1; left: 0; right: 0; top: 92px; width: min(300px, 90%); aspect-ratio: 1; margin: 0 auto;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(30, 115, 190, 0.55), transparent 65%);
+  opacity: 0.6; transition: opacity 0.5s var(--ease-out), transform 0.6s var(--ease-spring);
+}
+.lv-tel[data-fase="hablando"] .lv-brillo { opacity: 1; transform: scale(1.08); }
+.lv-tel[data-fase="escuchando"] .lv-brillo { opacity: 0.85; background: radial-gradient(circle, rgba(94, 234, 212, 0.32), transparent 65%); }
+
+.lv-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+.lv-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--lv-suave);
+  background: var(--lv-vidrio); border: 1px solid var(--lv-borde);
+}
+.lv-x {
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; color: var(--lv-suave); cursor: pointer;
+  transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out);
+}
+.lv-x:hover { background: var(--lv-vidrio); color: var(--lv-tinta); }
+
+/* Quién: avatar, nombre, estado y cronómetro */
+.lv-quien { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 10px 0 6px; }
+.lv-avatares { position: relative; display: flex; align-items: center; justify-content: center; height: 148px; width: 100%; }
+.lv-avatar {
+  --tam: 112px;
+  position: relative; width: var(--tam); height: var(--tam); border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, #1e73be 0%, #003087 70%);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18), 0 18px 40px -12px rgba(0, 0, 0, 0.55);
+  transition: transform 0.5s var(--ease-spring), filter 0.4s var(--ease-out);
+}
+.lv-tooli { width: 64%; height: 64%; position: relative; z-index: 2; }
+.lv-ojos { transform-origin: 32px 33px; animation: lv-parpadeo 5s infinite; }
+.lv-antena { transform-origin: 32px 8px; }
+.lv-tel[data-fase="hablando"] .lv-antena { animation: lv-antena 0.9s ease-in-out infinite alternate; }
+@keyframes lv-parpadeo { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes lv-antena { from { transform: scale(1); } to { transform: scale(1.35); } }
+
+/* Ondas: suenan mientras llama (blancas, lentas) y mientras habla (turquesa). */
+.lv-onda {
+  position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.5);
+  opacity: 0; pointer-events: none;
+}
+.lv-tel[data-fase="preparando"] .lv-onda,
+.lv-tel[data-fase="llamando"] .lv-onda { animation: lv-onda 2.4s var(--ease-out) infinite; }
+.lv-tel[data-fase="hablando"] .lv-onda { border-color: rgba(94, 234, 212, 0.75); animation: lv-onda 1.5s var(--ease-out) infinite; }
+.lv-onda:nth-child(2) { animation-delay: 0.5s !important; }
+.lv-onda:nth-child(3) { animation-delay: 1s !important; }
+@keyframes lv-onda { 0% { transform: scale(1); opacity: 0.85; } 100% { transform: scale(1.75); opacity: 0; } }
+
+/* Oído: el anillo turquesa crece con la voz de la persona (Web Audio). */
+.lv-oido {
+  position: absolute; inset: -7px; border-radius: 50%; border: 3px solid var(--lv-turquesa);
+  opacity: 0; transform: scale(1); transition: opacity 0.25s var(--ease-out);
+  pointer-events: none;
+}
+.lv-tel[data-fase="escuchando"]:not(.lv-micro-apagado) .lv-oido {
+  opacity: calc(0.35 + var(--nivel) * 0.65);
+  transform: scale(calc(1 + var(--nivel) * 0.22));
+}
+/* Pensando: un arco que gira alrededor del avatar. */
+.lv-tel[data-fase="pensando"] .lv-oido {
+  opacity: 1; border-color: transparent; border-top-color: var(--lv-turquesa); border-right-color: rgba(94, 234, 212, 0.35);
+  animation: spin 0.9s linear infinite;
+}
+
+/* Transferencia: Tooli se corre y aparece el asesor, unidos por una línea que avanza. */
+.lv-asesor, .lv-enlace { display: none; }
+.lv-tel[data-fase="transfiriendo"] .lv-asesor,
+.lv-tel[data-motivo="transferida"] .lv-asesor,
+.lv-tel[data-fase="transfiriendo"] .lv-enlace,
+.lv-tel[data-motivo="transferida"] .lv-enlace { display: grid; }
+.lv-asesor {
+  place-items: center; width: 84px; height: 84px; border-radius: 50%; flex: none;
+  color: #00153f; background: linear-gradient(150deg, #a7f3e4, var(--lv-turquesa));
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2); animation: lv-entra 0.5s var(--ease-spring-bounce) both;
+}
+.lv-enlace {
+  width: 54px; height: 3px; margin: 0 10px; border-radius: 3px;
+  background: repeating-linear-gradient(90deg, var(--lv-turquesa) 0 8px, transparent 8px 14px);
+  background-size: 28px 3px; animation: lv-enlace 0.7s linear infinite;
+}
+.lv-tel[data-fase="transfiriendo"] .lv-avatar, .lv-tel[data-motivo="transferida"] .lv-avatar { --tam: 84px; }
+@keyframes lv-entra { from { opacity: 0; transform: scale(0.6) translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes lv-enlace { to { background-position: 28px 0; } }
+
+.lv-nombre { margin: 10px 0 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--lv-tinta); }
+.lv-linea { margin: 2px 0 0; font-size: 13.5px; color: var(--lv-suave); }
+.lv-estado {
+  display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 6px 14px; border-radius: 999px;
+  font-size: 14.5px; font-weight: 600; background: var(--lv-vidrio); border: 1px solid var(--lv-borde);
+  font-variant-numeric: tabular-nums;
+}
+.lv-punto { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.7); flex: none; }
+.lv-tel[data-fase="escuchando"] .lv-punto { background: var(--lv-turquesa); box-shadow: 0 0 0 4px rgba(94, 234, 212, 0.22); }
+.lv-tel[data-fase="hablando"] .lv-punto { background: #fff; animation: lv-late 1s ease-in-out infinite; }
+.lv-tel[data-fase="pensando"] .lv-punto { background: #fcd34d; animation: lv-late 0.7s ease-in-out infinite; }
+.lv-tel.lv-micro-apagado[data-fase="escuchando"] .lv-punto { background: #fca5a5; box-shadow: none; }
+.lv-crono { color: var(--lv-suave); font-weight: 500; padding-left: 8px; border-left: 1px solid var(--lv-borde); }
+.lv-tel[data-fase="preparando"] .lv-crono, .lv-tel[data-fase="llamando"] .lv-crono { display: none; }
+/* Con un problema, el título grande ya lo dice: sin píldora repetida. */
+.lv-tel[data-fase="problema"] .lv-estado { display: none; }
+@keyframes lv-late { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.6); opacity: 0.6; } }
+
+/* Cuerpo: subtítulos, medidor y controles */
+.lv-cuerpo { display: flex; flex-direction: column; flex: 1 0 auto; min-height: 0; animation: fade-rise-in 0.3s var(--ease-out) both; }
+.lv-subs {
+  flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;
+  min-height: 140px; max-height: 260px; margin-top: 14px; padding: 14px 16px; border-radius: var(--radius-lg);
+  background: var(--lv-vidrio); border: 1px solid var(--lv-borde);
+  /* Como unos subtítulos: lo nuevo abajo; si no cabe, lo viejo se desvanece arriba. */
+  overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+}
+.lv-sub { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: baseline; transition: opacity 0.25s var(--ease-out); }
+.lv-sub-vacio { display: none; }
+.lv-dice {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--lv-suave);
+  padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); white-space: nowrap;
+}
+.lv-sub-persona .lv-dice { color: #00153f; background: var(--lv-turquesa); }
+.lv-sub-txt { font-size: 17px; line-height: 1.45; overflow-wrap: anywhere; }
+.lv-sub-bot .lv-dicha { color: rgba(255, 255, 255, 0.72); }
+.lv-sub-bot .lv-ahora { color: #fff; font-weight: 500; }
+.lv-tel[data-fase="hablando"] .lv-sub-persona { opacity: 0.55; }
+.lv-tel[data-fase="escuchando"] .lv-sub-bot, .lv-tel[data-fase="pensando"] .lv-sub-bot { opacity: 0.7; }
+.lv-sub-persona .lv-sub-txt { color: #b8f7ea; }
+.lv-sub-espera .lv-sub-txt { color: var(--lv-suave); font-style: italic; }
+.lv-sistema {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 8px 12px; border-radius: 12px;
+  font-size: 14px; line-height: 1.4; color: #fde68a; background: rgba(253, 230, 138, 0.1); border: 1px dashed rgba(253, 230, 138, 0.45);
+}
+.lv-sistema svg { flex: none; margin-top: 2px; }
+.lv-aviso { margin: 0; font-size: 14px; font-weight: 600; color: #fecaca; }
+.lv-aviso:empty { display: none; }
+
+.lv-nivel { display: flex; align-items: center; justify-content: center; gap: 5px; height: 34px; margin: 12px 0 4px; }
+.lv-nivel i {
+  display: block; width: 4px; height: 30px; border-radius: 3px; background: var(--lv-turquesa);
+  transform-origin: center; transform: scaleY(calc(0.12 + var(--nivel) * var(--k) * 0.88));
+  opacity: calc(0.35 + var(--nivel) * 0.65);
+  transition: transform 60ms linear;
+}
+.lv-tel:not(.lv-oye) .lv-nivel i { transform: scaleY(0.12); opacity: 0.3; background: rgba(255, 255, 255, 0.6); }
+
+.lv-controles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 8px; margin-top: 8px; }
+/* Los tres círculos centrados en la misma franja: las etiquetas quedan a la misma altura. */
+.lv-controles .lv-btn:not(.lv-colgar) .lv-btn-circulo { margin: 4px 0; }
+.lv-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0;
+  padding: 0; border: 0; background: none; color: var(--lv-tinta); cursor: pointer; font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.lv-btn-circulo {
+  width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.14); border: 1px solid var(--lv-borde);
+  transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out), transform 0.25s var(--ease-spring);
+}
+.lv-btn:hover .lv-btn-circulo { background: rgba(255, 255, 255, 0.22); }
+.lv-btn:active .lv-btn-circulo { transform: scale(0.92); }
+.lv-btn[aria-pressed="true"] .lv-btn-circulo, .lv-btn[aria-checked="true"] .lv-btn-circulo { background: #fff; color: #001f5c; border-color: #fff; }
+.lv-btn-txt { font-size: 12.5px; font-weight: 600; line-height: 1.25; text-align: center; color: var(--lv-tinta); }
+.lv-btn-txt small { display: block; font-size: 11.5px; font-weight: 500; color: var(--lv-suave); }
+.lv-colgar .lv-btn-circulo { width: 72px; height: 72px; background: var(--lv-rojo); border-color: transparent; box-shadow: 0 10px 26px -8px rgba(217, 48, 37, 0.7); }
+.lv-colgar .lv-btn-circulo svg { transform: rotate(135deg); }
+.lv-colgar:hover .lv-btn-circulo { background: var(--lv-rojo-hondo); }
+
+.lv-opciones {
+  display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--lv-borde); font-size: 13px;
+}
+.lv-opciones label { display: inline-flex; align-items: center; gap: 6px; color: var(--lv-suave); font-weight: 600; flex: none; }
+.lv-opciones select {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 8px 32px 8px 12px; border-radius: 12px;
+  font: inherit; font-size: 13.5px; color: var(--lv-tinta);
+  background: var(--lv-vidrio) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border: 1px solid var(--lv-borde); appearance: none; -webkit-appearance: none; text-overflow: ellipsis;
+}
+.lv-opciones select option { color: var(--text); background: #fff; }
+.lv-opciones select:disabled { opacity: 0.75; }
+.lv-ver-texto {
+  display: none; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 0 12px; border-radius: 12px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--lv-tinta); background: var(--lv-vidrio); border: 1px solid var(--lv-borde); cursor: pointer;
+}
+.lv-voz-nota { margin: 8px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--lv-suave); }
+
+/* Fin y problemas: dentro del mismo teléfono */
+.lv-fin, .lv-problema {
+  flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  gap: 10px; padding: 18px 4px 6px; animation: fade-rise-in 0.35s var(--ease-out) both;
+}
+.lv-fin-icono, .lv-problema-icono {
+  width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.12); border: 1px solid var(--lv-borde);
+}
+.lv-fin-icono svg { transform: rotate(135deg); }
+.lv-tel[data-motivo="transferida"] .lv-fin-icono { display: none; }
+.lv-fin-titulo, .lv-problema-titulo { margin: 4px 0 0; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; color: var(--lv-tinta); outline: none; }
+.lv-fin-detalle { margin: 0; color: var(--lv-suave); font-variant-numeric: tabular-nums; }
+.lv-fin-nota, .lv-nota-problema { margin: 0; max-width: 34ch; font-size: 13.5px; line-height: 1.5; color: var(--lv-suave); }
+.lv-problema p { margin: 0; max-width: 36ch; line-height: 1.5; color: var(--lv-suave); }
+.lv-problema p strong, .lv-pasos strong { color: var(--lv-tinta); }
+.lv-pasos {
+  margin: 2px 0 0; padding: 12px 16px 12px 34px; max-width: 36ch; text-align: left; line-height: 1.5;
+  border-radius: 14px; background: var(--lv-vidrio); border: 1px solid var(--lv-borde); color: var(--lv-suave);
+}
+.lv-pasos li + li { margin-top: 4px; }
+.lv-tel[data-fase="problema"] .lv-avatar { filter: grayscale(0.7); opacity: 0.75; --tam: 84px; }
+.lv-tel[data-fase="problema"] .lv-avatares { height: 104px; }
+.lv-tel[data-fase="terminada"]:not([data-motivo="transferida"]) .lv-avatar { filter: grayscale(0.5); opacity: 0.8; }
+.lv-fin-botones, .lv-problema-botones { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 10px; width: 100%; }
+.lv-accion {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px;
+  border-radius: 999px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  color: var(--lv-tinta); background: rgba(255, 255, 255, 0.12); border: 1px solid var(--lv-borde);
+  transition: background 0.18s var(--ease-out), transform 0.2s var(--ease-spring);
+}
+.lv-accion:hover { background: rgba(255, 255, 255, 0.2); }
+.lv-accion:active { transform: scale(0.97); }
+.lv-accion-primaria { color: #00153f; background: var(--lv-turquesa); border-color: transparent; }
+.lv-accion-primaria:hover { background: #99f6e4; }
+
+/* Foco visible sobre el azul oscuro */
+.lv-tel :focus-visible { outline: 3px solid var(--lv-turquesa); outline-offset: 3px; }
+.lv-btn:focus-visible { outline: none; }
+.lv-btn:focus-visible .lv-btn-circulo { outline: 3px solid var(--lv-turquesa); outline-offset: 3px; }
+
+/* ── La transcripción ── */
+.lv-registro { display: flex; flex-direction: column; min-height: 0; background: var(--surface); }
+.lv-registro-cab { padding: 22px 22px 12px; border-bottom: 1px solid var(--border); }
+.lv-registro-cab h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; color: var(--utb-blue); }
+.lv-registro-cab p { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+.lv-lineas { list-style: none; margin: 0; padding: 14px 18px 22px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.lv-l {
+  display: flex; flex-direction: column; gap: 2px; max-width: 92%; padding: 9px 13px; border-radius: 16px 16px 16px 6px;
+  background: #eef2f8; animation: bubble-in 0.26s var(--ease-out) both;
+}
+.lv-l strong { font-size: 11.5px; letter-spacing: 0.03em; color: var(--utb-blue); }
+.lv-l span { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; color: var(--text); }
+.lv-l-c { align-self: flex-end; border-radius: 16px 16px 6px 16px; background: #dff7f2; }
+.lv-l-c strong { color: var(--utb-accent-dark); }
+.lv-l-s { align-self: center; max-width: 100%; background: transparent; border: 1px dashed var(--border); border-radius: 12px; }
+.lv-l-s strong { color: var(--text-muted); }
+.lv-l-s span { font-style: italic; color: var(--text-muted); }
+.lv-l-prov span { color: var(--text-muted); }
+.lv-l-prov span::after { content: " …"; }
+.lv-vacio { margin: auto 0; padding: 24px 8px; text-align: center; font-size: 14px; color: var(--text-muted); }
+
+/* ── Entrada en la pantalla Llamadas ── */
+.voz-btn-voz {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
+  color: #00153f; background: linear-gradient(135deg, #99f6e4, var(--utb-accent));
+  box-shadow: 0 6px 18px -8px rgba(15, 118, 110, 0.7);
+}
+.voz-btn-voz:hover { filter: brightness(1.04); }
+.voz-btn-voz .emoji-icono svg, .voz-btn-voz svg { width: 18px; height: 18px; }
+@media (max-width: 640px) {
+  #simVoz { flex: 1 1 100%; justify-content: center; }
+}
+
+/* Portátiles y proyectores bajos (1366×768, 1280×720): todo a la vista sin desplazar. */
+@media (min-width: 761px) and (max-height: 800px) {
+  .lv-avatares { height: 120px; }
+  .lv-avatar { --tam: 92px; }
+  .lv-nombre { font-size: 23px; margin-top: 6px; }
+  .lv-estado { margin-top: 8px; }
+  .lv-subs { min-height: 104px; margin-top: 10px; }
+  .lv-nivel { margin: 8px 0 2px; }
+  .lv-opciones { margin-top: 10px; padding-top: 10px; }
+}
+
+/* ── Celular y ventanas angostas: pantalla completa tipo llamada ── */
+@media (max-width: 760px) {
+  .lv-fondo { padding: 0; place-items: stretch; background: #00153f; }
+  .lv {
+    display: block; width: 100%; height: 100%; max-height: none; border-radius: 0; overflow: hidden auto; overscroll-behavior: contain;
+    transform: translateY(24px); box-shadow: none;
+  }
+  .lv-tel {
+    min-height: 100dvh; overflow: clip visible;
+    padding: calc(10px + var(--safe-top)) 18px calc(18px + var(--safe-bottom));
+  }
+  .lv-registro { min-height: 60dvh; }
+  .lv-lineas { overflow: visible; }
+  .lv-ver-texto { display: inline-flex; }
+}
+/* En el celular, «Voz» y «Transcripción» quedan en ícono: el nombre de la voz cabe entero. */
+@media (max-width: 460px) {
+  .lv-txt-corto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .lv-ver-texto { width: 44px; padding: 0; justify-content: center; }
+}
+@media (max-width: 760px) and (max-height: 720px) {
+  .lv-avatares { height: 118px; }
+  .lv-avatar { --tam: 92px; }
+  .lv-nombre { font-size: 22px; margin-top: 6px; }
+  .lv-estado { margin-top: 8px; }
+  .lv-subs { min-height: 104px; margin-top: 10px; }
+  .lv-btn-circulo { width: 58px; height: 58px; }
+  .lv-colgar .lv-btn-circulo { width: 66px; height: 66px; }
+}
+@media (max-width: 360px) {
+  .lv-tel { padding-left: 14px; padding-right: 14px; }
+  .lv-sub-txt { font-size: 16px; }
+  .lv-btn-txt { font-size: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lv-onda, .lv-ojos, .lv-antena, .lv-punto, .lv-enlace, .lv-asesor { animation: none !important; }
+  .lv-tel[data-fase="pensando"] .lv-oido { animation: none !important; border-color: var(--lv-turquesa); opacity: 0.6; }
+  .lv-tel[data-fase="hablando"] .lv-onda:first-child { opacity: 0.6; transform: scale(1.12); }
+  .lv, .lv-fondo { transition: none; }
+}
