@@ -3,9 +3,9 @@
 // estudiante verificado y asesor (transferencia, agenda o devolución). Sin red propia: todo llega por `DepsTurno`
 // (contratos AcademicoApi y AgendaApi por inyección, IA por inyección), así el simulador y las pruebas usan el mismo
 // motor que la llamada real.
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { AcademicoApi, ResultadoConfirmacion, ResultadoEnvioVerificacion, TipoConsulta } from '../contratos/academico';
 import type { AgendaApi, AreaAgenda, Cita } from '../contratos/agenda';
+import { crearCodigoWhatsAppVoz, pendientesVozEnMemoria, type CodigoWhatsAppVoz } from '../services/academico/verificacionVoz';
 import { entender, entenderPorReglas, type ClienteIa, type Intencion } from './entender';
 import {
   getPosgrado, listaAreaHablada, listaHablada, nivelesMencionados, nombreHablado, programaPorNombre, programasDeAreas,
@@ -14,25 +14,27 @@ import {
 import {
   INJECTION_REPLY, cleanForSpeech, codigoEstudiantilDictado, digitosDictados, fechaHablada, isCallbackRequest, isExplicitNo,
   isExplicitYes, isGoodbye, isHoldRequest, isHumanRequest, isNoiseOnly, isRepeatRequest, lineCheck, looksLikeInjection,
-  normalizeSpeech, palabrasConContenido, sanitizeCallerText,
+  normalizeSpeech, palabrasConContenido, sanitizeCallerText, soloDictado,
 } from './texto';
 import { DIALOGO_VACIO, type Accion, type EstadoDialogo, type Resultado } from './tipos';
+import type { Genero } from './ajustes';
 
 export interface DepsTurno {
   academico: AcademicoApi | null;
   agenda: AgendaApi | null;
   ia: ClienteIa | null;
   /**
-   * Aparta un envío de código a ese WhatsApp (espera y tope por número destino, en el almacén de la voz). El manejador
-   * lo pone siempre; sin él (pruebas viejas) no hay límite.
+   * Código por WhatsApp: pasa por el almacén atómico del código al correo (espera, topes por hora y por día, bloqueo e
+   * intentos atómicos; issue #34). El manejador pone siempre uno compartido; sin él (pruebas que llaman `correrTurno`
+   * directo) se usa uno en memoria por cada objeto de dependencias.
    */
-  cupoCodigo?: (telefonoDestino: string) => Promise<'ok' | 'espera' | 'tope'>;
+  codigoWhatsApp?: CodigoWhatsAppVoz;
   /** Manda el código de verificación al WhatsApp vinculado. false = no se pudo. */
   enviarCodigo: (telefono: string, codigo: string) => Promise<boolean>;
   /** Manda un texto por WhatsApp al número que llama (p. ej. cómo seguir con el recibo). Sin esto no se ofrece. */
   enviarWhatsApp?: (telefono: string, texto: string) => Promise<boolean>;
   generarCodigo?: () => string;
-  /** Secreto para la huella del código (nunca se guarda el código en claro). */
+  /** Secreto para la huella del código (nunca se guarda el código en claro). Vacío = no se verifica por voz. */
   secreto: string;
   ahora: () => Date;
   /** Número que llama (E.164 sin '+', como en los flujos de WhatsApp). */
@@ -41,6 +43,8 @@ export interface DepsTurno {
   asesoresEnVivo: boolean;
   /** true en el simulador: la cita no se reserva de verdad (la agenda inyectada ya es simulada). */
   simulada?: boolean;
+  /** Género de la voz: «el asistente» o «la asistente» (el manejador lo pone según la voz elegida; por defecto, 'm'). */
+  generoAgente?: Genero;
   timeoutIaMs?: number;
 }
 
@@ -54,6 +58,19 @@ export interface ResultadoTurno {
   /** Nota corta para el panel (transferencia, cita, devolución). */
   aviso?: string | null;
   cita?: Cita | null;
+  /** Usó (o descartó) los dígitos que venían de frases anteriores: el manejador los borra. */
+  dictadoUsado?: boolean;
+  /**
+   * La verificación por voz no se pudo ofrecer: 'espera' = marca de 60 s o tope de códigos por hora o por DÍA (con 10
+   * envíos al correo o al WhatsApp en un día, el estudiante queda sin verificación por voz hasta 24 h); 'bloqueado' =
+   * se agotaron los intentos varias veces (1 h). El panel lo muestra (#35).
+   */
+  verificacionNegada?: 'espera' | 'bloqueado';
+}
+
+export interface OpcionesTurno {
+  /** Dígitos de las frases anteriores que eran solo un dictado (el código partido en varias frases, punto 13). */
+  digitosPrevios?: string;
 }
 
 const OTP_TTL_MS = 10 * 60_000;
@@ -66,21 +83,25 @@ const NOMBRE_CONSULTA: Record<TipoConsulta, string> = {
   notas: 'tus notas', recibo: 'tu recibo de matrícula', turno: 'tu turno', horario: 'tu horario', cursos: 'tus cursos',
 };
 
-export function huellaCodigo(secreto: string, telefono: string, codigo: string): string {
-  return createHmac('sha256', secreto).update(`voz:${telefono}:${codigo}`).digest('hex');
-}
-
-function mismaHuella(a: string, b: string): boolean {
-  const x = Buffer.from(a, 'hex');
-  const y = Buffer.from(b, 'hex');
-  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+const respaldoCodigos = new WeakMap<DepsTurno, CodigoWhatsAppVoz>();
+function codigosDe(deps: DepsTurno): CodigoWhatsAppVoz {
+  if (deps.codigoWhatsApp) return deps.codigoWhatsApp;
+  let c = respaldoCodigos.get(deps);
+  if (!c) {
+    c = crearCodigoWhatsAppVoz(pendientesVozEnMemoria());
+    respaldoCodigos.set(deps, c);
+  }
+  return c;
 }
 
 const digitos = (t: string) => t.replace(/\D/g, '');
 
+/** «el asistente virtual» o «la asistente virtual», según el género de la voz elegida. */
+export const asistenteVirtual = (genero: Genero = 'm') => (genero === 'f' ? 'la asistente virtual' : 'el asistente virtual');
+
 /** Saludo con aviso de transcripción (y grabación si aplica), como en FastFood, más la retención por Ley 1581. */
-export function textoSaludo(args: { saludo: string; nombreAgente: string; grabar: boolean; retencionDias: number }): string {
-  const hola = args.saludo.trim() || `Hola, gracias por llamar a Posgrados de la UTB. Te atiende ${args.nombreAgente}, la asistente virtual.`;
+export function textoSaludo(args: { saludo: string; nombreAgente: string; grabar: boolean; retencionDias: number; genero?: Genero }): string {
+  const hola = args.saludo.trim() || `Hola, gracias por llamar a Posgrados de la UTB. Te atiende ${args.nombreAgente}, ${asistenteVirtual(args.genero)}.`;
   const aviso = args.grabar
     ? ` Esta llamada se graba y se transcribe para atenderte, y se guarda ${args.retencionDias} días.`
     : ` Esta llamada se transcribe para atenderte, y se guarda ${args.retencionDias} días.`;
@@ -99,12 +120,13 @@ export const DESPEDIDA = '¡Con gusto! Que tengas un excelente día.';
 
 // ------------------------------------------------------------------ el turno
 
-export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialogo, deps: DepsTurno): Promise<ResultadoTurno> {
+export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialogo, deps: DepsTurno, opciones: OpcionesTurno = {}): Promise<ResultadoTurno> {
   const texto = sanitizeCallerText(textoCrudo);
   let s: EstadoDialogo = { ...DIALOGO_VACIO, ...estadoPrevio, turnos: estadoPrevio.turnos + 1 };
   const fin = (respuesta: string, extra: Partial<ResultadoTurno> = {}): ResultadoTurno => {
     const limpio = cleanForSpeech(respuesta);
-    return { respuesta: limpio, accion: 'none', ...extra, estado: { ...(extra.estado ?? s), ultimaRespuesta: limpio } };
+    // Con la respuesta se guarda si leyó datos: «repítemelo» los repite con el mismo marcador en la transcripción.
+    return { respuesta: limpio, accion: 'none', ...extra, estado: { ...(extra.estado ?? s), ultimaRespuesta: limpio, ultimaDatos: extra.datosLeidos ?? null } };
   };
 
   // «¿Aló?», «¿me escucha?», «¿hay alguien?»: se contesta corto y se sigue donde se iba, sin reiniciar ni contar fallo.
@@ -130,7 +152,10 @@ export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialog
   if (!s.soporte && PIDE_SOPORTE.test(normalizeSpeech(texto))) s = { ...s, soporte: true };
 
   if (isGoodbye(texto)) return fin(DESPEDIDA, { accion: 'hangup' });
-  if (isRepeatRequest(texto) && s.ultimaRespuesta) return { respuesta: s.ultimaRespuesta, accion: 'none', estado: s };
+  // Repetir lo que leyó datos académicos vuelve a marcarlo: la transcripción guarda el marcador, nunca lo leído (#33).
+  if (isRepeatRequest(texto) && s.ultimaRespuesta) {
+    return { respuesta: s.ultimaRespuesta, accion: 'none', estado: s, ...(s.ultimaDatos ? { datosLeidos: s.ultimaDatos } : {}) };
+  }
   // «Espere», «un momento», «ya voy»: se espera sin cambiar nada (tampoco cancela lo que estaba por confirmar).
   if (isHoldRequest(texto)) return soloDecir('Claro, aquí te espero.', s);
 
@@ -140,14 +165,17 @@ export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialog
     case 'pide_otp': {
       if (isHumanRequest(texto) || isCallbackRequest(texto)) break;
       const dig = digitosDictados(texto);
-      if (dig.length !== 6) {
-        if (/\b(no (me )?(llego|ha llegado)|no tengo|no lo tengo|no puedo|reenvia|otra vez el codigo)\b/.test(t)) {
-          return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null }, deps, 'Entiendo.', fin);
-        }
-        const donde = s.verificacion?.canal === 'correo' ? 'a tu correo institucional' : 'al WhatsApp';
-        return fin(`Necesito los seis dígitos del código que te llegó ${donde}. Díctamelos uno por uno, por favor.`);
+      const previos = opciones.digitosPrevios ?? '';
+      // El código puede llegar partido en frases seguidas («cuatro ocho dos» / «nueve uno tres»).
+      const codigo = dig.length === 6 ? dig : previos && (previos + dig).length === 6 ? previos + dig : null;
+      if (codigo) return { ...(await verificarOtp(codigo, s, deps, fin)), dictadoUsado: true };
+      if (dig.length && (previos + dig).length < 6 && soloDictado(texto)) return soloDecir('Ajá, sigue.', s);
+      if (previos) return { ...fin('Se me mezclaron los números. Dime los seis dígitos del código otra vez, por favor.'), dictadoUsado: true };
+      if (/\b(no (me )?(llego|ha llegado)|no tengo|no lo tengo|no puedo|reenvia|otra vez el codigo)\b/.test(t)) {
+        return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null }, deps, 'Entiendo.', fin);
       }
-      return verificarOtp(dig, s, deps, fin);
+      const donde = s.verificacion?.canal === 'correo' ? 'a tu correo institucional' : 'al WhatsApp';
+      return fin(`Necesito los seis dígitos del código que te llegó ${donde}. Díctamelos uno por uno, por favor.`);
     }
     case 'pide_codigo_estudiantil': {
       if (isHumanRequest(texto) || isCallbackRequest(texto)) break;
@@ -253,12 +281,15 @@ function soloDecir(respuesta: string, s: EstadoDialogo): ResultadoTurno {
 /** Lo que la línea estaba esperando: la última pregunta, si había una fase en curso. */
 function preguntaPendiente(s: EstadoDialogo): string {
   if (s.fase === 'libre' || !s.ultimaRespuesta) return '¿En qué te ayudo?';
-  return s.ultimaRespuesta.match(/¿[^¿?]*\?\s*$/)?.[0] ?? s.ultimaRespuesta;
+  const pregunta = s.ultimaRespuesta.match(/¿[^¿?]*\?\s*$/)?.[0];
+  // Si lo último leyó datos, nunca se repite entero (iría en claro a la transcripción): solo la pregunta.
+  return pregunta ?? (s.ultimaDatos ? '¿En qué te ayudo?' : s.ultimaRespuesta);
 }
 
 const FUERA_TRAMITE = 'Eso no lo tengo en la información de posgrados que manejo por aquí, y prefiero no darte un dato equivocado.';
 const FUERA_PREGRADO = 'Esta línea atiende los posgrados de la UTB: especializaciones, maestrías y doctorados. De pregrado no tengo la información.';
-const IDENTIDAD = 'Hablas con la asistente virtual de Posgrados de la UTB. Si prefieres un asesor, dímelo cuando quieras. ¿En qué te ayudo?';
+const identidad = (genero?: Genero) =>
+  `Hablas con ${asistenteVirtual(genero)} de Posgrados de la UTB. Si prefieres un asesor, dímelo cuando quieras. ¿En qué te ayudo?`;
 
 const ORDINAL = ['la primera', 'la segunda', 'la tercera'];
 
@@ -274,7 +305,7 @@ async function aplicarHerramienta(it: Intencion, texto: string, s: EstadoDialogo
       return ofrecerAsesor({ ...s, fallos: 0, pregrado: s.pregrado || pregrado }, deps, pregrado ? FUERA_PREGRADO : FUERA_TRAMITE, fin);
     }
     case 'identidad':
-      return fin(IDENTIDAD, { estado: { ...s, fallos: 0 } });
+      return fin(identidad(deps.generoAgente), { estado: { ...s, fallos: 0 } });
     case 'datos_estudiante':
       return herramientaDatos(it.tipo, { ...s, fallos: 0 }, deps, fin, it.codigo ?? null);
     case 'listar_programas': {
@@ -337,6 +368,13 @@ async function herramientaDatos(tipo: TipoConsulta | null, s: EstadoDialogo, dep
     return ofrecerAsesor(s, deps, 'En este momento no puedo consultar datos de estudiantes por teléfono.', fin);
   }
   if (s.verificado) return leerConsulta(s.verificado, tipo, s, deps, fin);
+  // Sin número que llama (oculto o anónimo) no hay a qué atar el código ni sus topes: no se ofrece verificación (R4).
+  if (!/^\d{7,15}$/.test(digitos(deps.telefonoLlamante))) {
+    return ofrecerAsesor(
+      { ...s, fase: 'libre', consultaPendiente: null, codigoDictado: null }, deps,
+      'No me aparece el número desde el que llamas, y sin él no puedo verificarte por teléfono para darte datos de estudiante. Puedes llamar desde tu celular o escribirle a Tooli por WhatsApp.', fin,
+    );
+  }
   s = { ...s, consultaPendiente: tipo };
   // El número que llama: si está vinculado a un estudiante verificado, se le manda el código ahí mismo.
   let vinculado: Awaited<ReturnType<AcademicoApi['estudianteDe']>> = null;
@@ -379,13 +417,11 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
       };
       return fin('Te mandé un código de seis dígitos a tu correo institucional. Cuando te llegue, díctamelo.', { estado: { ...s, fase: 'pide_otp', verificacion } });
     }
-    if (r.estado === 'espera') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se pidieron varios códigos hace poco. Espera unos minutos.', fin);
+    if (r.estado === 'espera') return { ...ofrecerAsesor({ ...s, fase: 'libre' }, deps, CODIGOS_RECIENTES, fin), verificacionNegada: 'espera' };
     // Bloqueo de una hora tras agotar los intentos: se dice tal cual y no se vuelve a pedir el código en esta llamada.
     if (r.estado === 'bloqueado') {
-      return ofrecerAsesor(
-        { ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO },
-        deps, 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.', fin,
-      );
+      const pausa = ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);
+      return { ...pausa, verificacionNegada: 'bloqueado' };
     }
     if (r.estado === 'error') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
     return noSePudo();
@@ -403,29 +439,30 @@ async function buscarYEnviarCodigo(codigo: string, s: EstadoDialogo, deps: DepsT
   return enviarOtp(r.telefonoVinculado, s, deps, fin, 'Te mandé un código de seis dígitos al WhatsApp que tienes registrado');
 }
 
+const PAUSA_VERIFICACION = 'Hubo demasiados intentos de verificación, así que por seguridad la pausé. Puedes intentarlo de nuevo en una hora.';
+// La espera puede ser de 60 s o del tope del día: no se promete «unos minutos».
+const CODIGOS_RECIENTES = 'Ya se pidieron varios códigos de verificación, así que por seguridad no puedo mandar otro ahora. Vuelve a intentarlo más tarde.';
+
 async function enviarOtp(telefono: string, s: EstadoDialogo, deps: DepsTurno, fin0: Fin, intro: string): Promise<ResultadoTurno> {
   const fin: Fin = (r, extra = {}) => fin0(r, { estado: s, ...extra });
-  if (deps.cupoCodigo) {
-    let cupo: 'ok' | 'espera' | 'tope';
-    try {
-      cupo = await deps.cupoCodigo(telefono);
-    } catch {
-      cupo = 'tope'; // sin poder contar, no se manda: mejor un asesor que llenarle el WhatsApp a alguien
-    }
-    if (cupo === 'espera') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Hace un momento ya se mandó un código a ese WhatsApp. Espera un minuto antes de pedir otro.', fin);
-    if (cupo === 'tope') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se mandaron varios códigos a ese WhatsApp en la última hora, así que no puedo mandar otro.', fin);
+  // Espera, topes por hora y por día y bloqueo: en el almacén atómico compartido con el código al correo (#34).
+  const envio = await codigosDe(deps).iniciar({
+    llamante: deps.telefonoLlamante, destino: telefono, secreto: deps.secreto, ahora: deps.ahora().getTime(),
+    enviar: deps.enviarCodigo, generarCodigo: deps.generarCodigo,
+  });
+  if (envio === 'espera') {
+    const espera = ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'Ya se mandaron códigos a ese WhatsApp hace poco, así que por seguridad no puedo mandar otro ahora.', fin);
+    return { ...espera, verificacionNegada: 'espera' };
   }
-  const codigo = deps.generarCodigo?.() ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
-  let ok = false;
-  try {
-    ok = await deps.enviarCodigo(telefono, codigo);
-  } catch {
-    ok = false;
+  if (envio === 'bloqueado') {
+    const pausa = ofrecerAsesor({ ...s, fase: 'libre', consultaPendiente: null, intentosCodigoEstudiantil: MAX_INTENTOS_CODIGO }, deps, PAUSA_VERIFICACION, fin);
+    return { ...pausa, verificacionNegada: 'bloqueado' };
   }
-  if (!ok) return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
+  if (envio !== 'enviado') return ofrecerAsesor({ ...s, fase: 'libre' }, deps, 'No pude enviarte el código de verificación.', fin);
   const final = digitos(telefono).slice(-2);
+  // El código y su huella viven en el almacén atómico; aquí solo a qué WhatsApp se mandó y hasta cuándo vale.
   const verificacion = {
-    telefono, huella: huellaCodigo(deps.secreto, telefono, codigo), expira: deps.ahora().getTime() + OTP_TTL_MS, intentos: 0, final, canal: 'whatsapp' as const,
+    telefono, huella: '', expira: deps.ahora().getTime() + OTP_TTL_MS, intentos: 0, final, canal: 'whatsapp' as const,
   };
   const terminado = intro.endsWith('.') ? intro : `${intro}, el que termina en ${final.split('').join(' ')}.`;
   return fin(`${terminado} Cuando te llegue, díctamelo.`, { estado: { ...s, fase: 'pide_otp', verificacion } });
@@ -438,13 +475,18 @@ async function verificarOtp(dig: string, s: EstadoDialogo, deps: DepsTurno, fin0
     return fin('Ese código ya venció. Si quieres, te mando uno nuevo: dime otra vez qué quieres consultar.', { estado: { ...s, fase: 'libre', verificacion: null } });
   }
   if (v.canal === 'correo') return confirmarPorCorreo(dig, v, s, deps, fin);
-  if (mismaHuella(huellaCodigo(deps.secreto, v.telefono, dig), v.huella)) {
+  // Comparar, contar el intento y consumir: un solo paso en el almacén (los intentos no viven en la llamada, R6).
+  const r = await codigosDe(deps).confirmar({ llamante: deps.telefonoLlamante, destino: v.telefono, secreto: deps.secreto, codigo: dig, ahora: deps.ahora().getTime() });
+  if (r === 'ok') {
     const listo = { ...s, fase: 'libre' as const, verificado: v.telefono, verificacion: null };
     if (listo.consultaPendiente) return leerConsulta(v.telefono, listo.consultaPendiente, { ...listo, consultaPendiente: null }, deps, fin, '¡Listo, quedaste verificado! ');
     return fin('¡Listo, quedaste verificado! ¿Qué quieres consultar?', { estado: listo });
   }
+  if (r === 'vencido') {
+    return fin('Ese código ya venció. Si quieres, te mando uno nuevo: dime otra vez qué quieres consultar.', { estado: { ...s, fase: 'libre', verificacion: null } });
+  }
   const intentos = v.intentos + 1;
-  if (intentos >= MAX_INTENTOS_OTP) {
+  if (r === 'demasiados' || intentos >= MAX_INTENTOS_OTP) {
     return ofrecerAsesor({ ...s, fase: 'libre', verificacion: null, consultaPendiente: null }, deps, 'Ese código no coincide y ya no puedo intentarlo más en esta llamada.', fin);
   }
   return fin('Ese código no coincide. Revísalo y dímelo otra vez, número por número.', { estado: { ...s, verificacion: { ...v, intentos } } });

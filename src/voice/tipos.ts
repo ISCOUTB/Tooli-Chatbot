@@ -6,7 +6,7 @@ import type { TipoConsulta } from '../contratos/academico';
 
 export type Resultado =
   | 'en_curso' | 'consulta' | 'datos_estudiante' | 'transferida' | 'cita' | 'devolver_llamada'
-  | 'sin_cupo' | 'fuera_de_horario' | 'colgo' | 'error' | 'silencio';
+  | 'sin_cupo' | 'fuera_de_horario' | 'linea_apagada' | 'colgo' | 'error' | 'silencio';
 
 export type Fase =
   | 'libre'
@@ -51,6 +51,11 @@ export interface EstadoDialogo {
   fallos: number;
   inyecciones: number;
   ultimaRespuesta: string | null;
+  /**
+   * Si `ultimaRespuesta` leyó datos académicos, de qué tipo: «repítemelo» la vuelve a decir pero la transcripción guarda
+   * solo «[datos académicos leídos: …]» (issue #33).
+   */
+  ultimaDatos: TipoConsulta | null;
 }
 
 export const DIALOGO_VACIO: EstadoDialogo = {
@@ -71,6 +76,7 @@ export const DIALOGO_VACIO: EstadoDialogo = {
   fallos: 0,
   inyecciones: 0,
   ultimaRespuesta: null,
+  ultimaDatos: null,
 };
 
 export type Accion = 'none' | 'transfer' | 'hangup';
@@ -118,6 +124,11 @@ export interface LlamadaVoz {
   despuesDeHablar: 'transfer' | 'hangup' | null;
   /** Número de la última frase final recibida (el turno de una frase vieja no se aplica). */
   frase: number;
+  /**
+   * Cuántos turnos se aplicaron al diálogo. Un turno calculado sobre un diálogo que otro turno ya cambió (y sin efectos
+   * propios) se descarta en vez de pisarlo.
+   */
+  turnoAplicado: number;
   /** Frases puente sonando: su `speak_ended` no dispara la acción pendiente (esa es de la respuesta que va detrás). */
   puentes: number;
   /** Etapa del control de silencio: 0 nada, 1 ya preguntó «¿sigues ahí?», 2 ya se despidió. */
@@ -130,7 +141,43 @@ export interface LlamadaVoz {
    * gane el compare-and-set que la pone en null, así que «¿sigues ahí?» se dice una sola vez.
    */
   silencioVence: number | null;
+  /**
+   * Dígitos de frases seguidas que eran solo un dictado mientras la línea pedía el código («cuatro ocho dos» /
+   * «nueve uno tres»): se juntan con la siguiente. Se vacía al usarlos, con cualquier otra frase y al colgar.
+   */
+  dictado: string;
+  /**
+   * Se verificó a un estudiante en esta llamada. Al colgar se borra el teléfono del vínculo (`dialogo.verificado`) y
+   * queda solo esto, para que el panel lo muestre sin guardar el dato 180 días (punto 12).
+   */
+  verificada: boolean;
+  /** Último `speak_ended` (ms, del reloj del proveedor): un `speak_started` más viejo llegó tarde y se ignora. */
+  finHabla: number | null;
+  /** Cuándo el barrido colgó la llamada por pasar el tope duro (ms); si después no llega el call.hangup, la cierra. */
+  colgadoForzado: number | null;
+  /**
+   * Cuándo se pasó a un asesor (ISO). Desde ahí el bot no atiende: ni turnos, ni silencio, ni avisos de tiempo, y no
+   * se transcribe (punto 9). Vuelve a null si el asesor no contestó y el bot retoma (punto 16).
+   */
+  transferidaEn: string | null;
+  /** Hasta cuándo puede durar la pata del asesor (ms): el tope duro de una llamada transferida. */
+  transferidaHasta: number | null;
+  /** La pata saliente (asesor) contestó. */
+  pataContestada: boolean;
+  /** Duración real de la pata del asesor (s), cuando llegó su call.hangup; null = no llegó (al cerrar se estima). */
+  segPata: number | null;
+  /** Minutos cobrados de la pata del asesor (incluidos en `minutosCobrados`, punto 14). */
+  minutosPata: number;
+  /**
+   * La verificación por voz no se pudo ofrecer en esta llamada: 'espera' (tope de códigos; con el del día, hasta 24 h)
+   * o 'bloqueado' (intentos agotados, 1 h). El panel lo muestra (#35).
+   */
+  verificacionNegada: 'espera' | 'bloqueado' | null;
+  /** Llegó con la línea apagada y sin desvío: solo se le dice que no está disponible y se cuelga (punto 17). */
+  apagada: boolean;
 }
+
+const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];
 
 export function leerDialogo(raw: unknown): EstadoDialogo {
   const s = (raw && typeof raw === 'object' ? raw : {}) as Partial<EstadoDialogo>;
@@ -149,7 +196,7 @@ export function leerDialogo(raw: unknown): EstadoDialogo {
           }
         : null,
     intentosCodigoEstudiantil: Number.isInteger(s.intentosCodigoEstudiantil) ? (s.intentosCodigoEstudiantil as number) : 0,
-    consultaPendiente: (['notas', 'recibo', 'turno', 'horario', 'cursos'] as const).includes(s.consultaPendiente as TipoConsulta)
+    consultaPendiente: TIPOS_CONSULTA.includes(s.consultaPendiente as TipoConsulta)
       ? (s.consultaPendiente as TipoConsulta)
       : null,
     franjas: Array.isArray(s.franjas) ? s.franjas.slice(0, 3) : [],
@@ -162,5 +209,6 @@ export function leerDialogo(raw: unknown): EstadoDialogo {
     fallos: Number.isInteger(s.fallos) ? Math.max(0, Math.min(10, s.fallos as number)) : 0,
     inyecciones: Number.isInteger(s.inyecciones) ? (s.inyecciones as number) : 0,
     ultimaRespuesta: typeof s.ultimaRespuesta === 'string' ? s.ultimaRespuesta.slice(0, 420) : null,
+    ultimaDatos: TIPOS_CONSULTA.includes(s.ultimaDatos as TipoConsulta) ? (s.ultimaDatos as TipoConsulta) : null,
   };
 }

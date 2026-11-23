@@ -571,6 +571,8 @@ export function crearAcademico(deps: DepsNucleo): AcademicoApi {
   ): Promise<ResultadoEnvioVerificacion> {
     const v = deps.verificacion;
     if (!v || !v.secreto) return { estado: 'error' };
+    // Sin número que llama (llamada anónima) no hay a quién atar el código: no se verifica ni se gasta el cupo global (R4).
+    if (!/^\d{7,15}$/.test(telefonoLlamante)) return { estado: 'error' };
     // Cupo anti-enumeración: primero el del número que llama, después el global (H4).
     if (!(await deps.permitirBusqueda(telefonoLlamante))) return { estado: 'espera' };
     const codigo = normalizarCodigo(dato.codigo);
@@ -605,7 +607,7 @@ export function crearAcademico(deps: DepsNucleo): AcademicoApi {
 
   async function confirmarVerificacion(telefonoLlamante: string, codigo6: string): Promise<ResultadoConfirmacion> {
     const v = deps.verificacion;
-    if (!v || !v.secreto) return { ok: false, motivo: 'vencido' };
+    if (!v || !v.secreto || !/^\d{7,15}$/.test(telefonoLlamante)) return { ok: false, motivo: 'vencido' };
     // Esta lectura solo da el vínculo para calcular la huella; la decisión (comparar, sumar el intento, consumir)
     // la toma `intentar` en un solo paso, que además rechaza si el pendiente cambió de destino entretanto (H2).
     const p = await v.pendientes.leer(telefonoLlamante);

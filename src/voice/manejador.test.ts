@@ -51,7 +51,10 @@ function espia(opts: { fallarSpeak?: boolean } = {}) {
     transfer: async (_c, callId, a) => { cmds.push({ accion: 'transfer', callId, a }); },
     hangup: async (_c, callId) => { cmds.push({ accion: 'hangup', callId }); },
     startRecording: async (_c, callId) => { cmds.push({ accion: 'record', callId }); },
-  };
+    // Nunca a la red en las pruebas.
+    estadoLlamada: async () => null,
+    stopListening: async (_c, callId) => { cmds.push({ accion: 'stop_listen', callId }); },
+  } as VoiceProvider;
   return { p, cmds };
 }
 
@@ -460,8 +463,7 @@ describe('webhook', () => {
 
   async function servidor(procesar: (e: VoiceEvent) => Promise<{ handled: boolean; note: string }>) {
     const app = express();
-    const tareas: Promise<void>[] = [];
-    app.use('/voice', crearWebhookVoz({ clave: () => CLAVE, llavePublica: () => pub, proveedor: telnyxProvider, procesar, despues: (fn) => { tareas.push(fn()); }, log: () => undefined }));
+    app.use('/voice', crearWebhookVoz({ clave: () => CLAVE, llavePublica: () => pub, proveedor: telnyxProvider, procesar, log: () => undefined }));
     app.use(express.json());
     const srv = app.listen(0);
     await new Promise((r) => srv.once('listening', r));
@@ -469,14 +471,14 @@ describe('webhook', () => {
     // fetch deja conexiones keep-alive: sin cerrarlas, close() queda esperando y
     // --test-force-exit aborta en Windows con UV_HANDLE_CLOSING.
     // fetch deja conexiones keep-alive: se cierran para que close() no espere.
-    return { url, tareas, cerrar: () => new Promise((r) => { srv.closeAllConnections(); srv.close(r); }) };
+    return { url, cerrar: () => new Promise((r) => { srv.closeAllConnections(); srv.close(r); }) };
   }
   const cuerpo = JSON.stringify({ data: { id: 'w1', event_type: 'call.initiated', payload: { call_control_id: 'c', direction: 'incoming' } } });
   const firmar = (body: string, ts = String(Math.floor(Date.now() / 1000))) => ({
     'content-type': 'application/json', 'telnyx-timestamp': ts, 'telnyx-signature-ed25519': sign(null, Buffer.from(`${ts}|${body}`), privateKey).toString('base64'),
   });
 
-  it('clave equivocada 404, firma mala 401, cuerpo grande 413, bueno 200 y procesa después', async () => {
+  it('clave equivocada 404, firma mala 401, cuerpo grande 413, bueno: procesa y responde 200', async () => {
     const vistos: VoiceEvent[] = [];
     const s = await servidor(async (e) => { vistos.push(e); return { handled: true, note: 'ok' }; });
     try {
@@ -486,38 +488,25 @@ describe('webhook', () => {
       assert.equal((await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(grande), body: grande })).status, 413);
       const ok = await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(cuerpo), body: cuerpo });
       assert.equal(ok.status, 200);
-      await Promise.all(s.tareas);
       assert.equal(vistos.length, 1);
       assert.equal(vistos[0].eventId, 'w1');
     } finally {
       await s.cerrar();
     }
   });
-  it('un fallo al procesar no tumba el webhook (ya respondió 200)', async () => {
+  it('un fallo al procesar responde 500 para que Telnyx lo reintente (un 2xx no se reintenta)', async () => {
     const s = await servidor(async () => { throw new Error('falló'); });
     try {
       const r = await enviar(`${s.url}/${CLAVE}`, { method: 'POST', headers: firmar(cuerpo), body: cuerpo });
-      assert.equal(r.status, 200);
-      await Promise.all(s.tareas);
+      assert.equal(r.status, 500);
     } finally {
       await s.cerrar();
     }
   });
 });
 
-describe('códigos por WhatsApp: espera y tope por número destino', () => {
+describe('códigos por WhatsApp: espera y tope (almacén atómico del correo, #34)', () => {
   const VICTIMA = ESTUDIANTE_EJEMPLO.telefono;
-
-  it('el almacén aparta: 1 cada 60 s, 5 por hora, por número (atómico)', async () => {
-    const a = almacenMemoria();
-    const t0 = Date.parse('2026-11-23T15:00:00Z');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0), 'ok');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 30_000), 'espera');
-    assert.equal(await a.cupoCodigoVoz('573111111111', t0 + 30_000), 'ok', 'otro número tiene su propio cupo');
-    for (let i = 1; i <= 4; i++) assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + i * 61_000), 'ok');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 5 * 61_000), 'tope');
-    assert.equal(await a.cupoCodigoVoz(VICTIMA, t0 + 3_600_001), 'ok', 'pasada la hora vuelve a dejar');
-  });
 
   it('llamar seguido con el número de la víctima no le manda un código por llamada', async () => {
     const almacen = almacenMemoria();
@@ -525,7 +514,8 @@ describe('códigos por WhatsApp: espera y tope por número destino', () => {
     const enviados: string[] = [];
     const { p, cmds } = espia();
     const m = crearManejador({
-      almacen, proveedor: p, credenciales: () => CREDS, ajustes: async () => ({ ...AJUSTES_DEFECTO, activo: true }),
+      // Sin tope por número: aquí se prueba el del código, llamando muchas veces desde el mismo.
+      almacen, proveedor: p, credenciales: () => CREDS, ajustes: async () => ({ ...AJUSTES_DEFECTO, activo: true, maxLlamadasNumeroDia: 100 }),
       programador: null, puenteMs: 200, log: () => undefined, ahora: () => new Date(reloj),
       depsTurno: (l): DepsTurno => ({
         academico: academicoSimulado(ESTUDIANTE_EJEMPLO, { numeroVinculado: true }), agenda: null, ia: null,
@@ -540,11 +530,11 @@ describe('códigos por WhatsApp: espera y tope por número destino', () => {
       return cmds.filter((c) => c.callId === callId && c.accion === 'speak').at(-1)!.texto!;
     };
     assert.match(await llamar('c1'), /código de seis dígitos/);
-    assert.match(await llamar('c2'), /Espera un minuto/);
+    assert.match(await llamar('c2'), /hace poco/);
     assert.equal(enviados.length, 1);
     for (let i = 3; i <= 7; i++) { reloj += 61_000; await llamar(`c${i}`); }
     assert.equal(enviados.length, 5, 'tope de 5 por hora');
-    assert.match(cmds.filter((c) => c.callId === 'c7' && c.accion === 'speak').at(-1)!.texto!, /varios códigos/);
+    assert.match(cmds.filter((c) => c.callId === 'c7' && c.accion === 'speak').at(-1)!.texto!, /hace poco/);
   });
 });
 

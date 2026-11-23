@@ -20,6 +20,7 @@ export type ComandoSim =
   | { tipo: 'cortar_audio' }
   | { tipo: 'contestar' }
   | { tipo: 'escuchar' }
+  | { tipo: 'dejar_de_escuchar' }
   | { tipo: 'grabar' };
 
 export const TELEFONO_SIMULADO = '573000000009';
@@ -33,7 +34,18 @@ export function crearSimulador(opts: {
   puenteMs?: number;
 }) {
   const cola = new Map<string, ComandoSim[]>();
+  // Agenda simulada por llamada. Se suelta cuando la llamada termina por cualquier camino (colgar, despedida,
+  // silencio, tope) y nunca guarda más de MAX_AGENDAS ni ninguna de más de 2 h (llamadas abandonadas, punto 15).
   const agendas = new Map<string, AgendaApi>();
+  const nacio = new Map<string, number>();
+  const MAX_AGENDAS = 100;
+  const podar = () => {
+    const viejas = Date.now() - 2 * 3_600_000;
+    for (const [id, t] of nacio) {
+      if (t < viejas || nacio.size > MAX_AGENDAS) { agendas.delete(id); nacio.delete(id); } else break;
+    }
+  };
+  const soltar = (id: string) => { agendas.delete(id); nacio.delete(id); };
   const push = (callId: string, c: ComandoSim): void => { cola.set(callId, [...(cola.get(callId) ?? []), c]); };
   const grabador: VoiceProvider = {
     id: 'simulador',
@@ -44,6 +56,7 @@ export function crearSimulador(opts: {
     speak: async (_c, id, texto, o) => push(id, { tipo: 'decir', texto, encolado: o.interrumpir === false }),
     stopSpeaking: async (_c, id) => push(id, { tipo: 'cortar_audio' }),
     startListening: async (_c, id) => push(id, { tipo: 'escuchar' }),
+    stopListening: async (_c, id) => push(id, { tipo: 'dejar_de_escuchar' }),
     transfer: async (_c, id, a) => push(id, { tipo: 'transferir', a }),
     hangup: async (_c, id) => push(id, { tipo: 'colgar' }),
     startRecording: async (_c, id) => push(id, { tipo: 'grabar' }),
@@ -60,7 +73,11 @@ export function crearSimulador(opts: {
     programador: null,
     log: () => undefined,
     depsTurno: (l, a) => {
-      if (!agendas.has(l.id)) agendas.set(l.id, agendaSimulada(opts.ahora?.() ?? new Date()));
+      if (!agendas.has(l.id)) {
+        podar();
+        agendas.set(l.id, agendaSimulada(opts.ahora?.() ?? new Date()));
+        nacio.set(l.id, Date.now());
+      }
       return {
         academico: academicoSimulado(ESTUDIANTE_EJEMPLO, { numeroVinculado: true }),
         agenda: agendas.get(l.id)!,
@@ -100,18 +117,22 @@ export function crearSimulador(opts: {
         await manejador.procesarEvento(evento(callId, 'hangup', { durationSeconds: null }));
       }
     }
+    const l = await opts.almacen.porProveedor('simulador', callId);
+    if (l && l.estado === 'cerrada') soltar(l.id);
     return salida;
   }
 
   async function estado(llamadaId: string) {
     const l = await opts.almacen.leer(llamadaId);
     return l && {
-      llamadaId: l.id, estado: l.estado, resultado: l.resultado, fase: l.dialogo.fase, verificado: Boolean(l.dialogo.verificado),
+      llamadaId: l.id, estado: l.estado, resultado: l.resultado, fase: l.dialogo.fase, verificado: l.verificada || Boolean(l.dialogo.verificado),
       transcripcion: await opts.almacen.transcripcion(l.id),
     };
   }
 
   return {
+    /** Agendas simuladas vivas (pruebas). */
+    _agendas: agendas,
     async iniciar(args: { desdeNumeroDelEstudiante?: boolean } = {}) {
       const a = await opts.ajustes();
       if (!(await opts.almacen.contarSimulacion(opts.ahora?.() ?? new Date(), a.topeSimulacionesDia))) return { ok: false as const, motivo: 'tope_diario' };
@@ -141,7 +162,7 @@ export function crearSimulador(opts: {
       const l = await opts.almacen.leer(llamadaId);
       if (!l || !l.simulada) return { ok: false as const, motivo: 'no_encontrada' };
       await correr(l.proveedorCallId, evento(l.proveedorCallId, 'hangup', { durationSeconds: null }));
-      agendas.delete(l.id);
+      soltar(l.id);
       return { ok: true as const, comandos: [], ...(await estado(l.id))! };
     },
   };

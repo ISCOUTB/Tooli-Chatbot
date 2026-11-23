@@ -5,17 +5,22 @@
 // Contratos: la voz NO importa las implementaciones. Se registran al arrancar con `conectarContratosVoz()`
 // (src/voice/contratos.ts), que llama registrarAcademico(academico) y registrarAgenda(agenda).
 // Sin registrar, la línea dice que no puede consultar datos y ofrece asesor / devolución.
+import { randomBytes } from 'node:crypto';
 import Redis from 'ioredis';
 import OpenAI from 'openai';
 import { config } from '../config';
 import type { AcademicoApi } from '../contratos/academico';
 import type { AgendaApi } from '../contratos/agenda';
+import { secretoVozUsable } from '../services/academico/nucleo';
+import { codigoWhatsAppVozReal } from '../services/academico/verificacionVoz';
 import { describeError } from '../services/logSafe';
 import { AJUSTES_DEFECTO, leerAjustes, type AjustesVoz } from './ajustes';
 import { almacenRedis } from './almacenRedis';
+import type { DepsTurno } from './dialogo';
 import type { ClienteIa } from './entender';
 import { asesoresDisponibles } from './horario';
 import { crearManejador, programadorReal, type AvisoPanel } from './manejador';
+import type { LlamadaVoz } from './tipos';
 import { telnyxProvider } from './proveedor/telnyx';
 import type { ProviderCredentials } from './proveedor/tipos';
 import { crearSimulador } from './simulador';
@@ -144,6 +149,24 @@ export async function avisosRecientes(): Promise<unknown[]> {
 
 // ------------------------------------------------------------------ manejador y simulador
 
+/**
+ * Dependencias del turno de una llamada real. La huella del código usa la MISMA clave que la verificación por correo
+ * (`secretoVozUsable`): nunca un JWT_SECRET por defecto, de ejemplo o corto; con uno así la voz no verifica (#34).
+ */
+export function depsTurnoReales(l: LlamadaVoz, a: AjustesVoz): DepsTurno {
+  return {
+    academico,
+    agenda,
+    ia: clienteIa,
+    enviarCodigo: enviarCodigoWhatsApp,
+    enviarWhatsApp,
+    secreto: secretoVozUsable(config.auth.jwtSecret, process.env.NODE_ENV === 'test'),
+    ahora: () => new Date(),
+    telefonoLlamante: l.telefono,
+    asesoresEnVivo: Boolean(a.numeroDesvio) && asesoresDisponibles(a.horarioAsesores),
+  };
+}
+
 export const manejador = crearManejador({
   almacen,
   proveedor: telnyxProvider,
@@ -151,42 +174,39 @@ export const manejador = crearManejador({
   ajustes: leerAjustesGuardados,
   programador: programadorReal,
   avisarPanel: (a) => void avisar(a),
-  depsTurno: (l, a) => ({
-    academico,
-    agenda,
-    ia: clienteIa,
-    enviarCodigo: enviarCodigoWhatsApp,
-    enviarWhatsApp,
-    secreto: config.auth.jwtSecret,
-    ahora: () => new Date(),
-    telefonoLlamante: l.telefono,
-    asesoresEnVivo: Boolean(a.numeroDesvio) && asesoresDisponibles(a.horarioAsesores),
-  }),
+  depsTurno: depsTurnoReales,
+  // Código por WhatsApp por el almacén atómico del correo: topes por hora y día y bloqueo, entre instancias (#34).
+  codigoWhatsApp: codigoWhatsAppVozReal,
 });
 
 let barrido: NodeJS.Timeout | null = null;
 let barriendo = false;
+let vueltas = 0;
 /**
- * Barrido de los controles de silencio (fechas límite en Redis). Cada instancia lo corre; no se pisan: cada fecha la
- * cumple una sola (compare-and-set en el estado de la llamada). Seguro llamarlo más de una vez.
+ * Barrido de los controles de silencio (fechas límite en Redis) y, cada 5 vueltas, del tope duro de las llamadas
+ * (punto 8: cuelga la que pasó su máximo y cierra la que ya no tiene call.hangup). Cada instancia lo corre; no se
+ * pisan: cada fecha la cumple una sola (compare-and-set en el estado de la llamada). Seguro llamarlo más de una vez.
  */
 export function iniciarBarridoSilencios(cadaMs = 1000): void {
   if (barrido) return;
   barrido = setInterval(() => {
     if (barriendo) return;
     barriendo = true;
+    const plazos = vueltas++ % 5 === 0;
     manejador.barrerSilencios()
-      .catch((err) => console.error('[voz] barrido de silencios falló:', describeError(err)))
+      .then(() => (plazos ? manejador.barrerPlazos() : 0))
+      .catch((err) => console.error('[voz] barrido de silencios y plazos falló:', describeError(err)))
       .finally(() => { barriendo = false; });
   }, cadaMs);
   barrido.unref?.();
 }
 
+// El simulador firma sus códigos (simulados, en memoria) con una clave propia del proceso, nunca con JWT_SECRET.
 export const simulador = crearSimulador({
   almacen,
   ajustes: leerAjustesGuardados,
   ia: clienteIa,
-  secreto: config.auth.jwtSecret,
+  secreto: randomBytes(32).toString('hex'),
 });
 
 export async function probarConexion() {

@@ -5,7 +5,7 @@ import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import { abrirDialogo } from '../ui/dialog.js';
 import {
-  duracionCorta, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
+  duracionCorta, etiquetaVerificacionNegada, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
 } from '../core/llamadas.js';
 
 /* ============= LLAMADAS (línea de voz con IA) =============
@@ -195,7 +195,9 @@ async function renderLlamadas(main) {
           <summary>
             <strong>${escapeHtml(telefonoBonito(l.telefono))}</strong> ${chipResultado(l.resultado)} ${l.simulada ? '<span class="badge">Simulada</span>' : ''}
             <span class="field-help">${escapeHtml(fechaCorta(l.iniciada))} · ${duracionCorta(l.duracionSeg)}${l.verificado ? ' · verificado' : ''}</span>
+            ${l.verificacionNegada ? `<span class="badge" style="background:#b453091a;color:#b45309;">${escapeHtml(etiquetaVerificacionNegada(l.verificacionNegada))}</span>` : ''}
           </summary>
+          ${l.verificacionNegadaTexto ? `<p class="field-help">${escapeHtml(l.verificacionNegadaTexto)}</p>` : ''}
           <div class="voz-transcripcion"><p class="field-help">Cargando transcripción…</p></div>
         </details>`).join('') : '<p class="field-help voz-vacio">Todavía no hay llamadas.</p>';
       $$('details[data-llamada]', box).forEach(det => det.addEventListener('toggle', async () => {
@@ -291,8 +293,8 @@ async function renderLlamadas(main) {
       <h2>Ajustes</h2>
       <form id="vozAjustesForm">
         ${check('ajActivo', 'Línea encendida', a.activo, 'Apagada, la llamada pasa al número de desvío (si hay) sin gastar minutos.')}
-        <div class="field"><label for="ajNombre">Nombre de la asistente</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
-        <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select></div>
+        <div class="field"><label for="ajNombre">Nombre del asistente virtual</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
+        <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select><div class="field-help">La línea se presenta como «el asistente» o «la asistente» según la voz.</div></div>
         <div class="field"><label for="ajSaludo">Saludo propio (opcional)</label><textarea id="ajSaludo" maxlength="300" rows="2">${escapeHtml(a.saludo)}</textarea><div class="field-help">Siempre se agrega el aviso de transcripción y retención.</div></div>
         <div class="field"><label for="ajDesvio">Número de desvío a asesores</label><input type="tel" id="ajDesvio" value="${escapeHtml(a.numeroDesvio ?? '')}" placeholder="+57 300 000 0000"><div class="field-help">Sin número no hay transferencia en vivo: se ofrece cita o devolución.</div></div>
         <div class="field"><label for="ajHorario">Horario de asesores (hora de Colombia)</label><textarea id="ajHorario" rows="3">${escapeHtml(horarioATexto(a.horarioAsesores))}</textarea><div class="field-help">Una franja por línea: días (D L M X J V S) y horas, p. ej. «L M X J V 08:00-18:00».</div></div>
@@ -301,6 +303,8 @@ async function renderLlamadas(main) {
         ${num('ajTopeDia', 'Tope de minutos por día', a.topeMinutosDia, '', 'min="0"')}
         ${num('ajTopeMes', 'Tope de minutos por mes', a.topeMinutosMes, '', 'min="0"')}
         ${num('ajMax', 'Máximo de minutos por llamada', a.maxMinutosLlamada, '', 'min="1" max="30"')}
+        ${num('ajMaxTransfer', 'Máximo de minutos con el asesor', a.maxMinutosTransferencia, 'Tope de la llamada pasada a un asesor (también el desvío con la línea apagada o sin minutos). La parte con el asesor también se cobra.', 'min="1" max="240"')}
+        ${num('ajPorNumero', 'Llamadas por día desde un mismo número', a.maxLlamadasNumeroDia, 'Así un solo número no gasta los minutos del día. Las llamadas sin número cuentan juntas.', 'min="1" max="100"')}
         ${num('ajCosto', 'Costo por minuto (US$)', a.costoMinutoUsd, 'Solo para estimar el costo del mes.', 'min="0" step="0.001"')}
         ${num('ajSim', 'Tope de simulaciones por día', a.topeSimulacionesDia, '', 'min="0"')}
         <div id="ajAlerta" role="alert"></div>
@@ -319,6 +323,7 @@ async function renderLlamadas(main) {
         saludo: $('#ajSaludo', box).value, numeroDesvio: $('#ajDesvio', box).value.trim() || null, horarioAsesores: horario.franjas,
         grabar: $('#ajGrabar', box).checked, retencionDias: Number($('#ajRetencion', box).value), topeMinutosDia: Number($('#ajTopeDia', box).value),
         topeMinutosMes: Number($('#ajTopeMes', box).value), maxMinutosLlamada: Number($('#ajMax', box).value), costoMinutoUsd: Number($('#ajCosto', box).value),
+        maxMinutosTransferencia: Number($('#ajMaxTransfer', box).value), maxLlamadasNumeroDia: Number($('#ajPorNumero', box).value),
         topeSimulacionesDia: Number($('#ajSim', box).value),
       };
       try {

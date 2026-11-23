@@ -192,9 +192,9 @@ describe('cómo suena', () => {
 });
 
 describe('ajustes', () => {
-  it('por defecto: apagada, Salomé, 180 días de retención', () => {
+  it('por defecto: apagada, Gonzalo (voz de hombre), 180 días de retención', () => {
     assert.equal(AJUSTES_DEFECTO.activo, false);
-    assert.equal(AJUSTES_DEFECTO.voz, 'Azure.es-CO-SalomeNeural');
+    assert.equal(AJUSTES_DEFECTO.voz, 'Azure.es-CO-GonzaloNeural');
     assert.equal(AJUSTES_DEFECTO.retencionDias, 180);
   });
   it('sanea lo que llega del panel y conserva lo demás', () => {

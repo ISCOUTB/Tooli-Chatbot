@@ -7,7 +7,9 @@
 // del motor Google y que un `speak` sin `stop` se encole. Ver VOZ_PROGRESO.md.
 import axios from 'axios';
 import { verifyTelnyxSignature } from '../signature';
-import type { ConnectionTestResult, HeaderBag, ProviderCredentials, SpeakOptions, VoiceEvent, VoiceEventKind, VoiceProvider } from './tipos';
+import type {
+  ConnectionTestResult, HeaderBag, ProviderCredentials, SpeakOptions, TransferOptions, VoiceEvent, VoiceEventKind, VoiceProvider,
+} from './tipos';
 
 export const TELNYX_API = 'https://api.telnyx.com/v2';
 
@@ -58,6 +60,7 @@ export function parseTelnyxEvent(rawBody: string): VoiceEvent | null {
     to: str(payload.to, 40),
     direction: payload.direction === 'incoming' || payload.direction === 'outgoing' ? payload.direction : null,
     occurredAt: str(data.occurred_at, 40),
+    clientState: estadoCliente(payload.client_state),
   };
   if (kind === 'speech') {
     const td = (payload.transcription_data ?? payload) as Record<string, unknown>;
@@ -65,12 +68,32 @@ export function parseTelnyxEvent(rawBody: string): VoiceEvent | null {
     event.isFinal = td.is_final === undefined ? true : td.is_final === true;
   }
   if (kind === 'hangup') {
+    // El esquema actual de call.hangup trae start_time pero NO end_time (OpenAPI de Call Control, «CallHangup»): el fin
+    // es el occurred_at del evento. Si algún día llega end_time, se usa ese. Sin start_time, null (el manejador usa
+    // su reloj desde que se contestó).
     const start = Date.parse(String(payload.start_time ?? ''));
-    const end = Date.parse(String(payload.end_time ?? ''));
+    const end = Date.parse(String(payload.end_time ?? data.occurred_at ?? ''));
     event.durationSeconds = Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null;
     event.hangupCause = str(payload.hangup_cause, 60);
   }
   return event;
+}
+
+/** `client_state` viene en base64: se decodifica y solo se acepta texto corto y visible. */
+function estadoCliente(v: unknown): string | null {
+  if (typeof v !== 'string' || !v || v.length > 400) return null;
+  const t = Buffer.from(v, 'base64').toString('utf8');
+  return /^[\x20-\x7e]{1,200}$/.test(t) ? t : null;
+}
+
+/** Cuerpo del comando transfer (puro, se prueba): tope de duración y estado de la pata saliente. */
+export function transferBody(to: string, commandId: string, opts: TransferOptions = {}): Record<string, unknown> {
+  return {
+    to,
+    command_id: commandId,
+    ...(opts.limiteSeg ? { time_limit_secs: Math.max(30, Math.min(14_400, Math.round(opts.limiteSeg))) } : {}),
+    ...(opts.estadoPata ? { target_leg_client_state: Buffer.from(opts.estadoPata, 'utf8').toString('base64') } : {}),
+  };
 }
 
 /** Cuerpo del comando speak (puro, se prueba). */
@@ -131,10 +154,29 @@ export const telnyxProvider: VoiceProvider = {
   speak: (creds, callId, text, opts) => command(creds, callId, 'speak', speakBody(text, opts)),
   stopSpeaking: (creds, callId, commandId) => command(creds, callId, 'playback_stop', { stop: 'all', command_id: commandId }),
   startListening: (creds, callId, language, commandId) => command(creds, callId, 'transcription_start', listenBody(language, commandId)),
-  transfer: (creds, callId, to, commandId) => command(creds, callId, 'transfer', { to, command_id: commandId }),
+  // POST /v2/calls/{id}/actions/transcription_stop (developers.telnyx.com, «Transcription stop»): body opcional con
+  // command_id y client_state. Telnyx solo deja de transcribir al colgar o con este comando.
+  stopListening: (creds, callId, commandId) => command(creds, callId, 'transcription_stop', { command_id: commandId }),
+  transfer: (creds, callId, to, commandId, opts) => command(creds, callId, 'transfer', transferBody(to, commandId, opts)),
   hangup: (creds, callId, commandId) => command(creds, callId, 'hangup', { command_id: commandId }),
   startRecording: (creds, callId, commandId) =>
     command(creds, callId, 'record_start', { format: 'mp3', channels: 'single', command_id: commandId }),
+  async estadoLlamada(creds, callId) {
+    try {
+      const res = await axios.get(`${TELNYX_API}/calls/${encodeURIComponent(callId)}`, {
+        headers: { Authorization: `Bearer ${creds.apiKey}`, Accept: 'application/json' }, timeout: 8000, validateStatus: () => true,
+      });
+      // 404/422 (error 90015): la llamada no existe o terminó hace más de 10 min.
+      if (res.status === 404 || res.status === 422) return { viva: false, duracionSeg: null };
+      if (res.status < 200 || res.status >= 300) return null;
+      const data = (res.data as { data?: { is_alive?: unknown; call_duration?: unknown } } | null)?.data;
+      if (typeof data?.is_alive !== 'boolean') return null;
+      const dur = Number(data.call_duration);
+      return { viva: data.is_alive, duracionSeg: Number.isFinite(dur) && dur >= 0 ? Math.round(dur) : null };
+    } catch {
+      return null;
+    }
+  },
   async testConnection(creds, phoneNumber): Promise<ConnectionTestResult> {
     const headers = { Authorization: `Bearer ${creds.apiKey}`, Accept: 'application/json' };
     let balance: string | null = null;

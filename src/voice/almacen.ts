@@ -12,13 +12,28 @@ export interface TopesReserva {
   topeMinutosMes: number;
   maxMinutosLlamada: number;
   retencionDias: number;
+  /** Llamadas por día desde un mismo número (las anónimas cuentan juntas). */
+  maxLlamadasNumeroDia: number;
 }
 
-/** Código de verificación por WhatsApp desde la voz: espera entre envíos y tope por hora, por número DESTINO. */
-export const CUPO_CODIGO = { esperaMs: 60_000, ventanaMs: 3_600_000, maxPorVentana: 5 } as const;
-export type CupoCodigo = 'ok' | 'espera' | 'tope';
+export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' | 'tope_numero' };
 
-export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' };
+/** Llave del conteo diario por número que llama (las anónimas, juntas). */
+export const claveNumero = (telefono: string) => telefono.replace(/\D/g, '') || 'anonimo';
+
+/** Tope duro (punto 8): pasado el máximo de la llamada y este margen, el barrido la cuelga aunque nada más lo haga. */
+export const MARGEN_TOPE_MS = 30_000;
+/** Lo que se espera a que una llamada reservada se conteste antes de contar su tope desde que entró. */
+export const ESPERA_CONTESTAR_MS = 60_000;
+/** Tras colgar por el tope, lo que se espera el call.hangup antes de cerrarla sin él (reconciliar). */
+export const GRACIA_COLGAR_MS = 60_000;
+
+/** Fecha límite dura de una llamada activa (ms). */
+export function plazoDuro(l: LlamadaVoz): number {
+  if (l.transferidaEn && l.transferidaHasta) return l.transferidaHasta + MARGEN_TOPE_MS;
+  const desde = Date.parse(l.contestada ?? l.iniciada);
+  return desde + l.minutosPermitidos * 60_000 + MARGEN_TOPE_MS + (l.contestada ? 0 : ESPERA_CONTESTAR_MS);
+}
 
 export interface AlmacenVoz {
   /** Idempotencia: true solo la primera vez que llega ese evento. */
@@ -41,17 +56,25 @@ export interface AlmacenVoz {
   uso(ahora: Date): Promise<{ dia: number; mes: number }>;
   /** Cuenta simulaciones del día; false si ya se llegó al tope. */
   contarSimulacion(ahora: Date, tope: number): Promise<boolean>;
-  /**
-   * Aparta un envío de código al WhatsApp `telefono` (atómico): 'espera' si se mandó uno hace menos de 60 s, 'tope'
-   * si ya van 5 en la hora. Así, llamar muchas veces con el número de otra persona no le llena el WhatsApp de códigos.
-   */
-  cupoCodigoVoz(telefono: string, ahora: number): Promise<CupoCodigo>;
   /** Índice de fechas límite de silencio (para el barrido). Reemplaza la de esa llamada si ya había una. */
   indexarSilencio(id: string, vence: number): Promise<void>;
   /** Las que ya vencieron a `ahora` (ms), las más viejas primero. */
   silenciosVencidos(ahora: number, limite: number): Promise<{ id: string; vence: number }[]>;
   /** Saca la entrada solo si sigue siendo esa fecha (otra instancia pudo programar una nueva). */
   quitarSilencio(id: string, vence: number): Promise<void>;
+  /**
+   * Índice de llamadas activas por su fecha límite dura (punto 8). `reservarLlamada` ya la deja vigilada; contestar o
+   * transferir la mueven. Reemplaza la fecha si ya había una.
+   */
+  vigilar(id: string, vence: number): Promise<void>;
+  /**
+   * Un call.hangup de una llamada que todavía no existe (llegó antes de terminar el incoming): se recuerda un rato para
+   * que el incoming no la deje abierta con el cupo apartado (punto 10).
+   */
+  marcarColgada(proveedor: string, proveedorCallId: string): Promise<void>;
+  fueColgada(proveedor: string, proveedorCallId: string): Promise<boolean>;
+  vigiladasVencidas(ahora: number, limite: number): Promise<{ id: string; vence: number }[]>;
+  dejarDeVigilar(id: string): Promise<void>;
 }
 
 /** Retención en ms desde un instante. */
@@ -89,10 +112,22 @@ export function nuevaLlamada(args: {
     hablando: false,
     despuesDeHablar: null,
     frase: 0,
+    turnoAplicado: 0,
     puentes: 0,
     silencio: 0,
     actividad: args.ahora.getTime(),
     silencioVence: null,
+    dictado: '',
+    verificada: false,
+    finHabla: null,
+    colgadoForzado: null,
+    transferidaEn: null,
+    transferidaHasta: null,
+    pataContestada: false,
+    segPata: null,
+    minutosPata: 0,
+    verificacionNegada: null,
+    apagada: false,
   };
 }
 
@@ -110,7 +145,9 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
   const usoMes = new Map<string, number>();
   const sims = new Map<string, number>();
   const silencios = new Map<string, number>();
-  const codigos = new Map<string, { ultimo: number; ventana: number; n: number }>();
+  const plazos = new Map<string, number>();
+  const colgadas = new Set<string>();
+  const porNumero = new Map<string, number>();
   const clon = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const vigente = (l: LlamadaVoz | undefined) => (l && l.expira > reloj() ? l : null);
   return {
@@ -127,7 +164,9 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       if (porProv.has(k)) return { ok: false, motivo: 'duplicada' };
       const { day, month } = bogotaClock(ahora);
       let minutos = topes.maxMinutosLlamada;
+      const kNum = `${day}:${claveNumero(telefono)}`;
       if (!simulada && !soloRegistro) {
+        if ((porNumero.get(kNum) ?? 0) >= topes.maxLlamadasNumeroDia) return { ok: false, motivo: 'tope_numero' };
         minutos = allowedMinutesForNewCall(
           { dailyMinutesCap: topes.topeMinutosDia, monthlyMinutesCap: topes.topeMinutosMes, maxCallMinutes: topes.maxMinutosLlamada, costPerMinuteUsd: 0 },
           usoDia.get(day) ?? 0, usoMes.get(month) ?? 0,
@@ -135,10 +174,12 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
         if (minutos < 1) return { ok: false, motivo: 'sin_cupo' };
         usoDia.set(day, (usoDia.get(day) ?? 0) + minutos);
         usoMes.set(month, (usoMes.get(month) ?? 0) + minutos);
+        porNumero.set(kNum, (porNumero.get(kNum) ?? 0) + 1);
       }
       const llamada = nuevaLlamada({ proveedor, proveedorCallId, telefono, simulada, minutosPermitidos: minutos, ahora, retencionDias: topes.retencionDias });
       llamadas.set(llamada.id, clon(llamada));
       porProv.set(k, llamada.id);
+      if (!soloRegistro) plazos.set(llamada.id, plazoDuro(llamada));
       return { ok: true, llamada };
     },
     async porProveedor(p, cid) {
@@ -158,8 +199,9 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       return clon(nueva);
     },
     async ajustarUso(dia, mes, delta) {
-      usoDia.set(dia, Math.max(0, (usoDia.get(dia) ?? 0) + delta));
-      usoMes.set(mes, Math.max(0, (usoMes.get(mes) ?? 0) + delta));
+      // Como el Lua: un día o mes que ya no existe (venció) no se revive al ajustar.
+      if (usoDia.has(dia)) usoDia.set(dia, Math.max(0, (usoDia.get(dia) ?? 0) + delta));
+      if (usoMes.has(mes)) usoMes.set(mes, Math.max(0, (usoMes.get(mes) ?? 0) + delta));
     },
     async agregarLinea(id, linea) {
       const prev = lineas.get(id) ?? [];
@@ -187,18 +229,17 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       sims.set(day, n);
       return true;
     },
-    async cupoCodigoVoz(telefono, ahora) {
-      const c = codigos.get(telefono);
-      if (c && ahora - c.ultimo < CUPO_CODIGO.esperaMs) return 'espera';
-      const enVentana = c && ahora - c.ventana < CUPO_CODIGO.ventanaMs;
-      if (enVentana && c.n >= CUPO_CODIGO.maxPorVentana) return 'tope';
-      codigos.set(telefono, enVentana ? { ultimo: ahora, ventana: c.ventana, n: c.n + 1 } : { ultimo: ahora, ventana: ahora, n: 1 });
-      return 'ok';
-    },
     async indexarSilencio(id, vence) { silencios.set(id, vence); },
     async silenciosVencidos(ahora, limite) {
       return [...silencios.entries()].filter(([, v]) => v <= ahora).sort((a, b) => a[1] - b[1]).slice(0, limite).map(([id, vence]) => ({ id, vence }));
     },
     async quitarSilencio(id, vence) { if (silencios.get(id) === vence) silencios.delete(id); },
+    async vigilar(id, vence) { plazos.set(id, vence); },
+    async marcarColgada(p, cid) { colgadas.add(`${p}:${cid}`); },
+    async fueColgada(p, cid) { return colgadas.has(`${p}:${cid}`); },
+    async vigiladasVencidas(ahora, limite) {
+      return [...plazos.entries()].filter(([, v]) => v <= ahora).sort((a, b) => a[1] - b[1]).slice(0, limite).map(([id, vence]) => ({ id, vence }));
+    },
+    async dejarDeVigilar(id) { plazos.delete(id); },
   };
 }

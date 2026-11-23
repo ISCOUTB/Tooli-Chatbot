@@ -10,6 +10,7 @@ const RESULTADOS = {
   devolver_llamada: { label: 'Pidió devolución', color: '#b45309' },
   sin_cupo: { label: 'Sin minutos', color: '#c5221f' },
   fuera_de_horario: { label: 'Fuera de horario', color: '#64748b' },
+  linea_apagada: { label: 'Línea apagada', color: '#64748b' },
   colgo: { label: 'Colgó', color: '#64748b' },
   silencio: { label: 'En silencio', color: '#64748b' },
   error: { label: 'Se cortó', color: '#c5221f' },
@@ -50,6 +51,13 @@ export function textoAHorario(texto) {
     franjas.push({ dias, desde: m[2], hasta: m[3] });
   }
   return { franjas, errores };
+}
+
+/** Etiqueta corta cuando la verificación por voz no se pudo ofrecer (tope de códigos o bloqueo). */
+export function etiquetaVerificacionNegada(motivo) {
+  if (motivo === 'bloqueado') return 'Verificación bloqueada';
+  if (motivo === 'espera') return 'Verificación en pausa';
+  return '';
 }
 
 /** Qué rol tiene cada línea de la transcripción en el simulador. */
