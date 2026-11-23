@@ -68,8 +68,11 @@ export function parseTelnyxEvent(rawBody: string): VoiceEvent | null {
     event.isFinal = td.is_final === undefined ? true : td.is_final === true;
   }
   if (kind === 'hangup') {
+    // El esquema actual de call.hangup trae start_time pero NO end_time (OpenAPI de Call Control, «CallHangup»): el fin
+    // es el occurred_at del evento. Si algún día llega end_time, se usa ese. Sin start_time, null (el manejador usa
+    // su reloj desde que se contestó).
     const start = Date.parse(String(payload.start_time ?? ''));
-    const end = Date.parse(String(payload.end_time ?? ''));
+    const end = Date.parse(String(payload.end_time ?? data.occurred_at ?? ''));
     event.durationSeconds = Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 1000) : null;
     event.hangupCause = str(payload.hangup_cause, 60);
   }

@@ -794,3 +794,16 @@ describe('#35, diseño: el panel dice cuándo la verificación por voz quedó en
     assert.equal((await x.llamada('k2')).verificacionNegada, 'bloqueado');
   });
 });
+
+describe('punto 19: la duración del call.hangup sale de start_time y occurred_at (no trae end_time)', () => {
+  it('sin end_time: occurred_at − start_time; con end_time, ese; sin nada, null (respaldo: reloj del servidor)', async () => {
+    const { parseTelnyxEvent } = await import('./proveedor/telnyx');
+    const cuerpo = (payload: Record<string, unknown>, occurred?: string) => JSON.stringify({
+      data: { id: 'h', event_type: 'call.hangup', occurred_at: occurred, payload: { call_control_id: 'c', ...payload } },
+    });
+    assert.equal(parseTelnyxEvent(cuerpo({ start_time: '2026-11-23T15:00:00.000000Z' }, '2026-11-23T15:01:35.500000Z'))?.durationSeconds, 96);
+    assert.equal(parseTelnyxEvent(cuerpo({ start_time: '2026-11-23T15:00:00Z', end_time: '2026-11-23T15:00:40Z' }, '2026-11-23T15:00:41Z'))?.durationSeconds, 40);
+    assert.equal(parseTelnyxEvent(cuerpo({}, '2026-11-23T15:00:41Z'))?.durationSeconds, null);
+    assert.equal(parseTelnyxEvent(cuerpo({ start_time: '2026-11-23T15:00:00Z' }))?.durationSeconds, null);
+  });
+});
