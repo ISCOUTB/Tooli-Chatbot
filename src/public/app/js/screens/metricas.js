@@ -244,8 +244,8 @@ async function renderMetricas(main) {
             ${frecuentes.length === 0
               ? `<p style="color:var(--text-muted);text-align:center;padding:12px 0;">Todavía no hay preguntas guardadas.</p>`
               : frecuentes.slice(0, 15).map((x) => `
-                <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
-                  <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">«${escapeHtml(x.texto)}»</span>
                   <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(x.veces)} ${x.veces === 1 ? 'vez' : 'veces'}</span>
                 </div>`).join('')}
           </div>
@@ -259,9 +259,9 @@ async function renderMetricas(main) {
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que falló al atender a alguien (la IA, un audio, el asesor, el CRM…). Sin teléfonos ni mensajes.</p>
                 <div style="margin-bottom:6px;">${chips(erroresPorTipo, TIPO_INCIDENCIA)}</div>
                 ${incidencias.filter(enRango).slice(0, 30).map((x) => `
-                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
                     <span style="flex:none;font-size:12px;color:#c5221f;min-width:150px;">${escapeHtml(TIPO_INCIDENCIA[x.tipo] ?? x.tipo)}</span>
-                    <span style="flex:1;">${escapeHtml(x.detalle)}</span>
+                    <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">${escapeHtml(x.detalle)}</span>
                     <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
                   </div>`).join('')}
               </div>`}
@@ -275,9 +275,9 @@ async function renderMetricas(main) {
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Lo que escribieron y el bot no reconoció, lo que la IA no supo responder, confusiones y quejas: para enseñárselo. Sin teléfonos; números largos y correos van tapados.</p>
                 <div style="margin-bottom:6px;">${chips(noEntendidoPorPaso, PASO_NO_RECONOCIDO)}</div>
                 ${noReconocidos.filter(enRango).slice(0, 30).map((x) => `
-                  <div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border, #e2e8f0);">
                     <span style="flex:none;font-size:12px;color:var(--text-muted);min-width:140px;">${escapeHtml(PASO_NO_RECONOCIDO[x.paso] ?? x.paso)}</span>
-                    <span style="flex:1;">«${escapeHtml(x.texto)}»</span>
+                    <span style="flex:1 1 160px;min-width:0;overflow-wrap:anywhere;">«${escapeHtml(x.texto)}»</span>
                     <span style="flex:none;font-size:12px;color:var(--text-muted);">${escapeHtml(fechaCorta(x.fecha))}</span>
                   </div>`).join('')}
               </div>`}

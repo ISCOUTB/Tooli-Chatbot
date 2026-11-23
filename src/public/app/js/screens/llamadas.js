@@ -218,7 +218,15 @@ async function renderLlamadas(main) {
   let simId = null;
   const simLog = $('#simLog', main);
   const simForm = $('#simForm', main);
+  // El asesor está siguiendo la simulación si escribe en el formulario o si la
+  // línea de estado está a la vista; si subió a leer otra cosa, no se le mueve.
+  const siguiendoSim = () => {
+    if (simForm.contains(document.activeElement)) return true;
+    const caja = $('#simEstado', main)?.getBoundingClientRect();
+    return Boolean(caja) && caja.bottom > 0 && caja.top < innerHeight;
+  };
   const pintarSim = (r) => {
+    const seguir = siguiendoSim();
     simLog.innerHTML = lineasTranscripcion(r.transcripcion);
     simLog.scrollTop = simLog.scrollHeight;
     const acciones = (r.comandos ?? []).filter(c => c.tipo === 'transferir' || c.tipo === 'colgar' || c.tipo === 'cortar_audio')
@@ -232,11 +240,13 @@ async function renderLlamadas(main) {
     // La línea de estado va debajo del formulario: si la conversación crece se
     // iría bajo la barra de pestañas del celular o bajo el borde de la
     // pantalla. «nearest» solo desplaza si hace falta y respeta el
-    // scroll-padding que deja libre la barra.
-    requestAnimationFrame(() => {
-      const fase = $('#simEstado', main);
-      if (fase?.isConnected) fase.scrollIntoView({ block: 'nearest' });
-    });
+    // scroll-padding que deja libre la barra. Solo si el asesor la venía siguiendo.
+    if (seguir) {
+      requestAnimationFrame(() => {
+        const fase = $('#simEstado', main);
+        if (fase?.isConnected) fase.scrollIntoView({ block: 'nearest' });
+      });
+    }
     if (r.estado === 'cerrada') { simId = null; cargarRegistro(); }
   };
   const errorSim = (err) => toast(err?.status === 429 ? 'Se alcanzó el tope de simulaciones de hoy.' : 'El simulador no respondió. Intenta de nuevo.');
