@@ -21,7 +21,9 @@ import {
   pedirConsentimiento,
 } from './recomendacion';
 import { handleChattingWithAI } from './aiChat';
-import { agradecer, atenderBaja, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta } from './conversacion';
+import {
+  agradecer, atenderBaja, atenderNombreEnPaso, atenderSinPreguntaEnLista, handleConversacion, responderPreguntaSuelta,
+} from './conversacion';
 import {
   IMAGEN_NO, SALUDO_CORTO, SEGUIMOS, esAgradecimiento, esBaja, esConfusion, esPedidoAsesor, esRuido, esSaludo, pareceUnaPregunta, parseBoton,
   parseSugerencia,
@@ -155,7 +157,7 @@ const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_fich
  * conversacional): BAJA, los botones de la conversación, pedir un asesor, un
  * "gracias" y una pregunta escrita. Así ningún paso responde "No reconocí" a eso.
  */
-async function atajos(from: string, text: string, session: Session | null): Promise<boolean> {
+async function atajos(from: string, text: string, session: Session | null): Promise<boolean | { text: string; session: Session }> {
   if (!config.conversacion.activa || !session) return false;
   const { step } = session;
   const data = session.data ?? {};
@@ -165,9 +167,18 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (!PASOS_DE_OPCION.has(step) && !PASOS_DE_TEXTO.has(step)) return false;
+  const sigue = DATO_QUE_FALTA[step] ?? '👆 Sigue con la opción de arriba o escríbeme tu pregunta.';
+  // "Me llamo Laura" o "quiero cambiar mi nombre": el nombre se cambia sin salir del paso. Lo que dijo
+  // después ("me llamo Laura, por acá está bien") sigue en el paso.
+  const nombre = await atenderNombreEnPaso(from, step, data, text, sigue);
+  if (nombre.atendido) return true;
+  if (nombre.texto !== text || nombre.data !== data) {
+    const conNombre: Session = { step, data: nombre.data };
+    const siguiente = await atajos(from, nombre.texto, conNombre);
+    return siguiente === false ? { text: nombre.texto, session: conNombre } : siguiente;
+  }
   // "¿Me pueden llamar en la tarde?" o "al 300…" mientras elige cómo lo contactan: lo atiende el paso, no la IA.
   if (PASOS_DE_CONTACTO.has(step) && respondeAlPaso(step, text)) return false;
-  const sigue = DATO_QUE_FALTA[step] ?? '👆 Sigue con la opción de arriba o escríbeme tu pregunta.';
   // Una foto no es la carrera, el nombre ni una opción.
   if (text === '__image__') {
     await registrarNoReconocido('imagen', 'una imagen');
@@ -233,8 +244,11 @@ export async function handleMessage(from: string, text: string): Promise<void> {
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.
   const util = parseUtil(text);
   if (util) return atenderUtil(from, util, session?.data ?? {}, session?.step);
-  if (await atajos(from, text, session)) return;
-  const step = session?.step ?? 'menu';
+  const atajo = await atajos(from, text, session);
+  if (atajo === true) return;
+  // Un atajo que atendió una parte ("me llamo Laura, …") deja el resto para el paso.
+  const ctx: FlowContext = atajo ? { from, text: atajo.text, session: atajo.session } : { from, text, session };
+  const step = ctx.session?.step ?? 'menu';
 
   // Con el inicio conversacional, el paso raíz lo atiende la IA con preguntas de botones.
   const handler = step === 'menu' && config.conversacion.activa ? handleConversacion : HANDLERS[step];
@@ -245,5 +259,5 @@ export async function handleMessage(from: string, text: string): Promise<void> {
     return;
   }
 
-  await handler({ from, text, session });
+  await handler(ctx);
 }

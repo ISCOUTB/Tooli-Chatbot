@@ -371,3 +371,83 @@ describe('cambiar el nombre en cualquier momento', { skip: SIN_MOCKS }, () => {
     assert.equal(perfiles.get(TEL)?.nombre, undefined);
   });
 });
+
+describe('cambiar el nombre también en los pasos de recomendación y de contacto', { skip: SIN_MOCKS }, () => {
+  const paso = () => sesiones.get(TEL)?.step;
+
+  /** Llega a las recomendaciones (paso reco_resultados) por la conversación. */
+  async function aResultados(): Promise<void> {
+    await empezar('Pedro');
+    await escribir('ayúdame a elegir');
+    await escribir('soy egresado de la UTB');
+    await escribir('Ingeniería Industrial');
+    await escribir('maestría');
+    assert.equal(paso(), 'reco_resultados');
+    preguntasIa.length = 0;
+  }
+
+  /** Pide asesor: queda en la pregunta del canal (reco_contacto). */
+  async function aContacto(): Promise<void> {
+    await empezar('Pedro');
+    await escribir('quiero hablar con un asesor');
+    assert.equal(paso(), 'reco_contacto');
+  }
+
+  for (const [frase, nombre] of [
+    ['me llamo Laura', 'Laura'], ['mi nombre es Laura Gómez', 'Laura Gómez'], ['cámbiame el nombre a Laura', 'Laura'],
+    ['ese no es mi nombre, soy Laura', 'Laura'],
+  ] as const) {
+    it(`«${frase}» en las recomendaciones cambia el nombre, sin la IA, y sigue en el paso`, async () => {
+      await aResultados();
+      const r = await escribir(frase);
+      assert.equal(datos().nombre, nombre, JSON.stringify(r));
+      assert.equal(preguntasIa.length, 0, 'no va a la IA');
+      assert.equal(paso(), 'reco_resultados');
+      assert.deepEqual(filasActualizadas, [{ fila: 7, nombre }]);
+      assert.ok(r.some((t) => t.includes(nombre.split(' ')[0])), JSON.stringify(r));
+    });
+
+    it(`«${frase}» en la pregunta del canal cambia el nombre y vuelve a la pregunta`, async () => {
+      await aContacto();
+      const r = await escribir(frase);
+      assert.equal(datos().nombre, nombre, JSON.stringify(r));
+      assert.ok(!r.some((t) => /No te entendí/.test(t)), JSON.stringify(r));
+      assert.equal(paso(), 'reco_contacto');
+      assert.ok(r.some((t) => /cómo te contactamos/i.test(t)), `recuerda lo que falta: ${JSON.stringify(r)}`);
+    });
+  }
+
+  it('«quiero cambiar mi nombre» en el canal de contacto pregunta cuál, lo cambia y vuelve al canal', async () => {
+    await aContacto();
+    const r1 = await escribir('quiero cambiar mi nombre');
+    assert.match(ultimo(r1), /cómo te llamas/i, JSON.stringify(r1));
+    assert.equal(paso(), 'reco_contacto');
+    const r2 = await escribir('Laura');
+    assert.equal(datos().nombre, 'Laura');
+    assert.equal(paso(), 'reco_contacto');
+    assert.ok(r2.some((t) => /cómo te contactamos/i.test(t)), JSON.stringify(r2));
+  });
+
+  it('«quiero cambiar mi nombre» y luego «olvídalo» en las recomendaciones: sigue igual', async () => {
+    await aResultados();
+    await escribir('quiero cambiar mi nombre');
+    const r = await escribir('olvídalo');
+    assert.equal(datos().nombre, 'Pedro', JSON.stringify(r));
+    assert.equal(paso(), 'reco_resultados');
+    assert.equal(datos().nombreNuevo ?? '', '');
+    assert.equal(preguntasIa.length, 0);
+  });
+
+  for (const frase of ['me llamó la atención la maestría', '¿cómo se llama el programa?', 'me llamaron ayer']) {
+    it(`«${frase}» en las recomendaciones o el canal no cambia el nombre`, async () => {
+      await aResultados();
+      await escribir(frase);
+      assert.equal(datos().nombre, 'Pedro');
+      sesiones.clear(); perfiles.clear(); decisiones.clear();
+      await aContacto();
+      await escribir(frase);
+      assert.equal(datos().nombre, 'Pedro');
+      assert.equal(notas.filter((n) => /Cambió su nombre/.test(n.texto)).length, 0);
+    });
+  }
+});

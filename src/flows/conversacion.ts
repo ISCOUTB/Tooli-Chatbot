@@ -411,10 +411,13 @@ async function registrarSuscripcion(from: string, data: SessionData, nombre: str
  * sin ella, solo en esta conversación. Devuelve los datos nuevos y el mensaje
  * corto que lo confirma, o null si ya lo atendió el registro (primera vez).
  */
-async function cambiarNombre(from: string, data: SessionData, nombre: string): Promise<{ data: SessionData; aviso: string } | null> {
+async function cambiarNombre(
+  from: string, data: SessionData, nombre: string, registrar = true,
+): Promise<{ data: SessionData; aviso: string } | null> {
   const anterior = data.nombre ?? '';
-  // Autorizó, pero nunca alcanzó a dar el nombre: este es su registro.
-  if (data.datos === 'si' && data.info === 'si' && !anterior && !data.filaCrm) {
+  // Autorizó, pero nunca alcanzó a dar el nombre: este es su registro (en la conversación; en un paso
+  // del asesor el registro lo hace el lead al conectar).
+  if (registrar && data.datos === 'si' && data.info === 'si' && !anterior && !data.filaCrm) {
     await registrarSuscripcion(from, { ...data, pendiente: '' }, nombre);
     return null;
   }
@@ -439,6 +442,74 @@ async function cambiarNombre(from: string, data: SessionData, nombre: string): P
     }
   }
   return { data: nuevo, aviso };
+}
+
+export type NombreEnPaso = { atendido: true } | { atendido: false; texto: string; data: SessionData };
+
+/** Un botón o una opción de lista ("contacto_chat", "reco_util_si"): nunca es un nombre. */
+const esIdDeBoton = (t: string) => /^[\w:]+$/.test(t) && t.includes('_');
+
+/**
+ * "Me llamo Laura", "ese no es mi nombre, soy Laura" o "quiero cambiar mi
+ * nombre" en un paso de recomendación o del asesor: el nombre se cambia sin
+ * salir del paso y se recuerda lo que falta (`sigue`). Si dijo algo más
+ * ("me llamo Laura, por acá está bien"), eso sigue en el paso. Al pedir el
+ * nombre nuevo, "olvídalo" o "cancelar" lo dejan como estaba.
+ */
+export async function atenderNombreEnPaso(
+  from: string, step: string, data: SessionData, texto: string, sigue: string,
+): Promise<NombreEnPaso> {
+  const t = (texto ?? '').trim();
+  const sigueIgual: NombreEnPaso = { atendido: false, texto, data };
+  if (data.nombreNuevo === '1') {
+    const sinPedir: SessionData = { ...data, nombreNuevo: '' };
+    if (esCancelar(t) || parseGlobalCommand(t) === 'volver') {
+      await setSession(from, { step, data: sinPedir });
+      await messaging.sendText({ to: from, text: `${nombreSeQueda(data.nombre)}\n\n${sigue}` });
+      return { atendido: true };
+    }
+    // Un botón o una pregunta en vez del nombre: se atiende en el paso, como siempre.
+    if (esIdDeBoton(t) || pareceUnaPregunta(t) || esPedidoAsesor(t)) {
+      await setSession(from, { step, data: sinPedir });
+      return { atendido: false, texto, data: sinPedir };
+    }
+    const dicho = cambioDeNombre(t);
+    const nombre = dicho && 'nombre' in dicho ? dicho.nombre : limpiarNombre(t);
+    if (!nombre) {
+      await messaging.sendText({ to: from, text: PEDIR_NOMBRE_NUEVO_VALIDO });
+      return { atendido: true };
+    }
+    return renombrarEnPaso(from, step, sinPedir, nombre, '', sigue);
+  }
+  // Antes de decidir sobre sus datos no se toma; en el paso del nombre, lo escrito ya es el nombre.
+  if (!data.datos || step === 'reco_nombre' || esIdDeBoton(t)) return sigueIgual;
+  const dicho = cambioDeNombre(t);
+  if (!dicho) return sigueIgual;
+  if ('pedir' in dicho) {
+    await setSession(from, { step, data: { ...data, nombreNuevo: '1' } });
+    await messaging.sendText({ to: from, text: PREGUNTAS.nombre_nuevo.texto });
+    return { atendido: true };
+  }
+  return renombrarEnPaso(from, step, data, dicho.nombre, dicho.resto, sigue);
+}
+
+async function renombrarEnPaso(
+  from: string, step: string, data: SessionData, nombre: string, resto: string, sigue: string,
+): Promise<NombreEnPaso> {
+  const cambio = await cambiarNombre(from, data, nombre, false);
+  const nuevo = cambio?.data ?? { ...data, nombre };
+  const aviso = cambio?.aviso ?? nombreCambiado(nombre, data.nombre);
+  await setSession(from, { step, data: nuevo });
+  if (nuevo.datos === 'si') {
+    await completarPerfil(from, { nombre, datos: 'si' }).catch((err) =>
+      console.error('[conversacion] no se pudo guardar el perfil:', describeExternalError(err)));
+  }
+  if (resto) {
+    await messaging.sendText({ to: from, text: aviso });
+    return { atendido: false, texto: resto, data: nuevo };
+  }
+  await messaging.sendText({ to: from, text: `${aviso}\n\n${sigue}` });
+  return { atendido: true };
 }
 
 /** Tras cambiar el nombre: lo confirma y repite lo que estaba pendiente. */
