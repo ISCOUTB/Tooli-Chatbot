@@ -15,6 +15,7 @@ import {
   handleRecoRelacion, handleRecoPregradoGrupo, handleRecoPregrado, handleRecoPregradoExterno,
   handleRecoConfirmar, handleRecoSinCoincidencia, handleRecoNivel, handleRecoResultados,
   handleRecoFichaElegir, handleRecoFicha, handleRecoConsentimiento, handleRecoNombre, handleRecoCorreo,
+  handleRecoContacto, handleRecoContactoRepetir, handleRecoLlamadaNumero, handleRecoLlamadaFranja,
   atenderRespuestaCampana,
   atenderUtil,
   pedirConsentimiento,
@@ -27,6 +28,7 @@ import {
 } from './conversacionView';
 import { registrarNoReconocido } from '../services/noReconocidoService';
 import { parseUtil, prefiereContactoSinCorreo } from './recomendacionView';
+import { PASOS_DE_CONTACTO, PASO_FRANJA, parseFranja, respondeAlPaso } from './contactoView';
 import type { Session } from '../services/session';
 import { config } from '../config';
 import { handleWithAgent } from './withAgent';
@@ -77,6 +79,11 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
   reco_consentimiento: handleRecoConsentimiento,
   reco_nombre: handleRecoNombre,
   reco_correo: handleRecoCorreo,
+  // Cómo lo contacta el asesor: este chat, una llamada (número y franja) o el correo.
+  reco_contacto: handleRecoContacto,
+  reco_contacto_repetir: handleRecoContactoRepetir,
+  reco_llamada_numero: handleRecoLlamadaNumero,
+  reco_llamada_franja: handleRecoLlamadaFranja,
   // ── Pregrado ─────────────────────────────────────────────────────────────────
   menu_pregrado: handleMenuPregrado,
   pregrado_explorar_area: handleExplorarArea,
@@ -127,13 +134,18 @@ const HANDLERS: Record<string, (ctx: FlowContext) => Promise<void>> = {
 const PASOS_DE_OPCION: ReadonlySet<string> = new Set([
   'reco_relacion', 'reco_nivel', 'reco_confirmar', 'reco_pregrado_grupo', 'reco_pregrado', 'reco_sin_coincidencia',
   'reco_resultados', 'reco_ficha', 'reco_ficha_elegir', 'reco_consentimiento',
+  'reco_contacto', 'reco_contacto_repetir', 'reco_llamada_franja',
 ]);
 /** Pasos del flujo de recomendación que esperan un texto (carrera, nombre, correo). */
-const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo']);
+const PASOS_DE_TEXTO: ReadonlySet<string> = new Set(['reco_pregrado_externo', 'reco_nombre', 'reco_correo', 'reco_llamada_numero']);
 const DATO_QUE_FALTA: Record<string, string> = {
   reco_pregrado_externo: '✍️ Cuando quieras, escríbeme tu carrera.',
   reco_nombre: '✍️ Cuando quieras, escríbeme tu nombre completo para que el asesor te contacte.',
   reco_correo: '📧 Cuando quieras, escríbeme tu correo para que el asesor te contacte.',
+  reco_contacto: '👆 Cuando quieras, elige cómo te contactamos: por este chat, con una llamada o al correo.',
+  reco_contacto_repetir: '👆 Cuando quieras, dime si te contactamos igual que la vez pasada.',
+  reco_llamada_numero: '📞 Cuando quieras, dime a qué número te llamamos.',
+  reco_llamada_franja: '📞 Cuando quieras, dime en qué momento del día te llamamos.',
 };
 /** En recomendaciones y ficha, el texto libre ya lo responde la IA en la conversación. */
 const PASOS_CON_IA: ReadonlySet<string> = new Set(['reco_resultados', 'reco_ficha']);
@@ -153,6 +165,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (!PASOS_DE_OPCION.has(step) && !PASOS_DE_TEXTO.has(step)) return false;
+  // "¿Me pueden llamar en la tarde?" o "al 300…" mientras elige cómo lo contactan: lo atiende el paso, no la IA.
+  if (PASOS_DE_CONTACTO.has(step) && respondeAlPaso(step, text)) return false;
   const sigue = DATO_QUE_FALTA[step] ?? '👆 Sigue con la opción de arriba o escríbeme tu pregunta.';
   // Una foto no es la carrera, el nombre ni una opción.
   if (text === '__image__') {
@@ -194,7 +208,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (pareceUnaPregunta(text) && !/^\d+$/.test(text.trim()) && !PASOS_CON_IA.has(step)) {
-    await responderPreguntaSuelta(from, data, text);
+    // En los pasos del canal de contacto, después de responder recuerda qué falta (sin esto, el texto genérico).
+    await responderPreguntaSuelta(from, data, text, DATO_QUE_FALTA[step]);
     return true;
   }
   return false;
@@ -210,7 +225,9 @@ export async function handleMessage(from: string, text: string): Promise<void> {
   const session = await getSession(from);
   // Agenda de asesores: «agendar», «mis citas», cancelar/reprogramar y los botones de la agenda.
   // No en los pasos donde se escribe una contraseña, un código o la cédula: ese texto es del paso.
-  if (!PASOS_SIN_AGENDA.has(session?.step ?? '') && await atenderAgenda(from, text, session)) return;
+  // «Agendar una cita» como franja de la llamada es del paso: así el asesor también recibe el lead.
+  const citaDeLaLlamada = session?.step === PASO_FRANJA && parseFranja(text) === 'cita';
+  if (!PASOS_SIN_AGENDA.has(session?.step ?? '') && !citaDeLaLlamada && await atenderAgenda(from, text, session)) return;
   // Respuesta a una campaña que inició el bot ("Ver mis opciones", "No me interesa")
   if (await atenderRespuestaCampana(from, text, session)) return;
   // 👍/👎 de la recomendación: vale desde cualquier paso y no lo cambia.

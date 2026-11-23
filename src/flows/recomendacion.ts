@@ -17,7 +17,7 @@ import { actualizarRegistroProspecto, guardarRegistroProspecto } from '../servic
 import { agregarNota, getFicha, setEtiquetas } from '../services/crmService';
 import { upsertContactoHubspot } from '../services/hubspotService';
 import { registrarDecision } from '../services/consentimientoService';
-import { completarPerfil, conLoRecordado } from '../services/perfilService';
+import { completarPerfil, conLoRecordado, leerPerfil } from '../services/perfilService';
 import { registrarNoReconocido } from '../services/noReconocidoService';
 import { registrarIncidencia } from '../services/incidenciasService';
 import { limpiarNombre } from './conversacionView';
@@ -27,6 +27,15 @@ import { SessionData, parseGlobalCommand } from './commands';
 import { sendAreasMenu } from './programas';
 import { conectarConAsesorPosgrado } from './prospecto';
 import { handleChattingWithAI } from './aiChat';
+import { atenderAgenda } from './agendaFlowRuntime';
+import { isBsuid } from '../services/whatsappId';
+import {
+  BOTONES_CANAL, BOTONES_NUMERO, BOTONES_REPETIR, CORREO_NO_VALIDO, Contacto, ContactoEscrito, NUMERO_NO_VALIDO, PASO_CANAL,
+  PASO_FRANJA, PASO_NUMERO, PASO_REPETIR, PEDIR_NUMERO, PIE_CANAL, PREGUNTA_FRANJA, PREGUNTA_FRANJA_CON_CITA, PREGUNTA_NUMERO,
+  REPETIR_CANAL, TITULO_CONTACTO, avisoContacto, camposContacto, contactoAnterior, contactoListo, correoEnTexto, esElMismoCorreo,
+  etiquetaContacto, filasFranja, lineaContacto, parseCanal, parseFranja, parseNumero, parseRepetir, pedirCorreo, pedirNombreTrasCanal,
+  preguntaCanal, preguntaRepetir, telefonoColombiano, traeNumero,
+} from './contactoView';
 import { enviarFlyerPrograma, esperarFlyers, fotosDisponibles } from './fotosPrograma';
 import { FAMILIAS_EXTERNAS, PregradoInterpretado, interpretarPregrado, recomendar } from './recomendacionPregrado';
 import {
@@ -724,26 +733,195 @@ async function iniciarIa(from: string, data: SessionData): Promise<void> {
   });
 }
 
-// ── 7. Asesor: consentimiento, nombre, correo y lead ────────────────────────
+// ── 7. Asesor: consentimiento, canal de contacto, nombre y lead ─────────────
+
+const correoValido = (correo?: string) => (correo && CORREO_REGEX.test(correo) ? correo : '');
 
 /**
- * Con la autorización dada, al asesor solo le faltan el nombre (si no lo dio) y
- * el correo. Con `intro`, va un solo mensaje que explica para qué son.
- */
-/**
- * El asesor atiende por este mismo chat (Chatwoot), así que basta el nombre:
- * quien ya lo dio pasa de una; si no, se le pide y se le conecta. El correo ya
- * no se exige (la persona pedía "contáctenme por acá" y el bot insistía).
+ * Con la autorización dada, la persona elige cómo la contacta el asesor: por
+ * este chat, con una llamada o al correo. Quien ya eligió antes (o dejó su
+ * correo) solo confirma "igual que la vez pasada". El nombre se pide al final
+ * si falta. Con `intro`, va en el mismo mensaje que la pregunta.
  */
 async function pedirDatosDeContacto(from: string, data: SessionData, intro?: string): Promise<void> {
-  const autorizado: SessionData = { ...data, consentimiento: 'Sí' };
-  if (data.nombre) {
-    const correo = data.correo && CORREO_REGEX.test(data.correo) ? data.correo : '';
-    await messaging.sendText({ to: from, text: correo ? asesorConCorreoConocido(correo) : ASESOR_POR_AQUI });
-    return registrarLeadYConectar(from, { ...autorizado, correo });
+  const autorizado = await conContactoRecordado(from, { ...data, consentimiento: 'Sí' });
+  const previo = contactoAnterior(autorizado, from);
+  if (!previo) return preguntarCanal(from, autorizado, intro);
+  await setSession(from, { step: PASO_REPETIR, data: autorizado });
+  await messaging.sendButtons({
+    to: from, title: TITULO_CONTACTO, description: preguntaRepetir(previo, intro), footer: PIE_CANAL, buttons: [...BOTONES_REPETIR],
+  });
+}
+
+/** La sesión puede venir sin el canal de la vez pasada: el perfil lo recuerda (solo con autorización). */
+async function conContactoRecordado(from: string, data: SessionData): Promise<SessionData> {
+  if (data.datos !== 'si' || data.contactoCanal) return data;
+  try {
+    const perfil = await leerPerfil(from);
+    const recordado: SessionData = {};
+    for (const campo of ['contactoCanal', 'contactoTel', 'contactoFranja', 'correo'] as const) {
+      if (perfil?.[campo] && !data[campo]) recordado[campo] = perfil[campo];
+    }
+    return { ...data, ...recordado };
+  } catch {
+    // Sin el perfil se pregunta el canal: no se pierde nada.
+    return data;
   }
-  await setSession(from, { step: 'reco_nombre', data: autorizado });
-  await messaging.sendText({ to: from, text: intro ? `${intro}\n\n${PEDIR_NOMBRE}` : PEDIR_NOMBRE });
+}
+
+async function preguntarCanal(from: string, data: SessionData, intro?: string, noEntendio = false): Promise<void> {
+  await setSession(from, { step: PASO_CANAL, data });
+  await messaging.sendButtons({
+    to: from,
+    title: TITULO_CONTACTO,
+    description: noEntendio ? REPETIR_CANAL : preguntaCanal(intro),
+    footer: PIE_CANAL,
+    buttons: [...BOTONES_CANAL],
+  });
+}
+
+/** "Volver" desde el canal o el nombre: con la autorización dada al empezar, sale del paso del asesor. */
+function salirDelAsesor(from: string, data: SessionData): () => Promise<void> {
+  if (data.datos !== 'si') return () => pedirConsentimiento(from, data);
+  if (data.recomendados) return () => volverAntesDeAsesor(from, data);
+  return () => volverALaConversacion(from, data, 'Listo 👍 Puedes seguir preguntándome lo que quieras.');
+}
+
+/** Lo elegido (botón o escrito) lleva a lo que falta: el correo, el número, la franja o el nombre. */
+async function aplicarCanal(from: string, data: SessionData, e: ContactoEscrito): Promise<void> {
+  const base: SessionData = { ...data, contactoCanal: e.canal, contactoTel: '', contactoFranja: '', contactoPideNumero: '', pideLlamada: '' };
+  if (e.canal === 'chat') return completarContacto(from, base, { canal: 'chat' });
+  if (e.canal === 'correo') {
+    if (e.correo) return completarContacto(from, base, { canal: 'correo', correo: e.correo });
+    await setSession(from, { step: 'reco_correo', data: base });
+    await messaging.sendText({ to: from, text: pedirCorreo(correoValido(data.correo) || undefined) });
+    return;
+  }
+  // Un WhatsApp sin teléfono (BSUID) no tiene "este número": se le pide uno.
+  const telefono = e.telefono ?? (e.mismoNumero && !isBsuid(from) ? 'este' : '');
+  return seguirLlamada(from, { ...base, pideLlamada: '1', contactoTel: telefono, contactoFranja: e.franja ?? '' });
+}
+
+/** La llamada necesita el número y la franja (o la cita, con la agenda encendida). */
+async function seguirLlamada(from: string, data: SessionData): Promise<void> {
+  if (!data.contactoTel) {
+    await setSession(from, { step: PASO_NUMERO, data });
+    if (isBsuid(from) || data.contactoPideNumero === '1') {
+      await messaging.sendText({ to: from, text: PEDIR_NUMERO });
+      return;
+    }
+    await messaging.sendButtons({
+      to: from, title: '📞 Llamada', description: PREGUNTA_NUMERO, footer: 'También puedes escribir el número', buttons: [...BOTONES_NUMERO],
+    });
+    return;
+  }
+  const conAgenda = config.agenda.activa;
+  const franja = data.contactoFranja === 'cita' && !conAgenda ? '' : data.contactoFranja;
+  if (!franja) {
+    await setSession(from, { step: PASO_FRANJA, data: { ...data, contactoFranja: '' } });
+    await messaging.sendList({
+      to: from,
+      title: '📞 Llamada',
+      description: conAgenda ? PREGUNTA_FRANJA_CON_CITA : PREGUNTA_FRANJA,
+      footer: 'También puedes escribirlo',
+      buttonText: 'Elegir',
+      sections: [{ title: '¿Cuándo te llamamos?', rows: filasFranja(conAgenda) }],
+    });
+    return;
+  }
+  const listo = contactoListo(data);
+  if (listo) return completarContacto(from, data, listo);
+}
+
+/** Con el canal completo: si falta el nombre se pide (un solo mensaje); si no, se conecta. */
+async function completarContacto(from: string, data: SessionData, c: Contacto): Promise<void> {
+  const listo: SessionData = { ...data, ...camposContacto(c), contactoPideNumero: '' };
+  if (!listo.nombre) {
+    await setSession(from, { step: 'reco_nombre', data: listo });
+    await messaging.sendText({ to: from, text: pedirNombreTrasCanal(c) });
+    return;
+  }
+  return conectarSegunCanal(from, listo, c);
+}
+
+async function conectarSegunCanal(from: string, data: SessionData, c: Contacto): Promise<void> {
+  // Por chat sigue como antes: se avisa que el asesor escribe por aquí (y que tiene el correo, si lo dio).
+  if (c.canal === 'chat') {
+    const correo = correoValido(data.correo);
+    await messaging.sendText({ to: from, text: correo ? asesorConCorreoConocido(correo) : ASESOR_POR_AQUI });
+  }
+  await registrarLeadYConectar(from, data, c);
+  // La cita: el asesor ya tiene la conversación; la agenda abre las franjas de Posgrados.
+  if (c.canal === 'llamada' && c.franja === 'cita' && config.agenda.activa) {
+    await atenderAgenda(from, 'ag:ofrecer', { step: 'with_agent', data: { area: 'posgrados', nombre: data.nombre ?? '' } });
+  }
+}
+
+export async function handleRecoContacto(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, salirDelAsesor(from, data))) return;
+  const elegido = parseCanal(text);
+  if (elegido) return aplicarCanal(from, data, elegido);
+  await registrarNoReconocido(PASO_CANAL, text);
+  return preguntarCanal(from, data, undefined, true);
+}
+
+export async function handleRecoContactoRepetir(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, salirDelAsesor(from, data))) return;
+  // "Mejor llámenme" o "sí, pero por correo": el canal escrito vale como la elección de una vez.
+  const elegido = parseCanal(text);
+  if (elegido) return aplicarCanal(from, data, elegido);
+  const respuesta = parseRepetir(text);
+  const previo = contactoAnterior(data, from);
+  if (respuesta === 'igual' && previo) {
+    if (previo.canal !== 'llamada') return completarContacto(from, data, previo);
+    return seguirLlamada(from, { ...data, ...camposContacto(previo), contactoFranja: previo.franja ?? '' });
+  }
+  if (respuesta) return preguntarCanal(from, data);
+  await registrarNoReconocido(PASO_REPETIR, text);
+  if (!previo) return preguntarCanal(from, data);
+  await messaging.sendButtons({
+    to: from, title: TITULO_CONTACTO, description: preguntaRepetir(previo), footer: PIE_CANAL, buttons: [...BOTONES_REPETIR],
+  });
+}
+
+export async function handleRecoLlamadaNumero(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => preguntarCanal(from, data))) return;
+  // "Al mismo, en la tarde": la franja que venga en la respuesta también queda.
+  const franja = parseFranja(text);
+  const conFranja: SessionData = franja && franja !== 'cita' ? { contactoFranja: franja } : {};
+  const r = parseNumero(text);
+  if (r && 'telefono' in r) return seguirLlamada(from, { ...data, contactoTel: r.telefono, contactoPideNumero: '', ...conFranja });
+  if (r && 'este' in r && !isBsuid(from)) return seguirLlamada(from, { ...data, contactoTel: 'este', contactoPideNumero: '', ...conFranja });
+  const otroCanal = parseCanal(text);
+  if (otroCanal && otroCanal.canal !== 'llamada') return aplicarCanal(from, data, otroCanal);
+  if (r && 'otro' in r) return seguirLlamada(from, { ...data, contactoPideNumero: '1', ...conFranja });
+  if (traeNumero(text)) {
+    await messaging.sendText({ to: from, text: NUMERO_NO_VALIDO });
+    return;
+  }
+  await registrarNoReconocido(PASO_NUMERO, text);
+  return seguirLlamada(from, data);
+}
+
+export async function handleRecoLlamadaFranja(ctx: FlowContext): Promise<void> {
+  const { from, text, session } = ctx;
+  const data = session?.data ?? {};
+  if (await comandos(from, text, () => preguntarCanal(from, data))) return;
+  // Un número escrito aquí corrige al que se llama.
+  const telefono = telefonoColombiano(text);
+  const datos = telefono ? { ...data, contactoTel: telefono } : data;
+  const franja = parseFranja(text);
+  if (franja && (franja !== 'cita' || config.agenda.activa)) return seguirLlamada(from, { ...datos, contactoFranja: franja });
+  const otroCanal = parseCanal(text);
+  if (otroCanal && otroCanal.canal !== 'llamada') return aplicarCanal(from, data, otroCanal);
+  if (!telefono) await registrarNoReconocido(PASO_FRANJA, text);
+  return seguirLlamada(from, datos);
 }
 
 /** Desde la conversación libre no hay recomendaciones a las cuales volver. */
@@ -808,12 +986,7 @@ export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
   // Con la autorización dada al empezar, "volver" sale del paso del asesor en vez de repetirlo.
-  const atras = data.datos !== 'si'
-    ? () => pedirConsentimiento(from, data)
-    : data.recomendados
-      ? () => volverAntesDeAsesor(from, data)
-      : () => volverALaConversacion(from, data, 'Listo 👍 Puedes seguir preguntándome lo que quieras.');
-  if (await comandos(from, text, atras)) return;
+  if (await comandos(from, text, salirDelAsesor(from, data))) return;
 
   // Solo un nombre: "jajaja", "un momento" o "soy de Barranquilla" no se registran.
   const nombre = limpiarNombre(text);
@@ -826,32 +999,28 @@ export async function handleRecoNombre(ctx: FlowContext): Promise<void> {
     await completarPerfil(from, { nombre, datos: 'si' }).catch((err) =>
       console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
   }
-  // Con el nombre basta: el asesor le escribe por este mismo chat.
-  const correo = data.correo && CORREO_REGEX.test(data.correo) ? data.correo : '';
-  await messaging.sendText({ to: from, text: correo ? asesorConCorreoConocido(correo) : ASESOR_POR_AQUI });
-  await registrarLeadYConectar(from, { ...data, nombre, correo });
+  // El canal ya elegido se conecta; una sesión de antes (sin canal) lo elige ahora.
+  const conNombre = { ...data, nombre };
+  const contacto = contactoListo(conNombre);
+  if (contacto) return conectarSegunCanal(from, conNombre, contacto);
+  return preguntarCanal(from, conNombre);
 }
 
+/** El correo del canal 📧 (y el de sesiones viejas, que lo pedían después del nombre). */
 export async function handleRecoCorreo(ctx: FlowContext): Promise<void> {
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
-  const aNombre = async () => {
-    await setSession(from, { step: 'reco_nombre', data });
-    await messaging.sendText({ to: from, text: PEDIR_NOMBRE });
-  };
-  if (await comandos(from, text, aNombre)) return;
+  if (await comandos(from, text, () => preguntarCanal(from, data))) return;
 
-  // "¿No me pueden contactar por acá?", "una llamada", "no tengo correo": se conecta sin correo.
-  if (prefiereContactoSinCorreo(text)) {
-    await messaging.sendText({ to: from, text: ASESOR_POR_AQUI });
-    return registrarLeadYConectar(from, { ...data, correo: '', ...(pideLlamada(text) ? { pideLlamada: '1' } : {}) });
-  }
-  const correo = text.trim().toLowerCase();
-  if (!CORREO_REGEX.test(correo)) {
-    await messaging.sendText({ to: from, text: '📧 Ese correo no parece válido. Escríbelo de nuevo, por ejemplo: *nombre@correo.com*, o escribe *por acá* y el asesor te escribe por este chat.' });
-    return;
-  }
-  await registrarLeadYConectar(from, { ...data, correo });
+  // "Es ana@x.com", "ANA@X.COM." o "ese" (el que ya tenía).
+  const conocido = correoValido(data.correo);
+  const correo = correoEnTexto(text) ?? (conocido && esElMismoCorreo(text) ? conocido : null);
+  if (correo) return completarContacto(from, { ...data, contactoCanal: 'correo' }, { canal: 'correo', correo });
+  // "No tengo correo", "mejor por acá" → por este chat; "mejor llámenme" → la llamada.
+  const otroCanal = parseCanal(text);
+  if (otroCanal && otroCanal.canal !== 'correo') return aplicarCanal(from, data, otroCanal);
+  if (prefiereContactoSinCorreo(text)) return aplicarCanal(from, data, { canal: pideLlamada(text) ? 'llamada' : 'chat' });
+  await messaging.sendText({ to: from, text: CORREO_NO_VALIDO });
 }
 
 const AUTOR_BOT = 'Tooli (bot)';
@@ -860,16 +1029,24 @@ const AUTOR_BOT = 'Tooli (bot)';
  * Deja en la ficha del CRM del panel la nota con el pregrado y las
  * recomendaciones, y las etiquetas del flujo. Nunca bloquea al asesor.
  */
-async function anotarEnCrm(from: string, data: SessionData): Promise<void> {
+async function anotarEnCrm(from: string, data: SessionData, c: Contacto): Promise<void> {
   try {
     const nota = notaCrmRecomendacion(data);
     if (nota) await agregarNota(from, nota, AUTOR_BOT);
+    // Cómo pidió que lo contacten, en su propia nota: quien llega desde la conversación libre no trae recomendación.
+    await agregarNota(from, `Contacto preferido (bot): ${lineaContacto(c, from)}`, AUTOR_BOT);
     const ficha = await getFicha(from);
-    await setEtiquetas(from, [...ficha.etiquetas, ...etiquetasCrmRecomendacion(data)], AUTOR_BOT);
+    await setEtiquetas(from, [...ficha.etiquetas, ...etiquetasCrmRecomendacion(data), etiquetaContacto(c)], AUTOR_BOT);
   } catch (err) {
     console.error('[reco] no se pudo anotar en el CRM:', describeExternalError(err));
     await registrarIncidencia('crm', 'No se pudo anotar la recomendación en la ficha del CRM', err);
   }
+}
+
+/** El canal queda en el perfil para ofrecer "igual que la vez pasada"; la cita no se repite. */
+function camposDePerfil(c: Contacto): Record<string, string> {
+  const { contactoCanal, contactoTel, contactoFranja } = camposContacto(c);
+  return { contactoCanal, contactoTel, contactoFranja: contactoFranja === 'cita' ? '' : contactoFranja };
 }
 
 /**
@@ -877,7 +1054,7 @@ async function anotarEnCrm(from: string, data: SessionData): Promise<void> {
  * con el asesor. El asesor es lo que la persona pidió: si Sheets o el CRM
  * fallan se registra el error y se sigue, porque Chatwoot ya lleva los datos.
  */
-async function registrarLeadYConectar(from: string, data: SessionData): Promise<void> {
+async function registrarLeadYConectar(from: string, data: SessionData, c: Contacto): Promise<void> {
   const nombre = data.nombre ?? '';
   const correo = data.correo ?? '';
   const interes = programaInteresLead(data);
@@ -894,7 +1071,7 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
     console.error('[reco] no se pudo guardar el lead en Sheets:', describeExternalError(err));
     await registrarIncidencia('crm', 'No se pudo guardar en la hoja del CRM a alguien que pidió asesor', err);
   }
-  await anotarEnCrm(from, data);
+  await anotarEnCrm(from, data, c);
 
   // HubSpot (CRM de la UTB) sin bloquear el flujo; guarda los contactos por correo, así que sin correo se omite.
   if (correo) void upsertContactoHubspot({
@@ -912,7 +1089,7 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
   await track('reco_lead_completado', { area: 'posgrados' });
   // Nombre y correo quedan en el perfil (con autorización) para no volver a pedirlos.
   if (data.datos === 'si') {
-    await completarPerfil(from, { nombre, correo, datos: 'si' }).catch((err) =>
+    await completarPerfil(from, { nombre, correo, datos: 'si', ...camposDePerfil(c) }).catch((err) =>
       console.error('[reco] no se pudo guardar el perfil:', describeExternalError(err)));
   }
   await conectarConAsesorPosgrado(from, {
@@ -921,9 +1098,11 @@ async function registrarLeadYConectar(from: string, data: SessionData): Promise<
     programa: interes,
     lineas: [
       ...(resumen ? [`🧭 ${resumen}`] : []),
-      ...(data.pideLlamada === '1' ? ['📞 Pidió que lo llamen'] : []),
+      lineaContacto(c, from),
       '🔒 Autorizó el tratamiento de datos (Ley 1581 de 2012)',
     ],
-    etiquetas: etiquetasCrmRecomendacion(data),
+    etiquetas: [...etiquetasCrmRecomendacion(data), etiquetaContacto(c)],
+    // Quien pidió llamada o correo lee eso, no "te responderá en breve".
+    ...(c.canal !== 'chat' ? { aviso: (proxima: string | null) => avisoContacto(c, proxima) } : {}),
   });
 }
