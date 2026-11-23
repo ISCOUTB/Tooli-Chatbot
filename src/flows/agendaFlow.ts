@@ -36,7 +36,14 @@ export interface EstadoFlujoAgenda {
   nombre?: string;
   /** Ya vio horarios hasta este instante: "ver más" sigue desde ahí. */
   ultimo?: string;
+  /** Inicios de las franjas que ya se le mostraron (para no repetirlas al pedir más). */
+  vistas?: string[];
 }
+
+/** Tope de franjas que se leen por conversación: cubre la ventana máxima (60 días) de varios asesores. */
+const MAX_FRANJAS_FLUJO = 1000;
+/** Lo que se recuerda de lo ya mostrado (el estado vive en Redis 20 minutos). */
+const MAX_VISTAS = 600;
 
 export interface AgendaDelFlujo extends AgendaApi {
   reprogramar(citaId: string, telefono: string, franja: Franja): Promise<ResultadoReserva>;
@@ -112,11 +119,27 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
 
   const texto = (to: string, text: string) => mensajes.sendText({ to, text });
 
+  /**
+   * «Ver más» sigue desde la franja siguiente a la más tardía ya mostrada, por días distintos, sobre TODA la
+   * ventana (antes se leían solo las 40 primeras franjas y a la quinta página decía que no había más). Si ya no queda
+   * nada después, vuelve a las horas que quedaron atrás sin mostrarse; nunca repite una franja.
+   */
+  function siguientesFranjas(todas: Franja[], e: EstadoFlujoAgenda): Franja[] {
+    const vistas = new Set(e.vistas ?? []);
+    const nuevas = todas.filter((f) => !vistas.has(f.inicio));
+    const despues = e.ultimo ? nuevas.filter((f) => f.inicio > e.ultimo!) : nuevas;
+    const picks = elegirVariadas(despues, 3);
+    if (picks.length < 3) {
+      const antes = nuevas.filter((f) => !picks.includes(f));
+      picks.push(...elegirVariadas(antes, 3 - picks.length));
+    }
+    return picks.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }
+
   async function ofrecerFranjas(from: string, e: EstadoFlujoAgenda): Promise<void> {
     const area = e.area!;
-    const todas = await agenda.franjasLibres({ area, max: 40 });
-    const restantes = e.ultimo ? todas.filter((f) => f.inicio > e.ultimo!) : todas;
-    const picks = elegirVariadas(restantes, 3);
+    const todas = await agenda.franjasLibres({ area, max: MAX_FRANJAS_FLUJO });
+    const picks = siguientesFranjas(todas, e);
     if (!picks.length) {
       await deps.estado.del(from);
       await texto(from, e.ultimo
@@ -127,7 +150,8 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
     const ahora = deps.ahora();
     await deps.estado.set(from, {
       ...e, paso: 'franja', franjas: picks, elegida: undefined,
-      ultimo: picks.reduce((m, f) => (f.inicio > m ? f.inicio : m), picks[0].inicio),
+      ultimo: picks.reduce((m, f) => (f.inicio > m ? f.inicio : m), e.ultimo ?? picks[0].inicio),
+      vistas: [...(e.vistas ?? []), ...picks.map((f) => f.inicio)].slice(-MAX_VISTAS),
     });
     await mensajes.sendList({
       to: from,
@@ -274,7 +298,7 @@ export function crearFlujoAgenda(deps: DepsFlujo) {
     }
     // ocupada o inválida: la hora se acaba de ir (o ya no es válida). Se vuelven a ofrecer horarios.
     await texto(from, r.motivo === 'ocupada' ? 'Ese horario se acaba de ocupar. 😕 Mira estos otros:' : 'Ese horario ya no está disponible. 😕 Mira estos otros:');
-    await ofrecerFranjas(from, { ...e, paso: 'franja', ultimo: undefined, elegida: undefined });
+    await ofrecerFranjas(from, { ...e, paso: 'franja', ultimo: undefined, vistas: undefined, elegida: undefined });
   }
 
   async function nada(from: string, conAgente: boolean): Promise<boolean> {

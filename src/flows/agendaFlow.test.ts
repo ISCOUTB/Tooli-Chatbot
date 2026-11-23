@@ -174,6 +174,34 @@ describe('WhatsApp de punta a punta', () => {
     assert.equal(siguientes.some((t) => primeros.includes(t)), false);
   });
 
+  it('«ver más horarios» recorre toda la ventana sin saltarse días ni repetir', async () => {
+    // Laura: lunes a viernes, 12 citas al día, ventana de 14 días (del lun 23 nov al dom 6 dic).
+    await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
+    const vistas: string[] = [];
+    const anotar = () => { for (const f of estados.get(TEL)?.franjas ?? []) vistas.push(f.inicio); };
+    anotar();
+    const dias = () => [...new Set(vistas.map((i) => i.slice(0, 10)))].sort();
+    for (let pagina = 0; pagina < 6; pagina++) {
+      await flujo.atender(TEL, 'ag:mas', SESION_MENU);
+      assert.equal(ultimo().tipo, 'lista', `página ${pagina + 2}: ${ultimo().texto}`);
+      anotar();
+    }
+    assert.deepEqual(dias(), [
+      '2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27',
+      '2026-11-30', '2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04',
+    ], 'en 7 páginas aparecen todos los días hábiles de la ventana');
+    assert.equal(new Set(vistas).size, vistas.length, 'ninguna franja se repite');
+
+    // Siguiendo, aparecen también las horas que quedaron atrás; al final, y solo al final, dice que no hay más.
+    const total = (await agenda.franjasLibres({ area: 'posgrados', max: 1000 })).length;
+    for (let i = 0; i < 100 && ultimo().tipo === 'lista'; i++) {
+      await flujo.atender(TEL, 'ag:mas', SESION_MENU);
+      if (ultimo().tipo === 'lista') anotar();
+    }
+    assert.match(ultimo().texto, /Ya no tengo más horarios/);
+    assert.equal(new Set(vistas).size, total, 'se ofrecieron todas las franjas de la ventana');
+  });
+
   it('«otro horario» al confirmar vuelve a la lista; «no agendar» cierra sin reservar', async () => {
     await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
     await flujo.atender(TEL, 'ag:s:0', SESION_MENU);

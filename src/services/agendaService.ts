@@ -426,7 +426,8 @@ export function crearAgenda(deps: DepsAgenda) {
         }
       }
     }
-    const max = Math.max(1, Math.min(opts.max ?? 10, 200));
+    // Hasta 1000: el flujo de WhatsApp pagina sobre toda la ventana (60 días como máximo).
+    const max = Math.max(1, Math.min(opts.max ?? 10, 1000));
     return [...porInicio.values()].map((v) => v.franja).sort((a, b) => a.inicio.localeCompare(b.inicio)).slice(0, max);
   }
 
