@@ -202,3 +202,18 @@ describe('formatearListado', () => {
     assert.ok(formatearListado('doctorados').includes('Doctorado en Ingeniería — 8 SMMLV/sem'));
   });
 });
+
+describe('áreas: un alias no lleva a un área equivocada', () => {
+  it('«sistemas», «software» o «computación» van a tecnología, que no sugiere negocios', () => {
+    for (const alias of ['sistemas', 'Sistemas', 'software', 'datos', 'ciberseguridad', 'computación', 'informática']) {
+      assert.equal(parseAreaSeleccion(alias), 'tecnologia', alias);
+    }
+    const nombres = recomendarPorArea('tecnologia').map((s) => s.programa);
+    assert.ok(!nombres.some((n) => /Negocios|Sistemas Energ/.test(n)), nombres.join('; '));
+  });
+
+  it('una frase con dos áreas no elige una a ciegas: se vuelve a preguntar', () => {
+    assert.equal(parseAreaSeleccion('gestión de sistemas'), null);
+    assert.equal(parseAreaSeleccion('sistemas y negocios'), null);
+  });
+});

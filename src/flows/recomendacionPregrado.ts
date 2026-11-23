@@ -104,15 +104,20 @@ const CONTADURIA = listas(
   [P.dAdministracion],
 );
 
-/** Pregrado UTB (id del catálogo) → posgrados recomendados. */
+/**
+ * Pregrado UTB (id del catálogo) → posgrados recomendados. Revisada con mirada
+ * de asesor (nov-2026): cada pregrado tiene al menos dos maestrías y un
+ * doctorado propios (salvo Diseño, sin doctorado afín), para que pedir un
+ * nivel no obligue a soltarlo y mostrar programas de otro nivel o de otra área.
+ */
 export const TABLA_PREGRADO: Readonly<Record<string, ListasRecomendacion>> = {
   // Escuela de Ingeniería, Arquitectura & Diseño
   'ingenieria-civil': listas([P.estructural, P.geotecnia], [P.proyectos, P.mProyectos, P.territorial], INGENIERIA_INVESTIGA),
   arquitectura: listas([P.territorial, P.mPatrimonio], [P.proyectos, P.mProyectos], [P.dDesarrollo, P.dSostenibilidad]),
-  diseno: listas([P.mInnovacion, P.cultural], [P.mercadeo, P.disruptivas, P.proyectos], []),
+  diseno: listas([P.mInnovacion, P.cultural], [P.mercadeo, P.disruptivas, P.proyectos, P.mProyectos], []),
   'ingenieria-industrial': listas([P.produccion, P.logistica, P.mProyectos], [P.mba, P.sst, P.mInnovacion], INGENIERIA_INVESTIGA),
-  'ingenieria-ambiental': listas([P.ambiental, P.energia], [P.sst, P.proyectos], [P.dSostenibilidad, P.mIngenieria]),
-  'ingenieria-quimica': listas([P.produccion, P.ambiental, P.energia], [P.sst, P.proyectos], INGENIERIA_INVESTIGA),
+  'ingenieria-ambiental': listas([P.ambiental, P.energia], [P.sst, P.proyectos, P.mProyectos], [P.dSostenibilidad, P.mIngenieria]),
+  'ingenieria-quimica': listas([P.produccion, P.ambiental, P.energia], [P.sst, P.proyectos, P.mProyectos], INGENIERIA_INVESTIGA),
   'ingenieria-naval': listas([P.mantenimiento, P.mMantenimiento], [P.logistica, P.proyectos], INGENIERIA_INVESTIGA),
   'ingenieria-mecanica': listas([P.mantenimiento, P.mMantenimiento, P.energia, P.automatizacion], [P.produccion, P.proyectos], INGENIERIA_INVESTIGA),
   'ingenieria-electrica': listas([P.energia, P.automatizacion, P.mIndustria40], [P.mantenimiento, P.proyectos], INGENIERIA_INVESTIGA),
@@ -122,16 +127,16 @@ export const TABLA_PREGRADO: Readonly<Record<string, ListasRecomendacion>> = {
   // Escuela de Transformación Digital
   'ingenieria-de-sistemas-y-computacion': listas(
     [P.softwareV, P.ciberseguridad, P.mDatos, P.telecomunicaciones],
-    [P.mTransformacionDigital, P.proyectos],
+    [P.mTransformacionDigital, P.proyectos, P.disruptivas],
     INGENIERIA_INVESTIGA,
   ),
-  'ciencia-de-datos': listas([P.mDatos, P.estadistica], [P.ciberseguridad, P.mTransformacionDigital, P.disruptivas], [P.mIngenieria]),
+  'ciencia-de-datos': listas([P.mDatos, P.estadistica], [P.ciberseguridad, P.mTransformacionDigital, P.disruptivas], INGENIERIA_INVESTIGA),
   'marketing-y-transformacion-digital': listas([P.mercadeo, P.mTransformacionDigital, P.disruptivas], [P.mba, P.negociosInternacionales], [P.dAdministracion]),
   'comunicacion-social': listas([P.cultural, P.mPatrimonio, P.mercadeo], [P.mTransformacionDigital, P.mInvestigacionSocial], [P.dDesarrollo]),
   // Escuela de Negocios, Leyes y Sociedad
   'administracion-de-empresas': listas(
     [P.mba, P.gerenciaEmpresarial, P.planeacion, P.talentoHumano],
-    [P.proyectos, P.mercadeo, P.mGestionHumana],
+    [P.proyectos, P.mercadeo, P.mGestionHumana, P.finanzas, P.negociosInternacionales],
     [P.dAdministracion],
   ),
   'finanzas-y-negocios-internacionales': listas(
@@ -143,7 +148,7 @@ export const TABLA_PREGRADO: Readonly<Record<string, ListasRecomendacion>> = {
   'virtual-contaduria-publica': CONTADURIA,
   derecho: listas(
     [P.mDerecho, P.derechoComercial, P.derechoTrabajo, P.contratacionV, P.derechosHumanosV],
-    [P.territorial, P.tributaria],
+    [P.territorial, P.tributaria, P.mTributaria],
     [P.dDesarrollo],
   ),
   psicologia: listas([P.mPsicosocial, P.talentoHumano, P.mGestionHumana], [P.sst, P.mEducacion, P.mInvestigacionSocial], [P.dDesarrollo]),
@@ -402,6 +407,29 @@ function interpretarSinCorregir(textoOriginal: string): PregradoInterpretado | n
   return null;
 }
 
+/** Frases con que alguien dice su carrera: "soy ingeniero de…", "estudio…", "egresada de…". */
+const DICE_CARRERA = /\b(?:soy|estudio|estudie|estudiante de|egresad[oa] de|graduad[oa] (?:de|en)|me gradue (?:de|en)|profesional en|termine|curso|mi carrera es|mi pregrado es)\s+(.+)/;
+/** Donde termina la carrera dentro de la frase: lo que sigue ya es la pregunta. */
+const FIN_CARRERA = /\s+(?:y|pero|que|quiero|quisiera|busco|deseo|necesito|me|para|cuales?|como|en la|de la|en una|de una|en el|del)\s+.*$/;
+
+/**
+ * La carrera que la persona dice en su mensaje ("Soy estudiante de Ingeniería
+ * de Sistemas, ¿qué especializaciones me recomiendan?"), o null si no la dice.
+ * Solo se lee lo que va después de "soy", "estudio", "egresado de"…: una
+ * pregunta por "la especialización en finanzas" no es su carrera.
+ */
+export function carreraMencionada(texto: string): PregradoInterpretado | null {
+  const n = normalizar(String(texto ?? '').split(/[,.;:!?¿¡\n]/)
+    .find((frase) => DICE_CARRERA.test(normalizar(frase))) ?? '');
+  const m = n.match(DICE_CARRERA);
+  if (!m) return null;
+  // "soy estudiante de sistemas": la frase de carrera puede venir dos veces.
+  const resto = m[1].replace(DICE_CARRERA, '$1').replace(/^(?:de|en)\s+/, '');
+  const carrera = ` ${resto} `.replace(FIN_CARRERA, ' ').trim();
+  if (!carrera || /^(la|el|una|un)?\s*(utb|universidad|tecnologica)\b/.test(carrera)) return null;
+  return interpretarPregrado(carrera);
+}
+
 // ── Selección ───────────────────────────────────────────────────────────────
 
 export interface PerfilRecomendacion {
@@ -454,6 +482,18 @@ function listasDe(perfil: PerfilRecomendacion): { listas: ListasRecomendacion; e
     if (familia) return { listas: familia.listas, etiqueta: familia.etiqueta };
   }
   return undefined;
+}
+
+/**
+ * Todos los posgrados de la tabla para ese perfil (los tres tipos, sin
+ * filtros), en orden de prioridad; [] si el perfil no es válido. Es la vara
+ * para saber si un programa encaja con la carrera de alguien.
+ */
+export function programasAfines(perfil: PerfilRecomendacion): ProgramaUtb[] {
+  const origen = listasDe(perfil);
+  if (!origen) return [];
+  const ids = [...new Set(TIPOS.flatMap((tipo) => origen.listas[tipo]))];
+  return ids.map((id) => getPrograma(id)).filter((p): p is ProgramaUtb => !!p);
 }
 
 /** Texto breve del porqué. Nunca promete admisión ni empleo. */

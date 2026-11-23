@@ -7,6 +7,7 @@ import {
   buscarPrograma,
   fichaPrograma,
   getPrograma,
+  textoNombraPrograma,
   valorCorto,
   valorSemestre,
   valorTotal,
@@ -98,6 +99,58 @@ describe('buscarPrograma', () => {
     for (const q of ['', '   ', 'Medicina', 'Maestría en Astrofísica', 'Logística del Transporte']) {
       assert.deepEqual(ids(q), [], q);
     }
+  });
+
+  // A un estudiante de Sistemas le llegó el flyer de un programa ajeno: la IA
+  // consulta nombres a medias y una palabra de área elegía un programa al azar.
+  it('una palabra de área sola no elige un programa: devuelve varios o ninguno', () => {
+    for (const q of [
+      'Especialización en Sistemas', 'especialización en sistemas', 'Maestría en Sistemas', 'sistemas',
+      'especialización en ingeniería', 'Especialización en Ingeniería de Sistemas',
+      'maestría en gestión', 'Especialización en Gestión', 'gestión',
+      'especialización en negocios', 'Maestría en Negocios', 'negocios',
+      'especialización en gerencia', 'especialización en tecnología',
+    ]) {
+      assert.notEqual(ids(q, NIVELES_POSGRADO).length, 1, `${q} → ${ids(q, NIVELES_POSGRADO).join(', ')}`);
+    }
+  });
+
+  it('los nombres reales se siguen encontrando, también los que solo tienen palabras de área', () => {
+    for (const p of POSGRADOS_UTB) {
+      assert.ok(ids(p.nombre, NIVELES_POSGRADO).includes(p.id), p.nombre);
+    }
+    assert.deepEqual(ids('Especialización en Sistemas Energéticos', NIVELES_POSGRADO), ['especializacion-sistemas-energeticos-sostenibles']);
+    assert.deepEqual(ids('Especialización en Negocios Internacionales', NIVELES_POSGRADO), ['especializacion-en-gestion-de-negocios-internacionales']);
+    assert.deepEqual(ids('Maestría en Negocios Internacionales', NIVELES_POSGRADO), ['maestria-negocios-internacionales-e-integracion']);
+    assert.deepEqual(ids('Maestría en Administración', NIVELES_POSGRADO), ['maestria-en-administracion']);
+    assert.deepEqual(ids('Maestría en Ingeniería', NIVELES_POSGRADO), ['maestria-en-ingenieria']);
+    assert.deepEqual(ids('Especialización en Ingeniería de Software', NIVELES_POSGRADO), ['virtual-ingenieria-de-software']);
+    assert.deepEqual(ids('Especialización en Gestión Ambiental', NIVELES_POSGRADO), ['especializacion-en-gestion-ambiental-sostenible']);
+    assert.deepEqual(ids('Ingeniería de Sistemas', ['pregrado']), ['ingenieria-de-sistemas-y-computacion']);
+  });
+});
+
+describe('textoNombraPrograma', () => {
+  const nombra = (texto: string, id: string) => textoNombraPrograma(texto, getPrograma(id)!);
+  const NI = 'especializacion-en-gestion-de-negocios-internacionales';
+
+  it('reconoce el programa cuando la persona lo nombra', () => {
+    assert.ok(nombra('¿Cuánto cuesta la especialización en negocios internacionales?', NI));
+    assert.ok(nombra('háblame de gestión de negocios internacionales', NI));
+    assert.ok(nombra('cuánto vale el MBA', 'maestria-en-administracion'));
+    assert.ok(nombra('me interesa la maestría en ingeniería', 'maestria-en-ingenieria'));
+    assert.ok(nombra('info de sistemas energéticos', 'especializacion-sistemas-energeticos-sostenibles'));
+    assert.ok(nombra('quiero estudiar ciberseguridad', 'maestria-en-ciberseguridad'));
+  });
+
+  it('no lo da por nombrado por una palabra de área o una que comparte con otro', () => {
+    const pregunta = 'Soy estudiante de ingeniería de sistemas, ¿qué especializaciones me recomiendan?';
+    assert.ok(!nombra(pregunta, NI));
+    assert.ok(!nombra(pregunta, 'especializacion-sistemas-energeticos-sostenibles'));
+    assert.ok(!nombra(pregunta, 'maestria-en-ingenieria'));
+    assert.ok(!nombra('quiero información de especializaciones', NI));
+    assert.ok(!nombra('estándares internacionales de contabilidad', NI));
+    assert.ok(!nombra('algo de negocios', NI));
   });
 });
 

@@ -7,6 +7,7 @@
  */
 import { normalize } from './validation';
 import {
+  NIVELES_POSGRADO,
   NivelPrograma,
   POSGRADOS_URL,
   POSGRADOS_VIRTUALES_URL,
@@ -14,14 +15,19 @@ import {
   VIGENCIA_VALORES,
   esVirtual,
   getPrograma,
+  textoNombraPrograma,
   valorCorto,
 } from '../services/catalogoUtb';
 import {
   FAMILIAS_EXTERNAS,
+  PerfilRecomendacion,
   PregradoInterpretado,
   Recomendacion,
   ResultadoRecomendacion,
+  TABLA_PREGRADO,
+  carreraMencionada,
   interpretarPregrado,
+  programasAfines,
 } from './recomendacionPregrado';
 
 // Límites de las listas de WhatsApp (el adaptador de Meta recorta lo que pase).
@@ -720,14 +726,99 @@ export function resumenRecomendacion(data: Record<string, string> | undefined | 
  * las preguntas de seguimiento, su primer nombre si autorizó sus datos. El
  * nombre no va en la primera pregunta, cuya respuesta se guarda para todos.
  */
-export function contextoConversacion(data: Record<string, string> | undefined | null, conHistorial: boolean): string | undefined {
+export function contextoConversacion(
+  data: Record<string, string> | undefined | null,
+  conHistorial: boolean,
+  /** El mensaje de la persona: si dice su carrera y el bot aún no la tiene, se usa para los afines. */
+  texto?: string,
+): string | undefined {
   if (!data) return undefined;
   const resumen = resumenRecomendacion(data);
   const interes = !resumen && data.programaInteres ? getPrograma(data.programaInteres)?.nombre : undefined;
   const primero = (data.nombre ?? '').trim().split(/\s+/)[0] ?? '';
   const nombre = conHistorial && data.datos === 'si' && primero ? primero.charAt(0).toLocaleUpperCase('es') + primero.slice(1) : '';
-  const partes = [resumen, interes && `Antes preguntó por: ${interes}.`, nombre && `Se llama ${nombre}.`].filter(Boolean);
+  const partes = [
+    resumen, afinesParaIa(data, texto), interes && `Antes preguntó por: ${interes}.`, nombre && `Se llama ${nombre}.`,
+  ].filter(Boolean);
   return partes.length ? partes.join(' ') : undefined;
+}
+
+interface CarreraConocida {
+  perfil: PerfilRecomendacion;
+  /** Cómo se nombra en el contexto de la IA; sale del catálogo, nunca del texto escrito. */
+  etiqueta: string;
+}
+
+/** La carrera de la persona: la que guardó el bot o, si aún no hay, la que dice en su mensaje. */
+function carreraConocida(data: Record<string, string> | undefined | null, texto?: string): CarreraConocida | null {
+  if (data?.pregradoId && TABLA_PREGRADO[data.pregradoId]) {
+    const nombre = getPrograma(data.pregradoId)?.nombre;
+    if (nombre) return { perfil: { pregradoId: data.pregradoId }, etiqueta: `su pregrado (${nombre})` };
+  }
+  const familia = data?.familiaId ? FAMILIAS_EXTERNAS.find((f) => f.id === data.familiaId) : undefined;
+  if (familia) return { perfil: { familiaId: familia.id }, etiqueta: `su pregrado (${familia.etiqueta})` };
+  const dicha = texto ? carreraMencionada(texto) : null;
+  if (dicha?.tipo === 'utb') {
+    const nombre = getPrograma(dicha.pregradoId)?.nombre;
+    if (nombre && TABLA_PREGRADO[dicha.pregradoId]) {
+      return { perfil: { pregradoId: dicha.pregradoId }, etiqueta: `su pregrado (dice en su mensaje que es ${nombre})` };
+    }
+  }
+  if (dicha?.tipo === 'familia') {
+    const f = FAMILIAS_EXTERNAS.find((x) => x.id === dicha.familiaId);
+    if (f) return { perfil: { familiaId: f.id }, etiqueta: `su pregrado (dice en su mensaje que es ${f.etiqueta})` };
+  }
+  return null;
+}
+
+const TITULO_NIVEL_PLURAL: Record<NivelPrograma, string> = {
+  pregrado: 'Pregrados',
+  especializacion: 'Especializaciones',
+  maestria: 'Maestrías',
+  doctorado: 'Doctorados',
+};
+
+/**
+ * Los posgrados afines a la carrera de la persona, por nivel, para el
+ * contexto de la IA, con la orden de recomendar esos y no otros. Sin esto la
+ * IA elegía libre del catálogo: a un estudiante de Sistemas le listó la
+ * Especialización en Gestión de Negocios Internacionales. null si no se sabe
+ * la carrera. `contextoConversacion` ya lo incluye.
+ */
+export function afinesParaIa(data: Record<string, string> | undefined | null, texto?: string): string | null {
+  const carrera = carreraConocida(data, texto);
+  if (!carrera) return null;
+  const afines = programasAfines(carrera.perfil);
+  if (!afines.length) return null;
+  const porNivel = NIVELES_POSGRADO.flatMap((nivel) => {
+    const delNivel = afines.filter((p) => p.nivel === nivel);
+    return delNivel.length
+      ? [`${TITULO_NIVEL_PLURAL[nivel]}: ${delNivel.map((p) => `${p.nombre}${esVirtual(p) ? ' (virtual)' : ''}`).join(', ')}`]
+      : [];
+  });
+  return `Posgrados de la UTB afines a ${carrera.etiqueta}, en orden de prioridad. ${porNivel.join('; ')}. ` +
+    'Si pide que le recomiendes posgrados para su carrera, recomienda solo de esta lista y del nivel que pida; ' +
+    'no recomiendes ni consultes programas de otras áreas salvo que los nombre o pida otra área. ' +
+    'Si de ese nivel no hay ninguno en la lista, dilo y ofrece los de otro nivel de la lista.';
+}
+
+/**
+ * Si el flyer del programa que consultó la IA puede ir de primero: sí cuando la
+ * persona lo nombró, cuando ya se lo recomendaron o lo revisó, o cuando es afín
+ * a su carrera; no cuando su carrera se conoce y el programa es de otra área.
+ * Sin carrera conocida no hay con qué comparar y se deja pasar.
+ */
+export function flyerEncajaConLaPersona(
+  programa: ProgramaUtb,
+  data: Record<string, string> | undefined | null,
+  texto: string,
+): boolean {
+  if (textoNombraPrograma(texto ?? '', programa)) return true;
+  if (data?.programaInteres === programa.id || idsMostrados(data?.recomendados).includes(programa.id)) return true;
+  const carrera = carreraConocida(data, texto);
+  if (!carrera) return true;
+  const afines = programasAfines(carrera.perfil);
+  return !afines.length || afines.some((p) => p.id === programa.id);
 }
 
 export function programaInteresLead(data: Record<string, string>): string {
