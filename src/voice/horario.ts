@@ -123,7 +123,7 @@ export function decideRoute(rules: ScheduleRules, hasForward: boolean, at: { wee
   const who: CallWho = hit ? hit.who : rules.on ? rules.otherwise : 'ai';
   const effective: CallWho = who === 'person' && !hasForward ? 'ai' : who;
   const base = hit ? `Regla «${describeRule(hit)}»` : rules.on ? 'En cualquier otro momento' : 'Sin horarios inteligentes';
-  const reason = `${base}: ${who === 'person' ? 'atiende una persona' : 'atiende la asistente'}${effective !== who ? ' (no hay número de desvío: contesta la asistente)' : ''}.`;
+  const reason = `${base}: ${who === 'person' ? 'atiende una persona' : 'atiende la línea automática'}${effective !== who ? ' (no hay número de desvío: contesta la línea automática)' : ''}.`;
   return { who, effective, rule: hit, reason };
 }
 

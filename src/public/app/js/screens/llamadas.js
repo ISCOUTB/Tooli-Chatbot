@@ -247,8 +247,8 @@ async function renderLlamadas(main) {
       <h2>Ajustes</h2>
       <form id="vozAjustesForm">
         ${check('ajActivo', 'Línea encendida', a.activo, 'Apagada, la llamada pasa al número de desvío (si hay) sin gastar minutos.')}
-        <div class="field"><label for="ajNombre">Nombre de la asistente</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
-        <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select></div>
+        <div class="field"><label for="ajNombre">Nombre del asistente virtual</label><input type="text" id="ajNombre" maxlength="30" value="${escapeHtml(a.nombreAgente)}"></div>
+        <div class="field"><label for="ajVoz">Voz</label><select id="ajVoz">${estado.voces.map(v => `<option value="${escapeHtml(v.id)}" ${v.id === a.voz ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}</select><div class="field-help">La línea se presenta como «el asistente» o «la asistente» según la voz.</div></div>
         <div class="field"><label for="ajSaludo">Saludo propio (opcional)</label><textarea id="ajSaludo" maxlength="300" rows="2">${escapeHtml(a.saludo)}</textarea><div class="field-help">Siempre se agrega el aviso de transcripción y retención.</div></div>
         <div class="field"><label for="ajDesvio">Número de desvío a asesores</label><input type="tel" id="ajDesvio" value="${escapeHtml(a.numeroDesvio ?? '')}" placeholder="+57 300 000 0000"><div class="field-help">Sin número no hay transferencia en vivo: se ofrece cita o devolución.</div></div>
         <div class="field"><label for="ajHorario">Horario de asesores (hora de Colombia)</label><textarea id="ajHorario" rows="3">${escapeHtml(horarioATexto(a.horarioAsesores))}</textarea><div class="field-help">Una franja por línea: días (D L M X J V S) y horas, p. ej. «L M X J V 08:00-18:00».</div></div>

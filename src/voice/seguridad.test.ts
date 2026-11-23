@@ -819,3 +819,29 @@ describe('punto 20: el language del speak solo admite es-ES, es-MX y es-US', () 
     assert.equal(leerAjustes({ ...def, idioma: 'es-CO' }, { ...def, idioma: 'es-CO' }).idioma, 'es-MX', 'un ajuste viejo guardado con es-CO se corrige');
   });
 });
+
+describe('punto 18: voz masculina por defecto y textos que cuadran con el género de la voz', () => {
+  it('Gonzalo por defecto; Jorge en la lista; cada voz dice su género', async () => {
+    const { AJUSTES_DEFECTO: def, VOCES, generoDeVoz } = await import('./ajustes');
+    assert.equal(def.voz, 'Azure.es-CO-GonzaloNeural');
+    assert.ok(VOCES.some((v) => v.id === 'Azure.es-MX-JorgeNeural' && v.idioma === 'es-MX'));
+    assert.ok(VOCES.some((v) => v.id === 'Azure.es-CO-GonzaloNeural'));
+    assert.equal(generoDeVoz('Azure.es-CO-GonzaloNeural'), 'm');
+    assert.equal(generoDeVoz('Azure.es-MX-JorgeNeural'), 'm');
+    assert.equal(generoDeVoz('Azure.es-CO-SalomeNeural'), 'f');
+  });
+
+  it('con voz masculina el saludo y «¿eres un robot?» dicen «el asistente»; con Salomé, «la asistente»', async () => {
+    const hombre = montar();
+    await contestar(hombre);
+    assert.match(hombre.dichos()[0], /el asistente virtual/);
+    assert.doesNotMatch(hombre.dichos()[0], /la asistente/);
+    await decir(hombre, '¿usted es un robot o una persona?');
+    assert.match(hombre.dichos().at(-1)!, /el asistente virtual/);
+    const mujer = montar({ ajustes: { voz: 'Azure.es-CO-SalomeNeural' } });
+    await contestar(mujer);
+    assert.match(mujer.dichos()[0], /la asistente virtual/);
+    await decir(mujer, '¿usted es un robot o una persona?');
+    assert.match(mujer.dichos().at(-1)!, /la asistente virtual/);
+  });
+});

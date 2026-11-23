@@ -14,7 +14,7 @@
 //   - compare-and-set: un turno que se cruzó con otro más nuevo se descarta en vez de pisarlo.
 // Sin credenciales del proveedor todo se registra pero no se manda ningún comando (así funciona sin cuenta).
 import { billedMinutes, estimatedCostUsd, shouldWrapUp } from './caps';
-import type { AjustesVoz } from './ajustes';
+import { generoDeVoz, type AjustesVoz } from './ajustes';
 import { GRACIA_COLGAR_MS, plazoDuro, type AlmacenVoz } from './almacen';
 import { DESPEDIDA_SILENCIO, SIGUES_AHI, correrTurno, frasePuente, textoSaludo, type DepsTurno, type ResultadoTurno } from './dialogo';
 import { decideRouteNow } from './horario';
@@ -567,7 +567,7 @@ export function crearManejador(d: DepsManejador) {
       case 'answered': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
         if (!l0) return (await eventoDePata(ev, a)) ?? { handled: false, note: 'llamada desconocida' };
-        const texto = textoSaludo({ saludo: a.saludo, nombreAgente: a.nombreAgente, grabar: a.grabar, retencionDias: a.retencionDias });
+        const texto = textoSaludo({ saludo: a.saludo, nombreAgente: a.nombreAgente, grabar: a.grabar, retencionDias: a.retencionDias, genero: generoDeVoz(a.voz) });
         const l = await actualizar(l0.id, (x) => ({ ...x, contestada: x.contestada ?? ahora().toISOString(), actividad: tick(x), dialogo: { ...x.dialogo, ultimaRespuesta: texto } }));
         if (!l) return { handled: false, note: 'llamada cerrada' };
         // El tope duro cuenta desde que se contestó.
@@ -627,7 +627,10 @@ export function crearManejador(d: DepsManejador) {
         const base = d.depsTurno(l0, a);
         // Código por WhatsApp: siempre por el almacén atómico compartido (topes y bloqueo valen para todas las instancias).
         const efectos = { hubo: false };
-        const deps = conEfectos({ ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp }, () => { efectos.hubo = true; });
+        const deps = conEfectos(
+          { ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp, generoAgente: base.generoAgente ?? generoDeVoz(a.voz) },
+          () => { efectos.hubo = true; },
+        );
         const promesa = correrTurno(texto, dialogoBase, deps, { digitosPrevios });
         let puente = false;
         let cancelarPuente: (() => void) | null = null;

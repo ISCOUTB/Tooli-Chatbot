@@ -17,6 +17,7 @@ import {
   normalizeSpeech, palabrasConContenido, sanitizeCallerText, soloDictado,
 } from './texto';
 import { DIALOGO_VACIO, type Accion, type EstadoDialogo, type Resultado } from './tipos';
+import type { Genero } from './ajustes';
 
 export interface DepsTurno {
   academico: AcademicoApi | null;
@@ -42,6 +43,8 @@ export interface DepsTurno {
   asesoresEnVivo: boolean;
   /** true en el simulador: la cita no se reserva de verdad (la agenda inyectada ya es simulada). */
   simulada?: boolean;
+  /** Género de la voz: «el asistente» o «la asistente» (el manejador lo pone según la voz elegida; por defecto, 'm'). */
+  generoAgente?: Genero;
   timeoutIaMs?: number;
 }
 
@@ -93,9 +96,12 @@ function codigosDe(deps: DepsTurno): CodigoWhatsAppVoz {
 
 const digitos = (t: string) => t.replace(/\D/g, '');
 
+/** «el asistente virtual» o «la asistente virtual», según el género de la voz elegida. */
+export const asistenteVirtual = (genero: Genero = 'm') => (genero === 'f' ? 'la asistente virtual' : 'el asistente virtual');
+
 /** Saludo con aviso de transcripción (y grabación si aplica), como en FastFood, más la retención por Ley 1581. */
-export function textoSaludo(args: { saludo: string; nombreAgente: string; grabar: boolean; retencionDias: number }): string {
-  const hola = args.saludo.trim() || `Hola, gracias por llamar a Posgrados de la UTB. Te atiende ${args.nombreAgente}, la asistente virtual.`;
+export function textoSaludo(args: { saludo: string; nombreAgente: string; grabar: boolean; retencionDias: number; genero?: Genero }): string {
+  const hola = args.saludo.trim() || `Hola, gracias por llamar a Posgrados de la UTB. Te atiende ${args.nombreAgente}, ${asistenteVirtual(args.genero)}.`;
   const aviso = args.grabar
     ? ` Esta llamada se graba y se transcribe para atenderte, y se guarda ${args.retencionDias} días.`
     : ` Esta llamada se transcribe para atenderte, y se guarda ${args.retencionDias} días.`;
@@ -282,7 +288,8 @@ function preguntaPendiente(s: EstadoDialogo): string {
 
 const FUERA_TRAMITE = 'Eso no lo tengo en la información de posgrados que manejo por aquí, y prefiero no darte un dato equivocado.';
 const FUERA_PREGRADO = 'Esta línea atiende los posgrados de la UTB: especializaciones, maestrías y doctorados. De pregrado no tengo la información.';
-const IDENTIDAD = 'Hablas con la asistente virtual de Posgrados de la UTB. Si prefieres un asesor, dímelo cuando quieras. ¿En qué te ayudo?';
+const identidad = (genero?: Genero) =>
+  `Hablas con ${asistenteVirtual(genero)} de Posgrados de la UTB. Si prefieres un asesor, dímelo cuando quieras. ¿En qué te ayudo?`;
 
 const ORDINAL = ['la primera', 'la segunda', 'la tercera'];
 
@@ -298,7 +305,7 @@ async function aplicarHerramienta(it: Intencion, texto: string, s: EstadoDialogo
       return ofrecerAsesor({ ...s, fallos: 0, pregrado: s.pregrado || pregrado }, deps, pregrado ? FUERA_PREGRADO : FUERA_TRAMITE, fin);
     }
     case 'identidad':
-      return fin(IDENTIDAD, { estado: { ...s, fallos: 0 } });
+      return fin(identidad(deps.generoAgente), { estado: { ...s, fallos: 0 } });
     case 'datos_estudiante':
       return herramientaDatos(it.tipo, { ...s, fallos: 0 }, deps, fin, it.codigo ?? null);
     case 'listar_programas': {

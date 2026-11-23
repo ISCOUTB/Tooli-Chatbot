@@ -44,7 +44,8 @@ export const AJUSTES_DEFECTO: AjustesVoz = {
   activo: false,
   numeroDesvio: null,
   nombreAgente: 'Tooli',
-  voz: 'Azure.es-CO-SalomeNeural',
+  // Voz de hombre por defecto (Salomé no gustó): Gonzalo, colombiano. Jorge (México) es la alternativa.
+  voz: 'Azure.es-CO-GonzaloNeural',
   idioma: 'es-MX',
   saludo: '',
   grabar: false,
@@ -60,14 +61,28 @@ export const AJUSTES_DEFECTO: AjustesVoz = {
   topeSimulacionesDia: 60,
 };
 
-/** Voces probadas en español para Telnyx (formato `Proveedor.Voz`), las mismas de FastFood. */
-export const VOCES: { id: string; label: string; idioma: string }[] = [
-  { id: 'Azure.es-CO-SalomeNeural', label: 'Salomé · Colombia, mujer', idioma: 'es-MX' },
-  { id: 'Azure.es-CO-GonzaloNeural', label: 'Gonzalo · Colombia, hombre', idioma: 'es-MX' },
-  { id: 'AWS.Polly.Mia-Neural', label: 'Mía · México, mujer', idioma: 'es-MX' },
-  { id: 'AWS.Polly.Lupe-Neural', label: 'Lupe · Latina (EE. UU.), mujer', idioma: 'es-US' },
-  { id: 'AWS.Polly.Pedro-Neural', label: 'Pedro · Latino (EE. UU.), hombre', idioma: 'es-US' },
+export type Genero = 'f' | 'm';
+
+/**
+ * Voces en español para Telnyx (formato `Proveedor.Voz`, developers.telnyx.com «Speak text»; catálogo de Azure). El
+ * género decide cómo se presenta la línea («el asistente» / «la asistente»).
+ */
+export const VOCES: { id: string; label: string; idioma: string; genero: Genero }[] = [
+  { id: 'Azure.es-CO-GonzaloNeural', label: 'Gonzalo · Colombia, hombre', idioma: 'es-MX', genero: 'm' },
+  { id: 'Azure.es-MX-JorgeNeural', label: 'Jorge · México, hombre', idioma: 'es-MX', genero: 'm' },
+  { id: 'Azure.es-CO-SalomeNeural', label: 'Salomé · Colombia, mujer', idioma: 'es-MX', genero: 'f' },
+  { id: 'AWS.Polly.Mia-Neural', label: 'Mía · México, mujer', idioma: 'es-MX', genero: 'f' },
+  { id: 'AWS.Polly.Lupe-Neural', label: 'Lupe · Latina (EE. UU.), mujer', idioma: 'es-US', genero: 'f' },
+  { id: 'AWS.Polly.Pedro-Neural', label: 'Pedro · Latino (EE. UU.), hombre', idioma: 'es-US', genero: 'm' },
 ];
+
+// Nombre de la voz al final del id («Azure.es-CO-SalomeNeural», «AWS.Polly.Mia-Neural»).
+const VOCES_DE_MUJER = /[.-](salome|mia|lupe|dalia|paloma|elvira|lucia|conchita|penelope|camila|ximena|larissa|renata|beatriz|candela|carlota|marina|nuria|estrella|vera|abril|irene|laia|triana|valentina)(multilingual)?-?(neural)?$/i;
+
+/** Género de una voz: el de la lista y, si no está, por el nombre (las desconocidas se presentan en masculino). */
+export function generoDeVoz(voz: string): Genero {
+  return VOCES.find((v) => v.id === voz)?.genero ?? (VOCES_DE_MUJER.test(voz) ? 'f' : 'm');
+}
 
 /**
  * El `language` del speak de Telnyx solo admite es-ES, es-MX y es-US (developers.telnyx.com, «Speak text»); con otro
