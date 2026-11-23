@@ -9,7 +9,7 @@ import { formatearPesos, leerValorPesos } from './pesos';
 const VARIABLES = [
   'TOOLI_NOTAS_SSO_ENABLED', 'TOOLI_ACADEMIC_LOOKUP_ENABLED', 'TOOLI_SAVIO_ENABLED', 'SAVIO_WS_TOKEN', 'TOOLI_HORARIO_ENABLED',
   'TOOLI_NOTAS_CAMINO', 'TOOLI_ACADEMICO_CLAVE', 'TOOLI_NOTAS_SESION_HORAS', 'TOOLI_AVISOS_ACADEMICOS_ENABLED',
-  'TOOLI_HORARIO_PROVEEDOR', 'NODE_ENV',
+  'TOOLI_HORARIO_PROVEEDOR', 'NODE_ENV', 'TOOLI_BUSQUEDA_CLAVE',
 ] as const;
 let guardado: Record<string, string | undefined>;
 beforeEach(() => {
@@ -121,6 +121,16 @@ describe('configuración académica: lo que necesita TOOLI_ACADEMICO_CLAVE', () 
 
   it('todo apagado: nada que decir', () => {
     assert.deepEqual(problemasConfigAcademica(process.env), []);
+  });
+
+  it('turno/recibo sin TOOLI_BUSQUEDA_CLAVE avisa (los índices dependen de otras claves, #38); con ella, no', () => {
+    process.env.TOOLI_ACADEMIC_LOOKUP_ENABLED = '1';
+    process.env.TOOLI_ACADEMICO_CLAVE = randomBytes(32).toString('hex');
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /TOOLI_BUSQUEDA_CLAVE/);
+    process.env.TOOLI_BUSQUEDA_CLAVE = 'x'.repeat(40);
+    assert.deepEqual(problemasConfigAcademica(process.env), []);
+    process.env.TOOLI_BUSQUEDA_CLAVE = 'corta';
+    assert.match(avisos().map((p) => p.mensaje).join(' '), /menos de 32/);
   });
 
   it('recibo encendido sin clave: bloquea (el recibo no se podría bajar y cada intento haría un login)', () => {

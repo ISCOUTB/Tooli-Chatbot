@@ -22,9 +22,14 @@ export interface CamposAcademicos {
   nivel?: 'pregrado' | 'posgrado';
   /** Cédula cifrada (AES-GCM) para poder bajar el recibo sin pedirla de nuevo. Nunca en claro. */
   cedulaCifrada?: string;
+  /**
+   * Huella (HMAC, la parte final de `identity-cedula:<huella>`) del índice de cédula que apunta a este vínculo.
+   * Confirma que el índice es de ESTE vínculo y permite borrarlo al revocar o cambiar de código. No revela la cédula.
+   */
+  cedulaIndice?: string;
 }
 
-const CLAVES_ACADEMICAS = ['codigo', 'codigoVerificado', 'codigoFuente', 'nombre', 'programa', 'nivel', 'cedulaCifrada'] as const;
+const CLAVES_ACADEMICAS = ['codigo', 'codigoVerificado', 'codigoFuente', 'nombre', 'programa', 'nivel', 'cedulaCifrada', 'cedulaIndice'] as const;
 
 export function normalizarCodigo(valor: unknown): string | null {
   const c = String(valor ?? '').trim().toUpperCase();
@@ -39,8 +44,8 @@ export function normalizarCedula(valor: unknown): string | null {
 /**
  * Clave de búsqueda inversa. Los códigos y las cédulas son números cortos: un
  * hash sin secreto se revierte en segundos, por eso es HMAC con un secreto.
- * Rotar el secreto solo deja huérfano el índice inverso (la búsqueda por código
- * pide volver a vincular); el vínculo en sí sigue funcionando.
+ * El secreto es propio (TOOLI_BUSQUEDA_CLAVE, ver ./indicesBusqueda.ts): cambiar
+ * JWT_SECRET o la clave AES ya no deja huérfanos los índices.
  */
 export function claveBusqueda(tipo: 'codigo' | 'cedula', valor: string, secreto: string): string {
   return `identity-${tipo}:${createHmac('sha256', secreto).update(`${tipo}:${valor}`).digest('hex')}`;
@@ -63,6 +68,7 @@ export function extraerCamposAcademicos(origen: unknown): CamposAcademicos {
   if (typeof o.programa === 'string' && o.programa.trim()) salida.programa = o.programa.trim().slice(0, 120);
   if (o.nivel === 'pregrado' || o.nivel === 'posgrado') salida.nivel = o.nivel;
   if (typeof o.cedulaCifrada === 'string' && o.cedulaCifrada.startsWith('v1.')) salida.cedulaCifrada = o.cedulaCifrada;
+  if (typeof o.cedulaIndice === 'string' && /^[0-9a-f]{64}$/.test(o.cedulaIndice)) salida.cedulaIndice = o.cedulaIndice;
   return salida;
 }
 

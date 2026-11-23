@@ -35,6 +35,8 @@ describe('preflight y arranque avisan lo mismo de la configuración académica',
     { TOOLI_HORARIO_ENABLED: '1', TOOLI_NOTAS_CAMINO: 'A', TOOLI_ACADEMICO_CLAVE: clave },
     { TOOLI_HORARIO_ENABLED: '1', TOOLI_ACADEMICO_CLAVE: clave },
     { TOOLI_HORARIO_ENABLED: '1', TOOLI_HORARIO_PROVEEDOR: 'simulado' },
+    { TOOLI_ACADEMIC_LOOKUP_ENABLED: '1', TOOLI_ACADEMICO_CLAVE: clave, TOOLI_BUSQUEDA_CLAVE: 'x'.repeat(40) },
+    { TOOLI_BUSQUEDA_CLAVE: 'corta' },
   ];
   for (const env of casos) {
     it(JSON.stringify(env), () => {

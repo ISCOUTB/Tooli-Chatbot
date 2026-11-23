@@ -108,6 +108,12 @@ export function problemasConfigAcademica(env: Entorno): ProblemaConfigAcademica[
   if (env.TOOLI_NOTAS_CAMINO?.trim().toUpperCase() === 'A' && !conClave) {
     salida.push({ nivel: 'aviso', mensaje: 'TOOLI_NOTAS_CAMINO=A sin TOOLI_ACADEMICO_CLAVE válida: las notas usan el camino B (no se guarda la sesión).' });
   }
+  const busqueda = env.TOOLI_BUSQUEDA_CLAVE?.trim();
+  if (busqueda && busqueda.length < 32) {
+    salida.push({ nivel: 'aviso', mensaje: 'TOOLI_BUSQUEDA_CLAVE tiene menos de 32 caracteres y se ignora: los índices siguen con TOOLI_ACADEMICO_CLAVE o JWT_SECRET.' });
+  } else if (!busqueda && on('TOOLI_ACADEMIC_LOOKUP_ENABLED')) {
+    salida.push({ nivel: 'aviso', mensaje: 'Sin TOOLI_BUSQUEDA_CLAVE los índices por código y cédula usan TOOLI_ACADEMICO_CLAVE o JWT_SECRET: rotar cualquiera los deja huérfanos. Define TOOLI_BUSQUEDA_CLAVE y corre tools/migrar-indices-busqueda.ts.' });
+  }
   const horarioBanner = (env.TOOLI_HORARIO_PROVEEDOR?.trim().toLowerCase() !== 'simulado') || env.NODE_ENV === 'production';
   if (on('TOOLI_HORARIO_ENABLED') && horarioBanner && (!conClave || env.TOOLI_NOTAS_CAMINO?.trim().toUpperCase() !== 'A')) {
     salida.push({ nivel: 'aviso', mensaje: 'TOOLI_HORARIO_ENABLED=1 necesita TOOLI_NOTAS_CAMINO=A y TOOLI_ACADEMICO_CLAVE: sin la sesión guardada el horario solo manda al autoservicio.' });

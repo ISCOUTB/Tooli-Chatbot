@@ -113,3 +113,74 @@ test('código estudiantil atado al vínculo: compatibilidad, unicidad, herencia 
     id.closeIdentityService();
   }
 });
+
+test('índices con clave propia (#38): respaldo, «un código, un correo», migración idempotente y cédula confirmada', {
+  skip: process.env.TOOLI_TEST_REDIS !== '1',
+}, async () => {
+  const clave = randomBytes(32);
+  process.env.TOOLI_ACADEMICO_CLAVE = clave.toString('hex');
+  delete process.env.TOOLI_BUSQUEDA_CLAVE;
+  const { default: Redis } = await import('ioredis');
+  const { config } = await import('../config');
+  const id = await import('./identityService');
+  const { claveBusqueda } = await import('./academico/identidadAcademica');
+  const redis = new Redis(config.redis.url);
+  const sfx = randomUUID().replace(/-/g, '').slice(0, 10);
+  const tel = (n: number) => `test${sfx}${n}`;
+  const correo = (n: number) => `luis${n}.${sfx}@utb.edu.co`;
+  const codigo = `T${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+  const cedula = String(Math.floor(1e9 + Math.random() * 8e9));
+  const emailKey = (e: string) => `identity-email:${createHash('sha256').update(e).digest('hex')}`;
+  const sembrar = async (t: string, e: string) => {
+    await redis.setex(`identity:${t}`, 3600, JSON.stringify({ email: e, verifiedAt: Date.now() }));
+    await redis.setex(emailKey(e), 3600, t);
+  };
+  const viejoCodigo = claveBusqueda('codigo', codigo, clave.toString('hex'));
+  const viejoCedula = claveBusqueda('cedula', cedula, clave.toString('hex'));
+  const propia = `busqueda-${sfx}-de-prueba-con-mas-de-32-caracteres`;
+  const { clavesIndice, secretosBusqueda } = await import('./academico/indicesBusqueda');
+  const nuevas = secretosBusqueda({ busqueda: propia, jwt: config.auth.jwtSecret });
+  const creadas: string[] = [viejoCodigo, viejoCedula, clavesIndice('codigo', codigo, nuevas)[0], clavesIndice('cedula', cedula, nuevas)[0]];
+  try {
+    // Atado con la clave de antes (sin TOOLI_BUSQUEDA_CLAVE).
+    await sembrar(tel(1), correo(1));
+    assert.equal(await id.guardarCodigoEstudiantil(tel(1), { codigo, verificado: true, fuente: 'iceberg', cedula }), 'ok');
+    assert.equal(await redis.get(viejoCodigo), tel(1));
+
+    // Se activa la clave propia: respaldo y el Lua nuevo mira también el índice viejo.
+    process.env.TOOLI_BUSQUEDA_CLAVE = propia;
+    assert.equal((await id.buscarIdentidadPorCodigo(codigo))?.telefono, tel(1));
+    assert.equal((await id.buscarIdentidadPorCedula(cedula))?.telefono, tel(1));
+    await sembrar(tel(2), correo(2));
+    assert.equal(await id.guardarCodigoEstudiantil(tel(2), { codigo, verificado: true, fuente: 'iceberg', cedula }), 'en_uso');
+
+    // Migración real (SCAN, TTL, el script CAS con KEEPTTL) e idempotencia.
+    const ttl = await redis.ttl(`identity:${tel(1)}`);
+    const r1 = await id.migrarIndicesDeBusqueda({ aplicar: true });
+    assert.ok(r1.codigos >= 1 && r1.cedulas >= 1, JSON.stringify(r1));
+    const r2 = await id.migrarIndicesDeBusqueda({ aplicar: true });
+    assert.equal(r2.codigos + r2.cedulas, 0, `idempotente: ${JSON.stringify(r2)}`);
+    assert.equal(await redis.get(viejoCodigo), null);
+    assert.equal(await redis.get(viejoCedula), null);
+    const t2 = await redis.ttl(`identity:${tel(1)}`);
+    assert.ok(t2 > 0 && t2 <= ttl, 'el vínculo conserva su vencimiento');
+    process.env.TOOLI_ACADEMICO_CLAVE = randomBytes(32).toString('hex');
+    assert.equal((await id.buscarIdentidadPorCodigo(codigo))?.telefono, tel(1), 'ya no depende de la clave AES');
+    assert.equal((await id.buscarIdentidadPorCedula(cedula))?.telefono, tel(1));
+
+    // Revocar suelta los dos índices.
+    const huella = (await id.getIdentity(tel(1)))?.cedulaIndice;
+    assert.match(huella ?? '', /^[0-9a-f]{64}$/);
+    creadas.push(`identity-cedula:${huella}`);
+    await id.revokeIdentity(tel(1));
+    assert.equal(await redis.get(`identity-cedula:${huella}`), null);
+    assert.equal(await id.buscarIdentidadPorCodigo(codigo), null);
+  } finally {
+    delete process.env.TOOLI_BUSQUEDA_CLAVE;
+    const llaves = await redis.keys(`*${sfx}*`);
+    if (llaves.length) await redis.del(...llaves);
+    await redis.del(...creadas, emailKey(correo(1)), emailKey(correo(2)));
+    redis.disconnect();
+    id.closeIdentityService();
+  }
+});

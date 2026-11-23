@@ -59,6 +59,11 @@ def check_academico(env):
         errors.append('TOOLI_ACADEMIC_LOOKUP_ENABLED=1 necesita TOOLI_ACADEMICO_CLAVE (openssl rand -hex 32): sin ella la cédula no se guarda y el recibo no se puede descargar. Pon la clave o apaga el interruptor.')
     if camino_a and not con_clave:
         warnings.append('TOOLI_NOTAS_CAMINO=A sin TOOLI_ACADEMICO_CLAVE válida: las notas usan el camino B.')
+    busqueda = env.get('TOOLI_BUSQUEDA_CLAVE', '').strip()
+    if busqueda and len(busqueda) < 32:
+        warnings.append('TOOLI_BUSQUEDA_CLAVE tiene menos de 32 caracteres y se ignora.')
+    elif not busqueda and env.get('TOOLI_ACADEMIC_LOOKUP_ENABLED') == '1':
+        warnings.append('Sin TOOLI_BUSQUEDA_CLAVE los índices por código y cédula dependen de TOOLI_ACADEMICO_CLAVE o JWT_SECRET; define TOOLI_BUSQUEDA_CLAVE y corre tools/migrar-indices-busqueda.ts.')
     horario_banner = env.get('TOOLI_HORARIO_PROVEEDOR', '').strip().lower() != 'simulado' or env.get('NODE_ENV') == 'production'
     if env.get('TOOLI_HORARIO_ENABLED') == '1' and horario_banner and (not con_clave or not camino_a):
         warnings.append('TOOLI_HORARIO_ENABLED=1 necesita TOOLI_NOTAS_CAMINO=A y TOOLI_ACADEMICO_CLAVE.')

@@ -32,7 +32,19 @@ Voz (usa `academico`)           ┴─> academico.consultar(telefono, tipo)     
 | Avisos proactivos | `TOOLI_AVISOS_ACADEMICOS_ENABLED=1` | Tareas a menos de 48 h y turno de hoy/mañana. Una corrida diaria tras las 8:00, nunca de noche, una vez por aviso, respeta «baja». Solo dentro de las 24 h de WhatsApp (fuera haría falta plantilla de Meta: pendiente). |
 | Regla de notas | `TOOLI_NOTA_MINIMA`, `TOOLI_CORTES_PESOS`, `TOOLI_REGLA_NOTAS_CONFIRMADA` | La regla de la UTB **no está** en `knowledgeBase*.ts`. Por defecto 3.0 y 30/30/40 **sin confirmar** (así lo dicen los textos). |
 
-Clave: `openssl rand -hex 32`. Rotarla invalida las sesiones guardadas y los índices por código/cédula (hay que volver a vincular); los vínculos siguen valiendo.
+Clave: `openssl rand -hex 32`. Rotar `TOOLI_ACADEMICO_CLAVE` invalida las sesiones guardadas y las cédulas cifradas (hay que volver a vincular para el recibo); los vínculos siguen valiendo. Los índices de búsqueda ya no dependen de ella (ver abajo).
+
+## Índices de búsqueda (código y cédula)
+
+`identity-codigo:<hmac>` e `identity-cedula:<hmac>` llevan de un código o una cédula al vínculo (búsqueda de la voz y «un código, un correo»). El HMAC usa una **clave propia**, `TOOLI_BUSQUEDA_CLAVE` (32+ caracteres), de la que se deriva el secreto con HKDF y la etiqueta `tooli/indices-busqueda/v1` (`src/services/academico/indicesBusqueda.ts`). Antes era `TOOLI_ACADEMICO_CLAVE || JWT_SECRET`: rotar cualquiera dejaba huérfanos los índices y el mismo código se podía atar a un segundo correo (issue #38).
+
+- Sin `TOOLI_BUSQUEDA_CLAVE` todo sigue como antes (y el arranque/preflight lo avisan si turno y recibo están encendidos).
+- Con ella, los índices se escriben con el secreto nuevo y se **leen con los dos** (nuevo y anterior) mientras no se migre; el script Lua de atar el código revisa los dos, así que «un código, un correo» se mantiene durante la transición.
+- **Migración** (idempotente, se puede repetir; sin `--aplicar` solo cuenta; no imprime datos personales):
+  1. Generar la clave (`openssl rand -hex 32`), ponerla en `.env` como `TOOLI_BUSQUEDA_CLAVE` y desplegar.
+  2. `node --env-file=.env --import tsx tools/migrar-indices-busqueda.ts` (simulacro) y luego con `--aplicar`. Dentro del contenedor (solo trae `dist/`): `docker compose exec backend node -e "require('./dist/services/identityService').migrarIndicesDeBusqueda({ aplicar: true }).then((r) => { console.log(r); process.exit(0); })"`.
+  3. El informe dice cuántos índices pasaron. Las cédulas sin cédula cifrada que abrir (vinculadas sin `TOOLI_ACADEMICO_CLAVE`) quedan con el índice viejo y se siguen leyendo con el respaldo: **no rotar `TOOLI_ACADEMICO_CLAVE` ni `JWT_SECRET` hasta que `cedulasPendientes` sea 0** (o esas personas vuelvan a vincular). Los `conflictos` (el índice nuevo ya es de otro vínculo vigente) se revisan a mano.
+- **El índice de cédula se confirma**: el vínculo guarda la huella de su índice (`cedulaIndice`, no revela la cédula) y la búsqueda solo devuelve un vínculo con código comprobado que reconozca ese índice (en vínculos anteriores a la huella, si su cédula cifrada es esa). Al cambiar de código o de cédula, y al revocar el vínculo, sus índices de código y de cédula se borran. Vínculos viejos sin huella ni cédula cifrada ya no se encuentran por cédula (sí por código) hasta que vuelvan a vincular.
 
 ## Identidad fuerte
 
