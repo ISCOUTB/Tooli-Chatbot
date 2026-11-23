@@ -51,6 +51,11 @@ export interface EstadoDialogo {
   fallos: number;
   inyecciones: number;
   ultimaRespuesta: string | null;
+  /**
+   * Si `ultimaRespuesta` leyó datos académicos, de qué tipo: «repítemelo» la vuelve a decir pero la transcripción guarda
+   * solo «[datos académicos leídos: …]» (issue #33).
+   */
+  ultimaDatos: TipoConsulta | null;
 }
 
 export const DIALOGO_VACIO: EstadoDialogo = {
@@ -71,6 +76,7 @@ export const DIALOGO_VACIO: EstadoDialogo = {
   fallos: 0,
   inyecciones: 0,
   ultimaRespuesta: null,
+  ultimaDatos: null,
 };
 
 export type Accion = 'none' | 'transfer' | 'hangup';
@@ -132,6 +138,8 @@ export interface LlamadaVoz {
   silencioVence: number | null;
 }
 
+const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];
+
 export function leerDialogo(raw: unknown): EstadoDialogo {
   const s = (raw && typeof raw === 'object' ? raw : {}) as Partial<EstadoDialogo>;
   const fases: Fase[] = ['libre', 'pide_codigo_estudiantil', 'pide_otp', 'elige_programa', 'elige_franja', 'confirma_franja', 'ofrece_devolucion', 'ofrece_asesor', 'ofrece_whatsapp_recibo'];
@@ -149,7 +157,7 @@ export function leerDialogo(raw: unknown): EstadoDialogo {
           }
         : null,
     intentosCodigoEstudiantil: Number.isInteger(s.intentosCodigoEstudiantil) ? (s.intentosCodigoEstudiantil as number) : 0,
-    consultaPendiente: (['notas', 'recibo', 'turno', 'horario', 'cursos'] as const).includes(s.consultaPendiente as TipoConsulta)
+    consultaPendiente: TIPOS_CONSULTA.includes(s.consultaPendiente as TipoConsulta)
       ? (s.consultaPendiente as TipoConsulta)
       : null,
     franjas: Array.isArray(s.franjas) ? s.franjas.slice(0, 3) : [],
@@ -162,5 +170,6 @@ export function leerDialogo(raw: unknown): EstadoDialogo {
     fallos: Number.isInteger(s.fallos) ? Math.max(0, Math.min(10, s.fallos as number)) : 0,
     inyecciones: Number.isInteger(s.inyecciones) ? (s.inyecciones as number) : 0,
     ultimaRespuesta: typeof s.ultimaRespuesta === 'string' ? s.ultimaRespuesta.slice(0, 420) : null,
+    ultimaDatos: TIPOS_CONSULTA.includes(s.ultimaDatos as TipoConsulta) ? (s.ultimaDatos as TipoConsulta) : null,
   };
 }

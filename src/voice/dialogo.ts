@@ -104,7 +104,8 @@ export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialog
   let s: EstadoDialogo = { ...DIALOGO_VACIO, ...estadoPrevio, turnos: estadoPrevio.turnos + 1 };
   const fin = (respuesta: string, extra: Partial<ResultadoTurno> = {}): ResultadoTurno => {
     const limpio = cleanForSpeech(respuesta);
-    return { respuesta: limpio, accion: 'none', ...extra, estado: { ...(extra.estado ?? s), ultimaRespuesta: limpio } };
+    // Con la respuesta se guarda si leyó datos: «repítemelo» los repite con el mismo marcador en la transcripción.
+    return { respuesta: limpio, accion: 'none', ...extra, estado: { ...(extra.estado ?? s), ultimaRespuesta: limpio, ultimaDatos: extra.datosLeidos ?? null } };
   };
 
   // «¿Aló?», «¿me escucha?», «¿hay alguien?»: se contesta corto y se sigue donde se iba, sin reiniciar ni contar fallo.
@@ -130,7 +131,10 @@ export async function correrTurno(textoCrudo: string, estadoPrevio: EstadoDialog
   if (!s.soporte && PIDE_SOPORTE.test(normalizeSpeech(texto))) s = { ...s, soporte: true };
 
   if (isGoodbye(texto)) return fin(DESPEDIDA, { accion: 'hangup' });
-  if (isRepeatRequest(texto) && s.ultimaRespuesta) return { respuesta: s.ultimaRespuesta, accion: 'none', estado: s };
+  // Repetir lo que leyó datos académicos vuelve a marcarlo: la transcripción guarda el marcador, nunca lo leído (#33).
+  if (isRepeatRequest(texto) && s.ultimaRespuesta) {
+    return { respuesta: s.ultimaRespuesta, accion: 'none', estado: s, ...(s.ultimaDatos ? { datosLeidos: s.ultimaDatos } : {}) };
+  }
   // «Espere», «un momento», «ya voy»: se espera sin cambiar nada (tampoco cancela lo que estaba por confirmar).
   if (isHoldRequest(texto)) return soloDecir('Claro, aquí te espero.', s);
 
@@ -253,7 +257,9 @@ function soloDecir(respuesta: string, s: EstadoDialogo): ResultadoTurno {
 /** Lo que la línea estaba esperando: la última pregunta, si había una fase en curso. */
 function preguntaPendiente(s: EstadoDialogo): string {
   if (s.fase === 'libre' || !s.ultimaRespuesta) return '¿En qué te ayudo?';
-  return s.ultimaRespuesta.match(/¿[^¿?]*\?\s*$/)?.[0] ?? s.ultimaRespuesta;
+  const pregunta = s.ultimaRespuesta.match(/¿[^¿?]*\?\s*$/)?.[0];
+  // Si lo último leyó datos, nunca se repite entero (iría en claro a la transcripción): solo la pregunta.
+  return pregunta ?? (s.ultimaDatos ? '¿En qué te ayudo?' : s.ultimaRespuesta);
 }
 
 const FUERA_TRAMITE = 'Eso no lo tengo en la información de posgrados que manejo por aquí, y prefiero no darte un dato equivocado.';
