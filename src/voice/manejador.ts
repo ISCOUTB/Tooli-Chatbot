@@ -136,6 +136,11 @@ export const TEXTO_NO_CONTESTO_CON_NUMERO =
   'No pude comunicarte con un asesor: no contestó. Dejé tu número para que un asesor te devuelva la llamada en horario de atención. ¿Te ayudo con algo más?';
 export const TEXTO_NO_CONTESTO_SIN_NUMERO =
   'No pude comunicarte con un asesor en este momento. Puedes volver a llamar o escribirnos por WhatsApp. ¿Te ayudo con algo más?';
+/** El asesor no contestó y ya se acabó el tiempo de la llamada: se despide y cuelga (no vuelve a transferir en bucle). */
+export const TEXTO_NO_CONTESTO_CIERRE_CON_NUMERO =
+  'No pude comunicarte con un asesor: no contestó. Dejé tu número para que un asesor te devuelva la llamada en horario de atención. ¡Gracias por llamar!';
+export const TEXTO_NO_CONTESTO_CIERRE_SIN_NUMERO =
+  'No pude comunicarte con un asesor en este momento. Puedes volver a llamar o escribirnos por WhatsApp. ¡Gracias por llamar!';
 
 /** Con la línea apagada y sin número de desvío: se contesta con esto y se cuelga (antes solo timbraba, punto 17). */
 export const TEXTO_LINEA_APAGADA =
@@ -262,12 +267,19 @@ export function crearManejador(d: DepsManejador) {
    */
   async function retomar(id: string, a: AjustesVoz, cmdBase: string) {
     let texto = '';
+    let cierre = false;
     const l = await actualizar(id, (x) => {
       if (x.estado !== 'activa' || !x.transferidaEn) return null;
       const conNumero = /^\d{7,15}$/.test(x.telefono);
-      texto = conNumero ? TEXTO_NO_CONTESTO_CON_NUMERO : TEXTO_NO_CONTESTO_SIN_NUMERO;
+      // Ya en los 30 s finales (p. ej. la transferencia vino del aviso de fin de tiempo): despedirse y colgar. Si se
+      // preguntara «¿algo más?», la respuesta volvería a disparar el aviso y otra transferencia, en bucle (revisión H2).
+      cierre = shouldWrapUp(Date.parse(x.contestada ?? x.iniciada), x.minutosPermitidos, ahora().getTime());
+      texto = cierre
+        ? (conNumero ? TEXTO_NO_CONTESTO_CIERRE_CON_NUMERO : TEXTO_NO_CONTESTO_CIERRE_SIN_NUMERO)
+        : (conNumero ? TEXTO_NO_CONTESTO_CON_NUMERO : TEXTO_NO_CONTESTO_SIN_NUMERO);
       return {
         ...x,
+        ...(cierre ? { despuesDeHablar: 'hangup' as const, cerrando: true } : {}),
         transferidaEn: null,
         transferidaHasta: null,
         pataContestada: false,
@@ -282,8 +294,9 @@ export function crearManejador(d: DepsManejador) {
     if (l.resultado === 'devolver_llamada') {
       d.avisarPanel?.({ tipo: 'devolucion', llamadaId: l.id, texto: 'La transferencia no se completó: devolver la llamada', simulada: l.simulada });
     }
-    await d.almacen.vigilar(l.id, plazoDuro(l));
-    await cmd('transcription_start', (c) => d.proveedor.startListening(c, l.proveedorCallId, a.idioma, `${cmdBase}-listen`));
+    // Al cierre, el plazo normal ya pasó: se deja la gracia para decir la despedida y colgar.
+    await d.almacen.vigilar(l.id, cierre ? Math.max(plazoDuro(l), ahora().getTime() + GRACIA_COLGAR_MS) : plazoDuro(l));
+    if (!cierre) await cmd('transcription_start', (c) => d.proveedor.startListening(c, l.proveedorCallId, a.idioma, `${cmdBase}-listen`));
     await decir(l, a, texto, `${cmdBase}-aviso`);
   }
 
@@ -302,7 +315,7 @@ export function crearManejador(d: DepsManejador) {
     }
     if (ev.kind !== 'hangup') return { handled: false, note: 'evento de la pata saliente' };
     const segPata = ev.durationSeconds ?? null;
-    if (l.estado === 'cerrada' && l.transferidaEn && l.segPata == null && segPata != null && !l.simulada) {
+    if (l.estado === 'cerrada' && l.transferidaEn && l.segPata == null && segPata != null && !l.simulada && l.pataContestada) {
       // La llamada se cerró antes y estimó la pata: se corrige con su duración real (costo y uso del día y el mes).
       let delta = 0;
       const c = await actualizar(id, (x) => {
@@ -338,7 +351,7 @@ export function crearManejador(d: DepsManejador) {
     const transferir = Boolean(a.numeroDesvio);
     const l = await actualizar(l0.id, (x) => (x.despuesDeHablar
       ? null
-      : { ...x, despuesDeHablar: transferir ? 'transfer' : 'hangup', hablando: false, silencio: 0, actividad: tick(x) }));
+      : { ...x, despuesDeHablar: transferir ? 'transfer' : 'hangup', cerrando: true, hablando: false, silencio: 0, actividad: tick(x) }));
     if (!l) return { handled: false, note: 'tope de la llamada (ya avisado)' };
     await decir(l, a, transferir ? TEXTO_SE_ACABA_TRANSFER : TEXTO_SE_ACABA_COLGAR, `${eventId}-wrap`);
     return { handled: true, note: 'tope de la llamada' };
@@ -431,7 +444,9 @@ export function crearManejador(d: DepsManejador) {
       if (x.estado === 'cerrada') return null;
       // La pata del asesor también se cobra (punto 14): su duración real si llegó su call.hangup; si no, se estima
       // desde la transferencia y se corrige cuando llegue.
-      const segPata = x.segPata ?? (x.transferidaEn ? Math.max(0, Math.round((fin.getTime() - Date.parse(x.transferidaEn)) / 1000)) : 0);
+      // Si el asesor nunca contestó, la pata solo timbró: no se cobra (revisión 23-nov).
+      const segPata = !x.pataContestada ? 0
+        : x.segPata ?? (x.transferidaEn ? Math.max(0, Math.round((fin.getTime() - Date.parse(x.transferidaEn)) / 1000)) : 0);
       const minutosPata = x.simulada ? 0 : billedMinutes(segPata);
       return {
       ...x,
@@ -542,6 +557,23 @@ export function crearManejador(d: DepsManejador) {
     return { handled: true, note: 'apagada: contesta y avisa' };
   }
 
+  /**
+   * El incoming llegó otra vez con la llamada ya reservada. Si fue el reintento de Telnyx tras un 500 (algo falló
+   * después de reservar), la llamada quedó sin contestar: se contesta con el MISMO command_id (`${eventId}-answer`),
+   * que Telnyx descarta si el primero sí llegó. Si ya se contestó o se colgó, no se hace nada (revisión H1).
+   */
+  async function contestarSiQuedoPendiente(ev: VoiceEvent, a: AjustesVoz): Promise<Nota> {
+    const l = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
+    if (!l || l.estado !== 'activa' || l.contestada || l.apagada) return { handled: false, note: 'llamada repetida' };
+    if (await d.almacen.fueColgada(d.proveedor.id, ev.callId)) {
+      await cerrarLlamada(l.id, a, 0);
+      return { handled: true, note: 'colgó antes de contestar' };
+    }
+    await d.almacen.vigilar(l.id, plazoDuro(l));
+    await cmd('answer', (c) => d.proveedor.answer(c, ev.callId, `${ev.eventId}-answer`));
+    return { handled: true, note: 'reintento: contestada' };
+  }
+
   async function despachar(ev: VoiceEvent): Promise<Nota> {
     const a = await d.ajustes();
     const desvio = a.numeroDesvio;
@@ -567,7 +599,7 @@ export function crearManejador(d: DepsManejador) {
           proveedor: d.proveedor.id, proveedorCallId: ev.callId, telefono: telefonoDeOrigen(ev.from), simulada, topes: a, ahora: ahora(),
         });
         if (!r.ok) {
-          if (r.motivo === 'duplicada') return { handled: false, note: 'llamada repetida' };
+          if (r.motivo === 'duplicada') return contestarSiQuedoPendiente(ev, a);
           // Ese número ya llamó las veces del día: no se contesta ni se transfiere (cada transferencia también cuesta).
           if (r.motivo === 'tope_numero') {
             await cmd('hangup', (c) => d.proveedor.hangup(c, ev.callId, `${ev.eventId}-tope-numero`));
@@ -623,6 +655,14 @@ export function crearManejador(d: DepsManejador) {
         if (!l0 || l0.estado !== 'activa') return { handled: false, note: 'llamada cerrada' };
         // Ya la atiende un asesor: lo que diga no es para el bot ni se guarda (punto 9).
         if (l0.transferidaEn) return { handled: false, note: 'transferida: no se atiende' };
+        // Ya se despide por el fin de tiempo: lo que diga no abre otro turno ni otra transferencia (revisión H2).
+        if (l0.cerrando && !l0.despuesDeHablar) return { handled: false, note: 'cerrando: se despide' };
+        if (ev.isFinal && l0.ultimoTurnoEvento === ev.eventId) {
+          // Reintento de Telnyx de una frase cuyo turno ya se aplicó (falló algo después y se respondió 500): no se corre
+          // el turno otra vez (gastaría intentos, códigos o reservas); se repite lo dicho con el mismo command_id.
+          await decir(l0, a, l0.dialogo.ultimaRespuesta || '¿Me repites, por favor?', `${ev.eventId}-reply`);
+          return { handled: true, note: 'reintento de una frase ya atendida' };
+        }
         await cancelarSilencio(l0);
         if (!ev.isFinal) {
           // Una llamada con solo parciales también llega al tope: el aviso y el colgado no esperan una frase final (R5).
@@ -688,9 +728,22 @@ export function crearManejador(d: DepsManejador) {
         const r: ResultadoTurno = await promesa;
 
         let descartado: 'viejo' | 'base' | null = null;
+        let yaCerrada = false;
         const l = await actualizar(l0.id, (x) => {
           descartado = null;
-          if (x.estado !== 'activa') return null;
+          yaCerrada = false;
+          if (x.estado !== 'activa') {
+            // Colgó mientras el turno pensaba. Si el turno ya hizo algo afuera (reservó una cita, verificó, mandó un
+            // código), eso pasó: se anota en la llamada cerrada y el panel se entera (revisión H3). Nada se dice.
+            if (!efectos.hubo || x.estado !== 'cerrada') return null;
+            yaCerrada = true;
+            return {
+              ...x,
+              resultado: mejorResultado(x.resultado, r.resultado),
+              resumen: r.aviso ?? x.resumen,
+              verificacionNegada: r.verificacionNegada ?? x.verificacionNegada,
+            };
+          }
           // Llegó una frase más nueva, u otro turno cambió el diálogo sobre el que se calculó este: si no tocó nada
           // afuera, quedó viejo y no se dice (compare-and-set del diálogo). Si ya verificó, gastó un intento, mandó un
           // código o reservó una cita, se aplica y se dice igual: eso ya pasó (punto 11).
@@ -708,6 +761,7 @@ export function crearManejador(d: DepsManejador) {
             resumen: r.aviso ?? x.resumen,
             dictado: r.dictadoUsado ? '' : x.dictado,
             verificacionNegada: r.verificacionNegada ?? x.verificacionNegada,
+            ultimoTurnoEvento: ev.eventId,
           };
         });
         if (!l) {
@@ -731,6 +785,7 @@ export function crearManejador(d: DepsManejador) {
             llamadaId: l.id, texto: r.aviso, simulada: l.simulada,
           });
         }
+        if (yaCerrada) return { handled: true, note: 'turno con efectos aplicado a una llamada ya colgada' };
         await decir(l, a, r.respuesta, `${ev.eventId}-reply`, !puente, r.datosLeidos ? `[datos académicos leídos: ${r.datosLeidos}]` : undefined);
         return { handled: true, note: `turno (${r.accion}${puente ? ', con puente' : ''})` };
       }

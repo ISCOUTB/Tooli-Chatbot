@@ -129,6 +129,16 @@ export interface LlamadaVoz {
    * propios) se descarta en vez de pisarlo.
    */
   turnoAplicado: number;
+  /**
+   * `eventId` de la última frase final cuyo turno se aplicó. Si Telnyx reintenta ese mismo evento (porque algo falló
+   * DESPUÉS de aplicar el turno y el webhook respondió 500), no se vuelve a correr el turno: solo se repite lo dicho.
+   */
+  ultimoTurnoEvento?: string | null;
+  /**
+   * El bot ya se está despidiendo por el fin de tiempo (aviso dicho, o el asesor no contestó al cierre): no atiende más
+   * frases. Sin esto, una frase entre el `hangup` y el `call.hangup` volvía a disparar el aviso y otra transferencia.
+   */
+  cerrando?: boolean;
   /** Frases puente sonando: su `speak_ended` no dispara la acción pendiente (esa es de la respuesta que va detrás). */
   puentes: number;
   /** Etapa del control de silencio: 0 nada, 1 ya preguntó «¿sigues ahí?», 2 ya se despidió. */

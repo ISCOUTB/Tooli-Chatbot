@@ -107,6 +107,8 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       silencioVence: Number.isFinite(o.silencioVence) ? o.silencioVence : null,
       dictado: typeof o.dictado === 'string' ? o.dictado.slice(0, 12) : '',
       turnoAplicado: Number.isInteger(o.turnoAplicado) ? o.turnoAplicado : 0,
+      ultimoTurnoEvento: typeof o.ultimoTurnoEvento === 'string' ? o.ultimoTurnoEvento.slice(0, 200) : null,
+      cerrando: o.cerrando === true,
       verificada: o.verificada === true,
       finHabla: Number.isFinite(o.finHabla) ? o.finHabla : null,
       colgadoForzado: Number.isFinite(o.colgadoForzado) ? o.colgadoForzado : null,
