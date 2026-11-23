@@ -240,29 +240,46 @@ describe('elegir franjas variadas', () => {
 describe('qué recordatorios se programan', () => {
   const inicio = bog('2026-11-30T10:00:00');
   const reserva = bog('2026-11-23T08:00:00');
+  const plan = (o: { inicioMs: number; ultimoEntranteMs?: number | null; adaptador: 'meta' | 'evolution' }) =>
+    planearRecordatorios({ ahoraMs: reserva, ultimoEntranteMs: reserva, ...o });
 
   it('con Evolution programa los dos', () => {
-    const r = planearRecordatorios({ inicioMs: inicio, reservaMs: reserva, adaptador: 'evolution' });
+    const r = plan({ inicioMs: inicio, adaptador: 'evolution' });
     assert.deepEqual(r.programar.map((x) => x.tipo), ['24h', '1h']);
     assert.equal(r.programar[0].cuandoMs, bog('2026-11-29T10:00:00'));
     assert.equal(r.sinVentana.length, 0);
   });
 
-  it('con Meta, lo que saldría fuera de las 24 h de la reserva queda pendiente de plantilla', () => {
-    const r = planearRecordatorios({ inicioMs: inicio, reservaMs: reserva, adaptador: 'meta' });
+  it('con Meta, lo que saldría fuera de las 24 h del último mensaje queda pendiente de plantilla', () => {
+    const r = plan({ inicioMs: inicio, adaptador: 'meta' });
     assert.deepEqual(r.programar, []);
     assert.deepEqual(r.sinVentana.map((x) => x.tipo), ['24h', '1h']);
   });
 
   it('con Meta, una cita para dentro de 20 h sí alcanza a mandar el recordatorio de 1 h', () => {
-    // Cita en 20 h: el de 24 h ya pasó (se omite) y el de 1 h sale a las 19 h de la reserva, dentro de la ventana.
-    const r = planearRecordatorios({ inicioMs: reserva + 20 * 60 * MIN, reservaMs: reserva, adaptador: 'meta' });
+    // Cita en 20 h: el de 24 h ya pasó (se omite) y el de 1 h sale a las 19 h del último mensaje, dentro de la ventana.
+    const r = plan({ inicioMs: reserva + 20 * 60 * MIN, adaptador: 'meta' });
     assert.deepEqual(r.programar.map((x) => x.tipo), ['1h']);
     assert.deepEqual(r.sinVentana, []);
   });
 
+  it('con Meta, la referencia es el ÚLTIMO MENSAJE de la persona, no el momento de la reserva', () => {
+    // El asesor agenda desde el panel a alguien que escribió hace 3 días: la ventana ya está cerrada.
+    const hace3Dias = plan({ inicioMs: reserva + 6 * 60 * MIN, ultimoEntranteMs: reserva - 3 * 24 * 60 * MIN, adaptador: 'meta' });
+    assert.deepEqual(hace3Dias.programar, []);
+    assert.deepEqual(hace3Dias.sinVentana.map((x) => x.tipo), ['1h']);
+    // Escribió hace 23 h: la ventana cierra en 1 h; el recordatorio de las 5 h ya no cabe.
+    const hace23h = plan({ inicioMs: reserva + 6 * 60 * MIN, ultimoEntranteMs: reserva - 23 * 60 * MIN, adaptador: 'meta' });
+    assert.deepEqual(hace23h.sinVentana.map((x) => x.tipo), ['1h']);
+    // Nunca escribió por WhatsApp (agendó por llamada): con Meta no hay ventana.
+    const nunca = plan({ inicioMs: reserva + 6 * 60 * MIN, ultimoEntranteMs: null, adaptador: 'meta' });
+    assert.deepEqual(nunca, { programar: [], sinVentana: [{ tipo: '1h', cuandoMs: reserva + 5 * 60 * MIN }] });
+    // Con Evolution no hay ventana: da igual cuándo escribió.
+    assert.deepEqual(plan({ inicioMs: reserva + 6 * 60 * MIN, ultimoEntranteMs: null, adaptador: 'evolution' }).programar.map((x) => x.tipo), ['1h']);
+  });
+
   it('una cita que empieza en menos de 1 h no programa nada', () => {
-    const r = planearRecordatorios({ inicioMs: reserva + 30 * MIN, reservaMs: reserva, adaptador: 'evolution' });
+    const r = plan({ inicioMs: reserva + 30 * MIN, adaptador: 'evolution' });
     assert.deepEqual(r, { programar: [], sinVentana: [] });
   });
 });

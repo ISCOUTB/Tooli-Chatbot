@@ -336,6 +336,29 @@ describe('WhatsApp de punta a punta', () => {
     assert.deepEqual(enviados, []);
   });
 
+  it('reprogramar solo promete «te avisaremos» si de verdad quedó un recordatorio', async () => {
+    mundo.adaptador.valor = 'meta';
+    mundo.entrantes.set(TEL, mundo.reloj.ahora);
+    await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });
+    await flujo.atender(TEL, 'ag:s:1', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    // Nueva hora a más de 24 h del último mensaje: con Meta no sale ningún recordatorio.
+    await flujo.atender(TEL, 'reprogramar', SESION_MENU);
+    await flujo.atender(TEL, 'ag:s:2', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    assert.match(ultimo().texto, /Cambiamos tu cita/);
+    assert.equal(mundo.recordatorios.filter((r) => !r.cancelado).length, 0);
+    assert.doesNotMatch(ultimo().texto, /avisaremos/i);
+
+    // Con Evolution (sin ventana) sí se programa y se dice.
+    mundo.adaptador.valor = 'evolution';
+    await flujo.atender(TEL, 'reprogramar', SESION_MENU);
+    await flujo.atender(TEL, 'ag:s:2', SESION_MENU);
+    await flujo.atender(TEL, 'ag:ok', SESION_MENU);
+    assert.ok(mundo.recordatorios.some((r) => !r.cancelado));
+    assert.match(ultimo().texto, /Te avisaremos antes de la hora/);
+  });
+
   it('con Meta, la confirmación no promete un recordatorio que no se programó', async () => {
     mundo.adaptador.valor = 'meta';
     await flujo.atender(TEL, 'agendar', { step: 'menu', data: { area: 'posgrados' } });

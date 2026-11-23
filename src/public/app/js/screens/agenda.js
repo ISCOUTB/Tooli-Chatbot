@@ -2,7 +2,7 @@ import { api } from '../core/api.js';
 import {
   AREAS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS, agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia,
   etiquetaDiaLarga, fechaDeIso, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe, parseFestivos,
-  porMarcar, sumarDias,
+  porMarcar, sumarDias, textoSinRecordatorio,
 } from '../core/agenda.js';
 import { $, $$, escapeHtml, haptic, toast } from '../core/dom.js';
 import { colorTextoLegible } from '../core/format.js';
@@ -146,7 +146,7 @@ function filaCita(c, { conAsesor }) {
       <span class="ag-hora">${escapeHtml(horaCorta(c.inicio))}<small>${escapeHtml(horaCorta(c.fin))}</small></span>
       <span class="ag-cuerpo">
         <strong>${persona}</strong>
-        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor ? ` · ${escapeHtml(nombreAsesor(c.asesor))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}</small>
+        <small>${icon('user', 11)} ${escapeHtml(AREAS[c.area] ?? c.area)}${conAsesor ? ` · ${escapeHtml(nombreAsesor(c.asesor))}` : ''} · ${escapeHtml(nombreCanal(c.canal))}${textoSinRecordatorio(c) ? ` · <span title="${escapeHtml(textoSinRecordatorio(c))}">${icon('bellOff', 11)} sin recordatorio</span>` : ''}</small>
       </span>
       ${insignia(meta.label, meta.color)}
     </button>`;
@@ -223,7 +223,7 @@ function detalleCita(c) {
       ${insignia(meta.label, meta.color)}
     </div>
     <dl class="perfil-datos">${filas.map(([i, k, v]) => `<div>${icon(i, 16)}<dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('')}</dl>
-    ${c.recordatoriosPendientes?.length ? `<p class="field-help">${icon('bell', 12)} Sin recordatorio automático: WhatsApp exige una plantilla aprobada fuera de las 24 horas.</p>` : ''}`;
+    ${textoSinRecordatorio(c) ? `<p class="field-help">${icon('bellOff', 12)} ${escapeHtml(textoSinRecordatorio(c))}</p>` : ''}`;
   return el;
 }
 

@@ -306,6 +306,47 @@ describe('recordatorios 24 h y 1 h', () => {
     assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
   });
 
+  it('con Meta, la ventana se cuenta desde el último mensaje de la persona, no desde la reserva', async () => {
+    mundo.adaptador.valor = 'meta';
+    // Cita hoy a las 14:00: el de 1 h sale a las 13:00, 5 h después de la reserva.
+    mundo.entrantes.set(TEL, mundo.reloj.ahora - 3 * 24 * 3600_000);
+    const panel = await ag.reservarPanel({ telefono: TEL, area: 'posgrados', franja: fr('laura', '2026-11-23T14:00:00') }, 'laura', false);
+    assert.equal(panel.ok, true);
+    assert.equal(mundo.recordatorios.length, 0, 'escribió hace 3 días: el texto libre ya no llega');
+    const guardada = await ag.obtenerCita((panel as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['1h'], 'queda «sin recordatorio» y el panel lo muestra');
+    assert.equal(guardada?.motivoSinRecordatorio, 'ventana');
+    assert.deepEqual(guardada?.recordatorios ?? [], []);
+
+    // La misma cita para alguien que acaba de escribir por WhatsApp sí lleva el recordatorio.
+    mundo.entrantes.set(TEL2, mundo.reloj.ahora - 60_000);
+    const wa = await reservar(TEL2, fr('laura', '2026-11-23T14:30:00'));
+    assert.equal(mundo.recordatorios.length, 1);
+    assert.deepEqual((wa as { cita: { recordatorios?: string[] } }).cita.recordatorios, ['1h']);
+  });
+
+  it('un contacto con BSUID (sin teléfono) no rompe nada: queda marcado sin recordatorio', async () => {
+    const BSUID = 'CO.Ab12Cd34Ef56';
+    // Igual que reminderService: validarTelefono no acepta un BSUID.
+    mundo.deps.recordatorios.programar = async (t) => {
+      if (!/^\d+$/.test(t)) throw new Error('telefono inválido (usa E.164 de 10–15 dígitos)');
+      return 'rem_x';
+    };
+    const r = await reservar(BSUID, fr('laura', '2026-11-26T10:00:00'));
+    assert.equal(r.ok, true);
+    const guardada = await ag.obtenerCita((r as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
+    assert.equal(guardada?.motivoSinRecordatorio, 'sin_telefono');
+  });
+
+  it('si programar falla, la cita queda marcada sin recordatorio (no se promete lo que no salió)', async () => {
+    mundo.deps.recordatorios.programar = async () => { throw new Error('Redis caído'); };
+    const r = await reservar(TEL, fr('laura', '2026-11-26T10:00:00'));
+    const guardada = await ag.obtenerCita((r as { cita: { id: string } }).cita.id);
+    assert.deepEqual(guardada?.recordatoriosPendientes, ['24h', '1h']);
+    assert.equal(guardada?.motivoSinRecordatorio, 'error');
+  });
+
   it('reprogramar cancela los recordatorios viejos y programa los nuevos', async () => {
     const r = await reservar(TEL, fr('laura', '2026-11-26T10:00:00'));
     await ag.reprogramar((r as { cita: { id: string } }).cita.id, TEL, fr('laura', '2026-11-27T10:00:00'));

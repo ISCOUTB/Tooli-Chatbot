@@ -109,6 +109,18 @@ function porMarcar(citas, ahoraMs = Date.now()) {
   return citas.filter(c => c.estado === 'confirmada' && Date.parse(c.inicio) <= ahoraMs);
 }
 
+/** Por qué una cita confirmada no tendrá recordatorio automático, o null si no aplica. */
+function textoSinRecordatorio(c) {
+  if (c?.estado !== 'confirmada' || !c.recordatoriosPendientes?.length) return null;
+  const cuales = c.recordatoriosPendientes.length > 1 ? 'los recordatorios' : `el de ${c.recordatoriosPendientes[0] === '24h' ? '24 horas' : '1 hora'}`;
+  const motivos = {
+    ventana: `Sin recordatorio automático (${cuales}): WhatsApp solo deja escribirle dentro de las 24 horas desde su último mensaje y fuera de eso exige una plantilla aprobada. Avísale por otro medio.`,
+    sin_telefono: `Sin recordatorio automático (${cuales}): el contacto no tiene número (usuario de WhatsApp sin teléfono) y los recordatorios programados solo van a teléfonos.`,
+    error: `Sin recordatorio automático (${cuales}): no se pudo programar. Avísale por otro medio.`,
+  };
+  return motivos[c.motivoSinRecordatorio] ?? `Sin recordatorio automático (${cuales}): WhatsApp exige una plantilla aprobada fuera de las 24 horas.`;
+}
+
 /* ───────────── Formulario de disponibilidad ───────────── */
 
 /** Modelo del formulario a partir de lo que devuelve la API. */
@@ -192,5 +204,5 @@ export {
   AREAS, DIAS_CORTOS, DIAS_LARGOS, ESTADOS_CITA, ORDEN_DIAS,
   agruparPorDia, citasPorTramo, diaSemana, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga,
   fechaDeIso, fechaValida, formDesdeDisponibilidad, horaCorta, hoyBogota, isoBogota, lineaDelDia, lunesDe,
-  parseFestivos, porMarcar, sumarDias,
+  parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 };

@@ -48,6 +48,7 @@ import {
 } from './agendaLogica';
 import { textoRecordatorio } from './agendaTextos';
 import { describeError } from './logSafe';
+import { ultimoEntranteVerificable } from './replyWindow';
 import { isBsuid, normalizeContactId } from './whatsappId';
 
 export type EstadoCita = Cita['estado'];
@@ -60,9 +61,19 @@ export interface CitaAgenda extends Cita {
   creadaPor?: string;
   /** Id de la cita que esta reemplaza (reprogramación). */
   reprogramadaDe?: string;
-  /** Recordatorios que no se programaron por la ventana de 24 h de WhatsApp. */
+  /** Recordatorios que sí quedaron programados. */
+  recordatorios?: Array<'24h' | '1h'>;
+  /** Recordatorios que NO se programaron: la cita queda «sin recordatorio» y el panel lo muestra. */
   recordatoriosPendientes?: Array<'24h' | '1h'>;
+  /**
+   * Por qué: `ventana` (Meta y fuera de las 24 h del último mensaje; falta plantilla aprobada),
+   * `sin_telefono` (contacto con BSUID: el programador de recordatorios solo acepta teléfonos)
+   * o `error` (el programador falló).
+   */
+  motivoSinRecordatorio?: MotivoSinRecordatorio;
 }
+
+export type MotivoSinRecordatorio = 'ventana' | 'sin_telefono' | 'error';
 
 export type CodigoAgenda = 'no_encontrada' | 'ajena' | 'estado_invalido' | 'futura' | 'ocupada' | 'invalida' | 'limite' | 'asesor_invalido';
 
@@ -93,6 +104,8 @@ export interface DepsAgenda {
     cancelar(id: string): Promise<void>;
   };
   adaptador: () => 'meta' | 'evolution';
+  /** Último mensaje ENTRANTE de la persona por WhatsApp (epoch ms), o null. Marca la ventana de 24 h de Meta. */
+  ultimoEntrante: (telefono: string) => Promise<number | null>;
 }
 
 /** Lo que la agenda usa de ioredis; permite un doble en las pruebas. */
@@ -426,26 +439,51 @@ export function crearAgenda(deps: DepsAgenda) {
   }
 
   async function programarRecordatorios(cita: CitaAgenda, ahoraMs: number): Promise<void> {
+    const programados: Array<'24h' | '1h'> = [];
+    const sinRecordatorio: Array<'24h' | '1h'> = [];
+    let motivo: MotivoSinRecordatorio | undefined;
     try {
-      const plan = planearRecordatorios({ inicioMs: msDeIso(cita.inicio), reservaMs: ahoraMs, adaptador: deps.adaptador() });
+      const adaptador = deps.adaptador();
+      const ultimoEntrante = adaptador === 'meta' ? await deps.ultimoEntrante(cita.telefono).catch(() => null) : null;
+      const plan = planearRecordatorios({ inicioMs: msDeIso(cita.inicio), ahoraMs, ultimoEntranteMs: ultimoEntrante, adaptador });
+      if (plan.sinVentana.length) {
+        sinRecordatorio.push(...plan.sinVentana.map((r) => r.tipo));
+        motivo = 'ventana';
+      }
       const ids: string[] = [];
       for (const r of plan.programar) {
+        // reminderService solo acepta teléfonos E.164: con un BSUID ni se intenta (lanzaría y no quedaría marca).
+        if (isBsuid(cita.telefono)) {
+          sinRecordatorio.push(r.tipo);
+          motivo ??= 'sin_telefono';
+          continue;
+        }
         try {
           ids.push(await deps.recordatorios.programar(cita.telefono, textoRecordatorio(cita, r.tipo), r.cuandoMs));
+          programados.push(r.tipo);
         } catch (err) {
           console.error('[agenda] no se pudo programar un recordatorio:', describeError(err));
+          sinRecordatorio.push(r.tipo);
+          motivo ??= 'error';
         }
       }
       if (ids.length) await redis.set(K.rec(cita.id), JSON.stringify(ids), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
-      if (plan.sinVentana.length) {
-        // Quedan anotados en la cita: falta la plantilla aprobada de Meta para enviarlos.
-        const guardada = { ...cita, recordatoriosPendientes: plan.sinVentana.map((r) => r.tipo) };
-        await redis.set(K.cita(cita.id), JSON.stringify(guardada), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
-        cita.recordatoriosPendientes = guardada.recordatoriosPendientes;
-      }
     } catch (err) {
       // Un recordatorio que falla no debe deshacer una cita ya reservada.
       console.error('[agenda] error al programar recordatorios:', describeError(err));
+      motivo ??= 'error';
+    }
+    if (programados.length) cita.recordatorios = programados;
+    if (sinRecordatorio.length) {
+      cita.recordatoriosPendientes = (['24h', '1h'] as const).filter((t) => sinRecordatorio.includes(t));
+      cita.motivoSinRecordatorio = motivo ?? 'error';
+    }
+    if (!programados.length && !sinRecordatorio.length) return;
+    try {
+      // Queda anotado en la cita: el panel muestra «sin recordatorio» y los textos no prometen lo que no salió.
+      await redis.set(K.cita(cita.id), JSON.stringify(cita), 'EX', ttlSegundos(msDeIso(cita.fin), ahoraMs));
+    } catch (err) {
+      console.error('[agenda] no se pudo anotar los recordatorios en la cita:', describeError(err));
     }
   }
 
@@ -636,6 +674,14 @@ function depsReales(): DepsAgenda {
       },
     },
     adaptador: () => config.messagingAdapter,
+    // La misma marca que usa Conversaciones para la ventana de 24 h: el historial `activity:<tel>` (botUserService).
+    async ultimoEntrante(telefono) {
+      const historial = await (redis as unknown as Redis).lrange(`activity:${telefono}`, 0, 49);
+      const mensajes = historial.flatMap((raw) => {
+        try { return [JSON.parse(raw) as { ts: number; direction: 'in' | 'out' }]; } catch { return []; }
+      });
+      return ultimoEntranteVerificable(mensajes, Date.now());
+    },
   };
 }
 

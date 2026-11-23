@@ -2,8 +2,24 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   agruparPorDia, citasPorTramo, disponibilidadDesdeForm, errorDeForm, etiquetaDia, etiquetaDiaLarga, formDesdeDisponibilidad,
-  horaCorta, hoyBogota, lineaDelDia, lunesDe, parseFestivos, porMarcar, sumarDias,
+  horaCorta, hoyBogota, lineaDelDia, lunesDe, parseFestivos, porMarcar, sumarDias, textoSinRecordatorio,
 } from './agenda.js';
+
+describe('citas sin recordatorio', () => {
+  it('explica por qué una cita confirmada no tendrá recordatorio', () => {
+    const base = { estado: 'confirmada', recordatoriosPendientes: ['24h', '1h'] };
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'ventana' }), /24 horas.*último mensaje/);
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'sin_telefono' }), /no tiene número/);
+    assert.match(textoSinRecordatorio({ ...base, motivoSinRecordatorio: 'error' }), /no se pudo programar/);
+    assert.match(textoSinRecordatorio({ ...base, recordatoriosPendientes: ['1h'] }), /el de 1 hora/, 'citas viejas sin motivo');
+  });
+
+  it('nada que decir si tiene recordatorio, si no le tocaba o si ya no está confirmada', () => {
+    assert.equal(textoSinRecordatorio({ estado: 'confirmada', recordatorios: ['24h', '1h'] }), null);
+    assert.equal(textoSinRecordatorio({ estado: 'confirmada' }), null);
+    assert.equal(textoSinRecordatorio({ estado: 'cancelada', recordatoriosPendientes: ['1h'], motivoSinRecordatorio: 'ventana' }), null);
+  });
+});
 
 describe('fechas de Bogotá', () => {
   it('hoyBogota usa UTC-5 aunque el navegador esté en otra zona', () => {

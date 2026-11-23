@@ -94,11 +94,18 @@ Todo bajo `/api/tools/agenda/*`, detrás de `requireAuth`, con validación `zod`
 Se programan con el servicio existente (`reminderService`, `createdBy: 'agenda'`) y se cancelan al cancelar,
 reprogramar o marcar la cita.
 
-**Limitación de WhatsApp (Meta Cloud):** el texto libre solo se acepta dentro de las 24 h siguientes al último mensaje de la
-persona. Al reservar sabemos que acaba de escribir, así que solo se programa lo que sale antes de `reserva + 24 h`
-(típicamente, el de 1 h de una cita para el día siguiente). Lo demás **no se programa**: queda anotado en la cita
-(`recordatoriosPendientes`, visible en el panel) y la confirmación no promete recordatorio. Con Evolution (Baileys) no hay
-ventana y se programan los dos.
+**Limitación de WhatsApp (Meta Cloud):** el texto libre solo se acepta dentro de las 24 h siguientes al **último mensaje
+entrante** de la persona. La agenda lee esa marca del historial `activity:<tel>` (la misma que usa Conversaciones para
+avisar de la ventana) y solo programa lo que sale antes de `último mensaje + 24 h` (con 5 min de margen). Quien agenda por
+WhatsApp acaba de escribir, así que típicamente entra el de 1 h de una cita para el día siguiente; una cita que crea un
+asesor desde el panel, o que se tomó por llamada, puede no tener ventana y no lleva ninguno. Lo que no se programa queda
+anotado en la cita (`recordatoriosPendientes` + `motivoSinRecordatorio`) y el panel la muestra con «sin recordatorio» y
+el porqué; lo programado queda en `recordatorios`. La confirmación no promete recordatorio y la reprogramación solo dice
+«Te avisaremos» si de verdad quedó uno. Con Evolution (Baileys) no hay ventana y se programan los dos.
+
+Motivos de «sin recordatorio»: `ventana` (Meta, fuera de las 24 h; falta plantilla), `sin_telefono` (contacto con BSUID:
+`reminderService` solo envía a teléfonos, así que ni se intenta) y `error` (el programador falló). Si la persona vuelve a
+escribir después, la ventana se reabre pero los recordatorios no se reprograman solos.
 
 **Pendiente para cerrarlo:** crear y aprobar en Meta una plantilla de recordatorio de cita (por ejemplo
 `recordatorio_cita_asesor` con fecha, hora y asesor) y hacer que el worker use esa plantilla cuando la ventana esté

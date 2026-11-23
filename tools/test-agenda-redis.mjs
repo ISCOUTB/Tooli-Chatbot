@@ -35,6 +35,7 @@ const ag = crearAgenda({
     cancelar: async (id) => { recordatorios[Number(id.slice(1)) - 1].cancelado = true; },
   },
   adaptador: () => 'evolution',
+  ultimoEntrante: async () => null,
 });
 
 const semana = [1, 2, 3, 4, 5].map((dia) => ({ dia, desde: '09:00', hasta: '12:00' }));

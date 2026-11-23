@@ -433,27 +433,31 @@ const MARGEN_VENTANA_MS = 5 * MIN;
  * programar por la ventana de 24 h de WhatsApp.
  *
  * Con Meta Cloud el texto libre solo vale dentro de las 24 h siguientes al
- * último mensaje de la persona. Al reservar sabemos que acaba de escribir, así
- * que solo se sabe seguro que un recordatorio llega si sale antes de
- * `reservaMs + 24 h`. Los demás necesitan una plantilla aprobada: quedan
- * como pendientes documentados (ver docs/agenda-asesores.md). Con Evolution
- * (Baileys) no hay ventana.
+ * ÚLTIMO MENSAJE ENTRANTE de la persona (la marca de `activity:<tel>`, la misma
+ * que usa Conversaciones), no al momento de la reserva: una cita que agenda un
+ * asesor desde el panel, o por llamada, puede no tener ventana abierta. Sin
+ * mensaje entrante conocido no hay ventana. Lo que no cabe necesita una
+ * plantilla aprobada: queda «sin recordatorio» (ver docs/agenda-asesores.md).
+ * Con Evolution (Baileys) no hay ventana.
  */
 export function planearRecordatorios(opts: {
   inicioMs: number;
-  reservaMs: number;
+  ahoraMs: number;
+  /** Último mensaje de la persona por WhatsApp (epoch ms) o null si no se conoce. */
+  ultimoEntranteMs: number | null;
   adaptador: 'meta' | 'evolution';
 }): { programar: RecordatorioCita[]; sinVentana: RecordatorioCita[] } {
   const candidatos: RecordatorioCita[] = [
     { tipo: '24h', cuandoMs: opts.inicioMs - 24 * 60 * MIN },
     { tipo: '1h', cuandoMs: opts.inicioMs - 60 * MIN },
   ];
+  const cierraVentana = opts.ultimoEntranteMs === null ? -Infinity : opts.ultimoEntranteMs + VENTANA_WHATSAPP_MS - MARGEN_VENTANA_MS;
   const programar: RecordatorioCita[] = [];
   const sinVentana: RecordatorioCita[] = [];
   for (const c of candidatos) {
     // Debe quedar en el futuro con margen para que el worker lo alcance.
-    if (c.cuandoMs < opts.reservaMs + 2 * MIN) continue;
-    if (opts.adaptador === 'meta' && c.cuandoMs > opts.reservaMs + VENTANA_WHATSAPP_MS - MARGEN_VENTANA_MS) {
+    if (c.cuandoMs < opts.ahoraMs + 2 * MIN) continue;
+    if (opts.adaptador === 'meta' && c.cuandoMs > cierraVentana) {
       sinVentana.push(c);
     } else {
       programar.push(c);

@@ -121,6 +121,8 @@ export interface MundoFake {
   reloj: { ahora: number };
   equipo: { horario: HorarioEquipo | null };
   adaptador: { valor: 'meta' | 'evolution' };
+  /** Último mensaje entrante por teléfono (la marca de `activity:<tel>`). Sin entrada: nunca escribió. */
+  entrantes: Map<string, number>;
 }
 
 export const USUARIOS_BASE: UsuarioAgenda[] = [
@@ -137,6 +139,7 @@ export function crearMundo(opts: { ahoraMs?: number; usuarios?: UsuarioAgenda[] 
   const equipo: { horario: HorarioEquipo | null } = { horario: null };
   const adaptador: { valor: 'meta' | 'evolution' } = { valor: 'evolution' };
   const usuarios = opts.usuarios ?? USUARIOS_BASE;
+  const entrantes = new Map<string, number>();
   const deps: DepsAgenda = {
     redis,
     ahora: () => reloj.ahora,
@@ -154,8 +157,9 @@ export function crearMundo(opts: { ahoraMs?: number; usuarios?: UsuarioAgenda[] 
       cancelar: async (id) => { const r = recordatorios.find((x) => x.id === id); if (r) r.cancelado = true; },
     },
     adaptador: () => adaptador.valor,
+    ultimoEntrante: async (tel) => entrantes.get(tel) ?? null,
   };
-  return { redis, deps, recordatorios, reloj, equipo, adaptador };
+  return { redis, deps, recordatorios, reloj, equipo, adaptador, entrantes };
 }
 
 /** Lunes a viernes 09:00-12:00 y 14:00-17:00, citas de 30 min, áreas indicadas. */
