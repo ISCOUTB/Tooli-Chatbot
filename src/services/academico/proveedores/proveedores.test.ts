@@ -69,7 +69,7 @@ describe('recibo de Iceberg', () => {
   it('mapea fechas, recargo, valor y PDF', async () => {
     const pdf = Buffer.from('pdf');
     const p = crearProveedorReciboIceberg(async () => ({
-      ok: true, nombre: 'ANA', pdf, matriculas: [{ tipo: 'ORDINARIA', fechaVencimiento: '15/12/2026', recargo: '0%', valor: 8_363_000 }],
+      ok: true, nombre: 'ANA', cedula: '1045678901', pdf, matriculas: [{ tipo: 'ORDINARIA', fechaVencimiento: '15/12/2026', recargo: '0%', valor: 8_363_000 }],
     }));
     assert.deepEqual(await p.consultar('T00012345', '1045678901'), {
       estado: 'ok', nombre: 'ANA', pdf,
@@ -78,10 +78,17 @@ describe('recibo de Iceberg', () => {
   });
 
   it('distingue sin recibos, credenciales malas y fallas técnicas', async () => {
-    assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: true, noRecibos: true, nombre: 'ANA' })).consultar('T1', '1'), { estado: 'sin_recibos', nombre: 'ANA' });
+    assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: true, noRecibos: true, nombre: 'ANA', cedula: '1045678901' })).consultar('T1', '1045678901'), { estado: 'sin_recibos', nombre: 'ANA' });
     assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: false, error: 'Login falló tras 5 intentos' })).consultar('T1', '1'), { estado: 'credenciales' });
     assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: false, error: 'No se pudo completar la consulta del portal' })).consultar('T1', '1'), { estado: 'error' });
     assert.deepEqual(await crearProveedorReciboIceberg(async () => { throw new Error('playwright: clave'); }).consultar('T1', '1'), { estado: 'error' });
+  });
+
+  it('no dice «no tienes recibos» ni entrega un PDF si el portal no confirmó la cédula', async () => {
+    // Sin la cédula en la página no hay prueba de haber entrado como esa persona.
+    assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: true, noRecibos: true })).consultar('T1', '1045678901'), { estado: 'error' });
+    assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: true, noRecibos: true, nombre: 'ANA', cedula: '99999999' })).consultar('T1', '1045678901'), { estado: 'error' });
+    assert.deepEqual(await crearProveedorReciboIceberg(async () => ({ ok: true, pdf: Buffer.from('x'), cedula: '99999999' })).consultar('T1', '1045678901'), { estado: 'error' }, 'el PDF de otra cédula');
   });
 });
 
