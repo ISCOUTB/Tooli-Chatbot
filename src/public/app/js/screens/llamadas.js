@@ -3,6 +3,7 @@ import { $, $$, escapeHtml, toast } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
+import { abrirDialogo } from '../ui/dialog.js';
 import {
   duracionCorta, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
 } from '../core/llamadas.js';
@@ -138,22 +139,49 @@ async function renderLlamadas(main) {
           </div>
           <button type="button" class="btn btn-secondary" data-devolver="${escapeHtml(d.id)}">Marcar devuelta</button>
         </div>`).join('') : '<p class="field-help">Nadie espera que le devuelvan la llamada.</p>';
-      $$('button[data-devolver]', box).forEach(b => b.addEventListener('click', async () => {
-        const nota = window.prompt('Nota de la devolución (opcional):', '') ?? null;
-        if (nota === null) return;
-        b.disabled = true;
-        try {
-          await pedir(`/api/tools/voz/devoluciones/${encodeURIComponent(b.dataset.devolver)}/hecha`, { method: 'POST', body: JSON.stringify({ nota }) });
-          toast('Marcada como devuelta');
-          cargarDevoluciones();
-        } catch {
-          b.disabled = false;
-          toast('No se pudo marcar. Intenta de nuevo.');
-        }
-      }));
+      $$('button[data-devolver]', box).forEach(b => b.addEventListener('click', () => marcarDevuelta(b)));
     } catch {
       if (box?.isConnected) box.innerHTML = '<div class="alert alert-error">No se pudo cargar la cola de devoluciones.</div>';
     }
+  };
+
+  // Nota opcional en el diálogo del panel (foco atrapado, Escape, foco de
+  // vuelta al botón), no en window.prompt: el prompt del navegador no se ve
+  // como el panel y en un celular tapa todo.
+  const marcarDevuelta = (boton) => {
+    const quien = boton.closest('.voz-devo')?.querySelector('strong')?.textContent ?? '';
+    const dialogo = abrirDialogo({
+      titulo: 'Marcar como devuelta',
+      ayuda: quien ? `Llamada a ${quien}. Sale de la cola de devoluciones.` : 'Sale de la cola de devoluciones.',
+      cuerpo: `
+        <form id="devForm" novalidate>
+          <div class="field"><label for="devNota">Nota de la devolución (opcional)</label>
+            <textarea id="devNota" rows="3" maxlength="500" placeholder="Qué se habló o qué quedó pendiente"></textarea></div>
+          <div class="password-dialog-message" id="devMensaje" role="alert" aria-live="polite"></div>
+          <div class="password-dialog-actions"><button type="button" class="btn btn-ghost" data-cerrar>Cancelar</button><button type="submit" class="btn btn-primary" id="devGuardar">Marcar devuelta</button></div>
+        </form>`,
+    });
+    const form = dialogo.el.querySelector('#devForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const guardar = form.querySelector('#devGuardar');
+      const mensaje = form.querySelector('#devMensaje');
+      guardar.disabled = true;
+      mensaje.textContent = '';
+      try {
+        await pedir(`/api/tools/voz/devoluciones/${encodeURIComponent(boton.dataset.devolver)}/hecha`, {
+          method: 'POST', body: JSON.stringify({ nota: form.querySelector('#devNota').value.trim() }),
+        });
+        if (!dialogo.abierto()) return;
+        dialogo.cerrar();
+        toast('Marcada como devuelta');
+        cargarDevoluciones();
+      } catch {
+        if (!dialogo.abierto()) return;
+        guardar.disabled = false;
+        mensaje.textContent = 'No se pudo marcar. Intenta de nuevo.';
+      }
+    });
   };
 
   const cargarRegistro = async () => {
@@ -201,6 +229,14 @@ async function renderLlamadas(main) {
       puente ? 'dijo frase puente' : '', ...acciones, r.estado === 'cerrada' ? 'llamada terminada' : '',
     ].filter(Boolean).join(' · ');
     simForm.classList.toggle('hidden', r.estado === 'cerrada');
+    // La línea de estado va debajo del formulario: si la conversación crece se
+    // iría bajo la barra de pestañas del celular o bajo el borde de la
+    // pantalla. «nearest» solo desplaza si hace falta y respeta el
+    // scroll-padding que deja libre la barra.
+    requestAnimationFrame(() => {
+      const fase = $('#simEstado', main);
+      if (fase?.isConnected) fase.scrollIntoView({ block: 'nearest' });
+    });
     if (r.estado === 'cerrada') { simId = null; cargarRegistro(); }
   };
   const errorSim = (err) => toast(err?.status === 429 ? 'Se alcanzó el tope de simulaciones de hoy.' : 'El simulador no respondió. Intenta de nuevo.');
