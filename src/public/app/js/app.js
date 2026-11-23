@@ -29,6 +29,7 @@ import { renderInformes } from './screens/informes.js';
 import { renderAsistencia } from './screens/asistencia.js';
 import { renderPlantillas } from './screens/plantillas.js';
 import { renderLlamadas } from './screens/llamadas.js';
+import { renderProbarBot } from './screens/probar-bot.js';
 
 registrarPantallas({
   home: renderHome,
@@ -48,6 +49,7 @@ registrarPantallas({
   asistencia: renderAsistencia,
   plantillas: renderPlantillas,
   llamadas: renderLlamadas,
+  'probar-bot': renderProbarBot,
 });
 
 init();

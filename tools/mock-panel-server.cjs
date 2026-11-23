@@ -1304,6 +1304,114 @@ try {
   app.use('/api/tools/voz', (_q, res) => res.status(503).json({ error: 'voz_no_disponible', message: 'El mock no pudo cargar src/voice (¿falta tsx?).' }));
 }
 
+// ── Simulador de WhatsApp («Probar el bot»): respuestas sintéticas, mismo contrato que /api/tools/simulador-whatsapp ──
+// El servidor real corre el flujo de verdad; aquí basta un guion corto que recorra todos los tipos de mensaje
+// (texto, botones, lista, imagen, documento y notas de prueba) para revisar la pantalla sin Redis.
+{
+  const SIM = /^570000\d{6}$/;
+  const conversaciones = new Map();
+  const soloAdmin = (res) => { if (ROL !== 'admin') { res.status(403).json({ error: 'forbidden' }); return false; } return true; };
+  const nota = (servicio, texto) => ({ tipo: 'nota', servicio, texto });
+  const texto = (t) => ({ tipo: 'texto', texto: t });
+  const flyer = 'data:image/svg+xml;base64,' + Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#003087"/><stop offset="1" stop-color="#1e73be"/></linearGradient></defs>
+    <rect width="640" height="400" fill="url(#g)"/><circle cx="560" cy="70" r="120" fill="#5eead4" opacity="0.18"/>
+    <text x="40" y="90" fill="#5eead4" font-family="Arial" font-size="22" font-weight="700">POSGRADOS UTB</text>
+    <text x="40" y="160" fill="#fff" font-family="Arial" font-size="40" font-weight="700">Maestría en</text>
+    <text x="40" y="210" fill="#fff" font-family="Arial" font-size="40" font-weight="700">Finanzas</text>
+    <text x="40" y="270" fill="#dbeafe" font-family="Arial" font-size="20">Virtual · 4 semestres · Inicio en febrero</text>
+    <rect x="40" y="310" width="190" height="46" rx="23" fill="#5eead4"/><text x="70" y="340" fill="#001f5c" font-family="Arial" font-size="18" font-weight="700">Inscríbete hoy</text>
+  </svg>`).toString('base64');
+  const RELACION = { tipo: 'lista', titulo: '🎓 Tooli UTB', texto: 'Hola 👋 Soy *Tooli*, el asistente virtual de la Universidad Tecnológica de Bolívar.\n\nSi estás pensando en un posgrado, te recomiendo los que mejor encajan con lo que estudiaste. ¿Cuál es tu relación con la UTB?', pie: 'Universidad Tecnológica de Bolívar', boton: 'Elegir', secciones: [{ titulo: 'Tu relación con la UTB', filas: [
+    { id: 'rel:egresado', titulo: '🎓 Egresado UTB', descripcion: 'Terminé un pregrado en la UTB' },
+    { id: 'rel:estudiante', titulo: '📚 Estudiante UTB', descripcion: 'Estoy cursando un pregrado' },
+    { id: 'rel:externo', titulo: '🌎 De otra universidad', descripcion: 'Estudié en otra institución' },
+    { id: 'rel:pregrado', titulo: '🏫 Busco un pregrado', descripcion: 'Todavía no tengo título' },
+    { id: 'rel:otras', titulo: '📋 Otras gestiones', descripcion: 'Notas, turno, recibo, soporte' },
+  ] }] };
+  const NIVEL = { tipo: 'botones', titulo: '🎯 ¿Qué nivel buscas?', texto: 'Con *Administración de Empresas* te encajan especializaciones y maestrías del área de negocios.', pie: 'Escribe menu para volver al inicio', botones: [
+    { id: 'nivel:especializacion', texto: 'Especialización' }, { id: 'nivel:maestria', texto: 'Maestría' }, { id: 'nivel:nose', texto: 'Aún no sé' },
+  ] };
+  const CANAL = { tipo: 'botones', titulo: '🧑‍💼 Hablar con un asesor', texto: '¿Cómo prefieres que te contacte el asesor?', pie: 'El correo es opcional', botones: [
+    { id: 'contacto:chat', texto: '💬 Por este chat' }, { id: 'contacto:llamada', texto: '📞 Una llamada' }, { id: 'contacto:correo', texto: '✉️ Al correo' },
+  ] };
+  function responder(c, entrada) {
+    const t = entrada.trim().toLowerCase();
+    if (t === 'baja') { c.paso = 'menu'; return [texto('Listo, no te volveremos a escribir con campañas. Si cambias de opinión, escribe *hola*. 👋')]; }
+    if (['hola', 'menu', 'inicio', 'buenas'].includes(t) || !c.paso) { c.paso = 'menu'; return [RELACION]; }
+    if (t.startsWith('rel:')) { c.paso = 'reco_nivel'; return [texto('¡Qué bien! ¿Qué estudiaste? Para la prueba supongo *Administración de Empresas*.'), NIVEL]; }
+    if (t.startsWith('nivel:') || /maestr[ií]a|finanzas/.test(t)) {
+      c.paso = 'reco_resultados';
+      return [texto('Estas son las opciones que mejor encajan contigo 👇'), { tipo: 'imagen', src: flyer, pie: '*Maestría en Finanzas* · Virtual · 4 semestres' },
+        { tipo: 'botones', titulo: '¿Qué hacemos ahora?', texto: 'Puedo contarte más de un programa o conectarte con un asesor.', botones: [
+          { id: 'ficha:mfin', texto: 'Ver la ficha' }, { id: 'conv:asesor', texto: '👤 Hablar con un asesor' }, { id: 'util:si', texto: '👍 Me sirvió' },
+        ] }];
+    }
+    if (t === 'ficha:mfin') return [texto('📘 *Maestría en Finanzas*\n\n• Modalidad: virtual\n• Duración: 4 semestres\n• Título: Magíster en Finanzas\n\n_Escribe tu pregunta o toca «Hablar con un asesor»._')];
+    if (t === 'util:si') return [texto('¡Gracias! 🙌 Me alegra que te sirviera.')];
+    if (t === 'conv:asesor' || /asesor/.test(t)) {
+      if (!c.nombre) { c.paso = 'reco_nombre'; return [texto('Con gusto te conecto. ✍️ ¿Me escribes tu *nombre completo*?')]; }
+      c.paso = 'reco_contacto'; return [CANAL];
+    }
+    if (c.paso === 'reco_nombre') { c.nombre = entrada.trim(); c.paso = 'reco_contacto'; return [texto(`Gracias, ${c.nombre.split(' ')[0]} 😊`), CANAL]; }
+    if (t.startsWith('contacto:') || /ll[aá]m|tarde|ma[ñn]ana/.test(t)) {
+      c.paso = 'with_agent';
+      const llamada = t.includes('llamada') || /ll[aá]m/.test(t);
+      return [nota('Google Sheets', `No se agregó a la hoja de prospectos: ${c.nombre || 'sin nombre'} · Maestría en Finanzas · Posgrado.`), nota('HubSpot', 'No se creó ni actualizó el contacto en HubSpot.'),
+        nota('Chatwoot', `Un asesor habría recibido esta conversación en Chatwoot (no se creó):\n👤 ${c.nombre || 'Sin nombre'}\n🎓 Maestría en Finanzas\n📞 Prefiere: ${llamada ? 'llamada en la tarde' : 'este chat'}`),
+        texto('⏳ Conectándote con un asesor…'), texto('✅ Listo. Un asesor te responderá en breve.\n\nCualquier mensaje que escribas le llegará al asesor. Para terminar la conversación, escribe *salir*.')];
+    }
+    if (t === 'agendar' || t.startsWith('ag:')) {
+      if (t.startsWith('ag:hora')) return [nota('Agenda', 'Cita de prueba con Laura: no se guardó en la agenda real, no bloquea la hora y no programa recordatorios.'), texto('✅ Tu cita quedó para el *martes 24 de noviembre a las 9:00 a. m.* con Laura.')];
+      return [{ tipo: 'lista', titulo: '📅 Agendar con un asesor', texto: 'Estos son los próximos horarios libres:', boton: 'Ver horarios', secciones: [{ titulo: 'Martes 24 de noviembre', filas: [
+        { id: 'ag:hora:9', titulo: '9:00 a. m.', descripcion: 'Con Laura · 30 min' }, { id: 'ag:hora:10', titulo: '10:00 a. m.', descripcion: 'Con Laura · 30 min' }, { id: 'ag:hora:15', titulo: '3:00 p. m.', descripcion: 'Con Mario · 30 min' },
+      ] }] }];
+    }
+    if (t === 'mi semestre') {
+      if (c.perfil !== 'estudiante') return [texto('Para ver tu semestre primero verifico tu correo UTB. ✉️ ¿Cuál es tu correo institucional?'), nota('Correo', 'Código de verificación: 482913 (el correo no se envió; escríbelo en el chat para seguir).')];
+      return [{ tipo: 'documento', nombre: 'recibo-matricula-2027-1.pdf', mimetype: 'application/pdf', bytes: 84213, pie: '🧾 Tu recibo de matrícula (de ejemplo)' }];
+    }
+    if (c.paso === 'with_agent') return [nota('Chatwoot', 'El asesor recibiría este mensaje en Chatwoot (simulador: no se envió).')];
+    return [nota('No reconocido', `El bot no reconoció «${entrada.slice(0, 60)}» en el paso ${c.paso} (no se cuenta en el panel).`),
+      texto('Por ahora respondo con mis reglas (el mock no tiene IA). Toca una opción de arriba o escribe *menu* para empezar.')];
+  }
+  const respuesta = (tel) => { const c = conversaciones.get(tel); const mensajes = c?.buzon ?? []; if (c) c.buzon = []; return { mensajes, paso: c?.paso ?? null }; };
+  app.get('/api/tools/simulador-whatsapp/estado', (_q, res) => {
+    if (!soloAdmin(res)) return;
+    j(res, { ia: process.env.MOCK_SIM_IA === '1', adaptador: 'meta', conversacional: false, agenda: true, miSemestre: true, flyers: true, eventoPosgrados: false, prefijo: '570000', perfiles: ['nuevo', 'conocido', 'estudiante'] });
+  });
+  app.post('/api/tools/simulador-whatsapp/conversaciones', (req, res) => {
+    if (!soloAdmin(res)) return;
+    const perfil = req.body?.perfil ?? 'nuevo';
+    if (!['nuevo', 'conocido', 'estudiante'].includes(perfil)) return res.status(400).json({ error: 'datos_invalidos' });
+    const telefono = `570000${String(Math.floor(Math.random() * 1e6)).padStart(6, '0')}`;
+    conversaciones.set(telefono, { perfil, paso: null, nombre: perfil === 'conocido' ? 'Laura Prueba' : '', buzon: [] });
+    j(res, { telefono, perfil, mensajes: [], paso: null });
+  });
+  app.post('/api/tools/simulador-whatsapp/mensajes', async (req, res) => {
+    if (!soloAdmin(res)) return;
+    const { telefono, texto: entrada } = req.body ?? {};
+    const c = conversaciones.get(telefono);
+    if (!SIM.test(String(telefono)) || typeof entrada !== 'string' || !entrada.trim() || entrada.length > 1024 || !c) {
+      return res.status(400).json({ error: 'datos_invalidos' });
+    }
+    await new Promise(r => setTimeout(r, Number(process.env.MOCK_SIM_ESPERA_MS ?? 1200)));
+    c.buzon.push(...responder(c, entrada).map((m, i) => ({ ...m, id: `m${Date.now()}${i}`, ts: Date.now() })));
+    j(res, { ...respuesta(telefono), pendiente: false });
+  });
+  app.get('/api/tools/simulador-whatsapp/mensajes', (req, res) => {
+    if (!soloAdmin(res)) return;
+    if (!SIM.test(String(req.query.telefono))) return res.status(400).json({ error: 'datos_invalidos' });
+    j(res, respuesta(String(req.query.telefono)));
+  });
+  app.delete('/api/tools/simulador-whatsapp/conversaciones/:telefono', (req, res) => {
+    if (!soloAdmin(res)) return;
+    if (!SIM.test(req.params.telefono)) return res.status(400).json({ error: 'datos_invalidos' });
+    conversaciones.delete(req.params.telefono);
+    j(res, { ok: true });
+  });
+}
+
 app.use('/app', express.static(path.join(__dirname, '..', 'src', 'public', 'app')));
 app.get('/favicon.ico', (_q, res) => res.sendFile(path.join(__dirname, '..', 'src', 'public', 'app', 'favicon.ico')));
 app.get('/', (_q, res) => res.redirect('/app/index.html'));

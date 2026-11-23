@@ -19,6 +19,8 @@ const NAV_SECTIONS = [
     { route: 'recordatorios', icon: 'clock', label: 'Recordatorios' },
     { route: 'plantillas', icon: 'megaphone', label: 'Plantillas' },
     { route: 'llamadas', icon: 'phone', label: 'Llamadas' },
+    // Simulador de WhatsApp: corre el bot real con números de prueba (la API también exige administrador).
+    { route: 'probar-bot', icon: 'bot', label: 'Probar el bot', admin: true },
   ] },
   { title: 'Prospectos', routes: [
     { route: 'registros', icon: 'users', label: 'CRM' },

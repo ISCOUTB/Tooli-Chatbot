@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import { config } from '../config';
+import { enSimulacion } from './simulacion';
 
 const redis = new Redis(config.redis.url, { lazyConnect: true, maxRetriesPerRequest: 1 });
 
@@ -104,6 +105,8 @@ export async function buscarRespuesta(clave: string): Promise<RespuestaGuardada 
 }
 
 export async function guardarRespuesta(clave: string, respuesta: RespuestaGuardada): Promise<void> {
+  // Lo que se pregunta en el simulador no queda como respuesta para las personas reales.
+  if (enSimulacion()) return;
   try {
     const valor: RespuestaGuardada = { answer: respuesta.answer, ...(respuesta.programaConsultado ? { programaConsultado: respuesta.programaConsultado } : {}) };
     await conLimite(redis.set(clave, JSON.stringify(valor), 'EX', TTL_RESPUESTA_SEG), 'OK');
@@ -114,6 +117,8 @@ export async function guardarRespuesta(clave: string, respuesta: RespuestaGuarda
 
 /** Suma una vez la pregunta al ranking del panel (los últimos 30 días). */
 export async function contarPregunta(texto: string): Promise<void> {
+  // El ranking del panel cuenta solo preguntas de personas reales.
+  if (enSimulacion()) return;
   const n = preguntaGuardable(texto);
   if (!n) return;
   try {

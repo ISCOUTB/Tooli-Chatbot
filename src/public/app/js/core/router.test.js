@@ -28,4 +28,10 @@ describe('menú del panel según la sesión', () => {
     assert.equal(R.rutaDisponible('agenda', { esAdmin: false, caps: { agenda: true } }), true);
     assert.equal(R.rutaDisponible('home', { esAdmin: false, caps: {} }), true, 'lo que no está en el menú no se bloquea');
   });
+
+  it('«Probar el bot» (simulador de WhatsApp) es solo del administrador', () => {
+    assert.ok(rutas(R.filtrarSecciones(R.NAV_SECTIONS, { esAdmin: true, caps: {} })).includes('probar-bot'));
+    assert.equal(rutas(R.filtrarSecciones(R.NAV_SECTIONS, { esAdmin: false, caps: { agenda: true } })).includes('probar-bot'), false);
+    assert.equal(R.rutaDisponible('probar-bot', { esAdmin: false, caps: {} }), false, 'ni entrando por #probar-bot');
+  });
 });

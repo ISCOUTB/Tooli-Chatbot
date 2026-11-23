@@ -42,6 +42,7 @@ const AUDIT_LABELS = {
   agenda_config_actualizada: { label: 'Cambió la configuración de la agenda', icon: '⚙️' },
   voz_ajustes_actualizados: { label: 'Cambió los ajustes de la línea de voz', icon: '📞' },
   voz_devolucion_hecha: { label: 'Devolvió una llamada de la línea de voz', icon: '📞' },
+  simulador_whatsapp_iniciado: { label: 'Probó el bot en el simulador de WhatsApp', icon: '🧪' },
 };
 
 /* Agrupa cada acción de auditoría por área real de negocio, para poder
@@ -54,7 +55,7 @@ const AUDIT_AREAS = {
   eventos: { label: 'Eventos', color: '#0f766e', actions: ['asistencia_evento_creado', 'asistencia_evento_actualizado', 'asistencia_evento_eliminado', 'asistencia_importada', 'asistencia_persona_agregada', 'asistencia_persona_eliminada'] },
   atencion: { label: 'Atención directa', color: '#003087', actions: ['mensaje_enviado', 'recordatorio_enviado', 'recordatorio_programado', 'recordatorio_cancelado', 'broadcast_enviado', 'plantilla_creada', 'crm_nota_agregada', 'crm_estado_actualizado', 'crm_asignado', 'atencion_nota_privada', 'atencion_estado_cambiado', 'atencion_asignada', 'agenda_cita_creada', 'agenda_cita_movida', 'agenda_cita_cancelada', 'agenda_cita_atendida', 'agenda_cita_no_asistio', 'voz_devolucion_hecha'] },
   administracion: { label: 'Administración', color: '#64748b', actions: ['sesion_reseteada', 'usuario_baneado', 'usuario_desbaneado', 'usuario_creado', 'usuario_actualizado', 'usuario_vinculado_atencion', 'usuario_eliminado', 'ia_activada', 'ia_desactivada', 'agenda_disponibilidad_actualizada', 'agenda_config_actualizada', 'voz_ajustes_actualizados'] },
-  sistema: { label: 'Sistema', color: '#64748b', actions: ['login'] },
+  sistema: { label: 'Sistema', color: '#64748b', actions: ['login', 'simulador_whatsapp_iniciado'] },
 };
 function areaForAction(action) {
   return Object.entries(AUDIT_AREAS).find(([, a]) => a.actions.includes(action))?.[0] ?? 'sistema';

@@ -29,6 +29,7 @@ import { inicioRouter } from './tools/inicio';
 import { asistenciaRouter } from './tools/asistencia';
 import { agendaRouter } from './tools/agenda';
 import { vozRouter } from './tools/voz';
+import { simuladorWhatsappRouter } from './tools/simuladorWhatsapp';
 
 export const toolsRouter = Router();
 
@@ -54,3 +55,5 @@ toolsRouter.use(inicioRouter);
 toolsRouter.use(asistenciaRouter);
 toolsRouter.use(agendaRouter);
 toolsRouter.use(vozRouter);
+// Solo administradores (requireAdmin dentro): corre el bot real con números de prueba.
+toolsRouter.use(simuladorWhatsappRouter);
