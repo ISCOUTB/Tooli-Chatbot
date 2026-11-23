@@ -132,7 +132,7 @@ const recortados = () => [...document.querySelectorAll('#main *')]
       revisar(!promptAbierto, `${ancho} «Marcar devuelta» no usa window.prompt`);
       revisar(await dialogo.isVisible(), `${ancho} «Marcar devuelta» abre el diálogo del panel`);
       if (await dialogo.isVisible()) {
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(600); // la entrada del diálogo escala la caja 0,42 s
         revisar(await page.evaluate(() => document.activeElement?.id === 'devNota'), `${ancho} el foco va a la nota`);
         revisar(await dialogo.getAttribute('aria-labelledby') !== null, `${ancho} el diálogo tiene título accesible`);
         revisar(await page.evaluate(() => document.querySelector('label[for="devNota"]') !== null), `${ancho} la nota tiene etiqueta`);

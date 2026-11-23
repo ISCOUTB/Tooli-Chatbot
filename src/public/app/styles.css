@@ -3017,7 +3017,10 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 .ag-hora small { font-weight: 500; color: var(--text-muted); font-size: 11px; }
 .ag-cuerpo { min-width: 0; display: grid; gap: 2px; }
 .ag-cuerpo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.ag-cuerpo small { color: var(--text-muted); font-size: 12px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ag-cuerpo small { color: var(--text-muted); font-size: 12px; display: block; line-height: 1.45; }
+/* El ícono va en línea con el texto: con flex el texto entero bajaba de
+   renglón y el ícono quedaba solo arriba. */
+.ag-cuerpo small .icon-svg { display: inline-block; vertical-align: -1px; margin-right: 3px; }
 .ag-cuerpo em { font-style: normal; font-size: 13px; }
 .ag-mas { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgba(15, 118, 110, .1); color: var(--utb-accent-dark); }
 .ag-semana { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; align-items: start; }
@@ -3064,6 +3067,9 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
   .ag-excepcion { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ag-excepcion .rem-input:nth-of-type(5) { grid-column: 1 / -1; }
   .ag-cita, .ag-libre { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 8px; }
+  /* En el celular el nombre se parte en dos renglones antes que cortarse:
+     «Sin nombre · ****0101» perdía justo el número. */
+  .ag-cuerpo strong { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 }
 
 /* ===== Llamadas (línea de voz) ===== */
