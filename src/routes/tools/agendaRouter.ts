@@ -20,7 +20,7 @@ import { z } from 'zod';
 import type { AuthedRequest } from '../../middleware/auth';
 import type { AuditAction } from '../../services/auditService';
 import {
-  AgendaValidacionError, fechaEnPalabras, fechaValida, inicioDelDia, msDeIso, sumarDias,
+  AgendaValidacionError, fechaEnPalabras, fechaValida, festivosColombiaEntre, inicioDelDia, msDeIso, partesBogota, sumarDias,
 } from '../../services/agendaLogica';
 import type { AgendaServicio, CitaAgenda } from '../../services/agendaService';
 import { AgendaError } from '../../services/agendaService';
@@ -202,7 +202,11 @@ export function crearAgendaRouter(deps: DepsRouterAgenda): Router {
   });
 
   router.get('/agenda/config', async (_req, res: Response) => {
-    try { res.json({ config: await servicio.obtenerConfig() }); } catch (err) { fallo(res, 'config', err); }
+    try {
+      // Los festivos nacionales se aplican solos; se devuelven los del próximo año para que el panel los muestre.
+      const hoy = partesBogota(ahora()).fecha;
+      res.json({ config: await servicio.obtenerConfig(), festivosNacionales: festivosColombiaEntre(hoy, sumarDias(hoy, 365)) });
+    } catch (err) { fallo(res, 'config', err); }
   });
 
   router.put('/agenda/config', async (req: AuthedRequest, res: Response) => {

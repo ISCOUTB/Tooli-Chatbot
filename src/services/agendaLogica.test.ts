@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   AgendaValidacionError, Disponibilidad, calcularFranjasAsesor, chocan, diaEnPalabras, elegirVariadas, fechaEnPalabras,
-  fechaValida, horaEnPalabras, inicioDelDia, isoBogota, msDeIso, partesBogota, planearRecordatorios, sumarDias,
+  fechaValida, festivosColombia, horaEnPalabras, inicioDelDia, isoBogota, msDeIso, partesBogota, planearRecordatorios, sumarDias,
   validarConfigAgenda, validarDisponibilidad,
 } from './agendaLogica';
 import { tituloFilaFranja } from './agendaTextos';
@@ -283,3 +283,35 @@ describe('qué recordatorios se programan', () => {
     assert.deepEqual(r, { programar: [], sinVentana: [] });
   });
 });
+
+describe('festivos de Colombia', () => {
+  // Calendario oficial (Ley 51 de 1983, «Ley Emiliani», y fechas de Pascua: 5 de abril de 2026, 28 de marzo de 2027).
+  it('2026: los 18 festivos oficiales', () => {
+    assert.deepEqual(festivosColombia(2026), [
+      '2026-01-01', '2026-01-12', '2026-03-23', '2026-04-02', '2026-04-03', '2026-05-01', '2026-05-18', '2026-06-08',
+      '2026-06-15', '2026-06-29', '2026-07-20', '2026-08-07', '2026-08-17', '2026-10-12', '2026-11-02', '2026-11-16',
+      '2026-12-08', '2026-12-25',
+    ]);
+  });
+
+  it('2027: los 18 festivos oficiales', () => {
+    assert.deepEqual(festivosColombia(2027), [
+      '2027-01-01', '2027-01-11', '2027-03-22', '2027-03-25', '2027-03-26', '2027-05-01', '2027-05-10', '2027-05-31',
+      '2027-06-07', '2027-07-05', '2027-07-20', '2027-08-07', '2027-08-16', '2027-10-18', '2027-11-01', '2027-11-15',
+      '2027-12-08', '2027-12-25',
+    ]);
+  });
+
+  it('nadie recibe citas un festivo aunque la configuración no traiga ninguno, y la configuración agrega días', () => {
+    const semana = disp({ semana: [1, 2, 3, 4, 5].map((dia) => ({ dia, desde: '09:00', hasta: '10:00' })) });
+    const dias = (festivos: string[]) => [...new Set(calcularFranjasAsesor({
+      disp: semana, ocupados: [], ahoraMs: AHORA, desdeMs: AHORA, hastaMs: bog('2026-12-12T00:00:00'),
+      antelacionMin: 0, festivos,
+    }).map((f) => isoBogota(f.inicioMs).slice(0, 10)))];
+    const sinConfig = dias([]);
+    assert.equal(sinConfig.includes('2026-12-08'), false, 'Inmaculada Concepción (martes)');
+    assert.ok(sinConfig.includes('2026-12-07') && sinConfig.includes('2026-12-09'));
+    assert.equal(dias(['2026-12-09']).includes('2026-12-09'), false, 'un día extra de la configuración');
+  });
+});
+

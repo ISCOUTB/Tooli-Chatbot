@@ -597,9 +597,9 @@ async function abrirAjustes() {
         <label>Citas futuras por teléfono<input class="rem-input" type="number" id="agCfgMax" min="1" max="10" value="${escapeHtml(c.maxCitasFuturas)}"></label>
         <label>Días hacia adelante<input class="rem-input" type="number" id="agCfgVen" min="1" max="60" value="${escapeHtml(c.diasVentana)}"></label>
       </div>
-      <div class="field"><label for="agCfgFest">Festivos (AAAA-MM-DD, separados por coma o salto de línea)</label>
-        <textarea class="rem-input" id="agCfgFest" rows="4" placeholder="2026-12-08, 2026-12-25">${escapeHtml((c.festivos ?? []).join('\n'))}</textarea>
-        <div class="field-help">Ese día nadie recibe citas, aunque su horario semanal lo permita.</div></div>`,
+      <div class="field"><label for="agCfgFest">Días extra sin citas (AAAA-MM-DD, separados por coma o salto de línea)</label>
+        <textarea class="rem-input" id="agCfgFest" rows="4" placeholder="2026-12-24, 2026-12-31">${escapeHtml((c.festivos ?? []).join('\n'))}</textarea>
+        <div class="field-help">Ese día nadie recibe citas, aunque su horario semanal lo permita. Los festivos nacionales de Colombia ya se aplican solos${r.data.festivosNacionales?.length ? ` (próximos: ${escapeHtml(r.data.festivosNacionales.slice(0, 6).map(f => etiquetaDia(f)).join(', '))})` : ''}: aquí solo van cierres propios.</div></div>`,
   });
   m.form.addEventListener('submit', async (e) => {
     e.preventDefault();

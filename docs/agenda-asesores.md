@@ -39,7 +39,8 @@ Hora de todo el sistema: **America/Bogota (UTC-5 fijo, sin horario de verano)**.
   empezó; hay un aviso con las que ya pasaron y siguen sin marcar.
 - **Mi disponibilidad**: activar/desactivar, áreas que atiende, duración, pausa, tramos por día de la semana y
   excepciones (días libres o vacaciones, con o sin horas). El administrador edita la de cualquiera y, además, los
-  **Ajustes** generales: antelación mínima, citas futuras por teléfono, días hacia adelante y festivos.
+  **Ajustes** generales: antelación mínima, citas futuras por teléfono, días hacia adelante y días extra sin citas
+  (los festivos nacionales ya se aplican solos).
 - Cada asesor edita solo lo suyo; el administrador, todo. El teléfono completo se devuelve solo al dueño de la agenda y al
   administrador; los demás ven `****1234`.
 - Si el panel crea, mueve o cancela una cita, se le avisa a la persona por WhatsApp **solo si la ventana de 24 h está
@@ -53,7 +54,11 @@ Una franja es libre si cumple todo esto (`src/services/agendaLogica.ts`, `calcul
 1. Cae en un tramo de la semana del asesor, que está activo y atiende esa área. Los tramos se parten en citas de la
    duración configurada, más la pausa entre una y otra.
 2. No sale del **horario del equipo** (`atencion:config`): es un tope. Si ese horario está desactivado no recorta.
-3. No es un festivo (config) ni cae en una excepción del asesor.
+3. No es un festivo nacional de Colombia ni un día extra de la configuración, ni cae en una excepción del asesor. Los
+   festivos nacionales se calculan solos (`festivosColombia`): los fijos, los que la Ley Emiliani corre al lunes y los
+   que dependen de la Pascua (Jueves y Viernes Santo; Ascensión, Corpus Christi y Sagrado Corazón, corridos al lunes).
+   Están probados contra el calendario oficial de 2026 y 2027. En **Ajustes** solo se escriben días extra (cierres de
+   la universidad), y el panel muestra los próximos festivos nacionales.
 4. No es del pasado ni empieza en menos de la **antelación mínima** (por defecto 120 min).
 5. Está dentro de la ventana de días (por defecto 14): empieza antes de la medianoche de hoy + `diasVentana`. Es el
    mismo límite para ofrecer (bot y panel, aunque se pida un día lejano) y para reservar.
@@ -93,7 +98,7 @@ Las claves de la agenda usan el nombre de usuario (`agenda:disp:<u>`, `agenda:as
 
 | Clave | Contenido |
 |---|---|
-| `agenda:config` | antelación, máximo de citas futuras, ventana, festivos |
+| `agenda:config` | antelación, máximo de citas futuras, ventana, días extra sin citas |
 | `agenda:disp:<asesor>` | disponibilidad del asesor |
 | `agenda:cita:<id>` | la cita (se conserva 90 días tras terminar) |
 | `agenda:asesor:<asesor>` | ZSET de citas que lo ocupan (`inicio:fin:id`) |
@@ -147,7 +152,6 @@ cerrada. Hoy `reminderService` envía solo texto y `broadcastService` solo plant
   falta que esa rama lo inyecte.
 - Reparto entre asesores a la misma hora: hoy gana el de menos citas en la ventana; podría ponderar por área principal
   o por presencia en el panel.
-- Los festivos se escriben a mano en Ajustes; podría precargarse el calendario de Colombia.
 - Una sola réplica del backend: los avisos en vivo del panel usan un EventEmitter (ver `atencionEventos.ts`); la agenda
   no depende de eso, pero el panel no se refresca solo cuando otra persona agenda: se actualiza al cambiar de vista o al
   tocar el botón de actualizar.

@@ -128,7 +128,9 @@ describe('disponibilidad y configuración', () => {
     assert.equal((await llamar(ADMIN, 'PUT', '/agenda/config', { ...cfg, maxCitasFuturas: 0 })).status, 400);
     const ok = await llamar(ADMIN, 'PUT', '/agenda/config', cfg);
     assert.equal(ok.status, 200);
-    assert.equal((await llamar(LAURA, 'GET', '/agenda/config')).json.config.maxCitasFuturas, 3);
+    const leida = (await llamar(LAURA, 'GET', '/agenda/config')).json;
+    assert.equal(leida.config.maxCitasFuturas, 3);
+    assert.deepEqual(leida.festivosNacionales.slice(0, 3), ['2026-12-08', '2026-12-25', '2027-01-01'], 'los nacionales se muestran aparte');
     assert.equal(auditoria[0].action, 'agenda_config_actualizada');
   });
 
