@@ -283,7 +283,7 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
 
   /* ── Llamada ── */
   const Reconocimiento = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const oido = soporte.ok ? crearOido({ Reconocimiento, relojes }) : null;
+  const oido = soporte.ok ? crearOido({ Reconocimiento, relojes, oculto: () => document.visibilityState === 'hidden' }) : null;
   const boca = soporte.ok ? crearBoca({ synth: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance, relojes }) : null;
   const llamada = soporte.ok ? crearLlamadaVoz({ api: apiVoz, boca, oido, relojes, voz: () => vozActual().voz, alCambiar: (e) => pintar(e) }) : null;
 
@@ -446,7 +446,11 @@ export function abrirLlamadaVoz({ desdeNumeroDelEstudiante = false, vozConfigura
   const alSalirDePantalla = () => cerrar();
   // Cerrar la pestaña o recargar: colgar sin esperar (keepalive) y soltar el micrófono.
   const alCerrarPestana = () => { llamada?.salir(); soltarMicrofono(); };
-  const alCambiarVisibilidad = () => { if (estado) pintar(estado); };
+  // Otra pestaña al frente (dos llamadas a la vez): al volver, el oído sigue donde iba.
+  const alCambiarVisibilidad = () => {
+    if (document.visibilityState === 'visible') oido?.reanudar();
+    if (estado) pintar(estado);
+  };
 
   const activa = () => estado && !['lista', 'terminada'].includes(estado.fase);
   function alTeclear(ev) {

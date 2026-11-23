@@ -239,10 +239,10 @@ function reconocimientoFalso() {
   return { Reconocimiento, instancias };
 }
 
-function montarOido() {
+function montarOido(opciones = {}) {
   const reloj = relojFalso();
   const { Reconocimiento, instancias } = reconocimientoFalso();
-  const oido = crearOido({ Reconocimiento, relojes: reloj });
+  const oido = crearOido({ Reconocimiento, relojes: reloj, ...opciones });
   const parciales = []; const finales = []; const errores = [];
   oido.alParcial = t => parciales.push(t);
   oido.alFinal = t => finales.push(t);
@@ -334,6 +334,22 @@ describe('llamada con voz: el oído (SpeechRecognition)', () => {
     assert.equal(m.rec.lang, 'es-ES');
     assert.equal(m.rec.activo, true);
     assert.deepEqual(m.errores, []);
+  });
+
+  it('en una pestaña oculta no cuenta los cortes: espera a que vuelva y sigue', async () => {
+    let oculta = false;
+    const m = montarOido({ oculto: () => oculta });
+    m.oido.encender();
+    oculta = true;
+    for (let i = 0; i < 20; i++) { m.rec.fallar('network'); m.rec.terminar(); await m.reloj.avanzar(5000); }
+    assert.deepEqual(m.errores, [], 'otra pestaña en primer plano no tumba esta llamada');
+    assert.equal(m.rec.arranques, 1, 'ni la reintenta en bucle mientras no se ve');
+    oculta = false;
+    m.oido.reanudar();
+    assert.equal(m.rec.activo, true, 'al volver a la pestaña escucha otra vez');
+    m.oido.apagar();
+    m.oido.reanudar();
+    assert.equal(m.rec.activo, false, 'reanudar no enciende lo que la llamada apagó');
   });
 
   it('apagado no se reenciende ni entrega lo que quedó a medias', async () => {

@@ -182,9 +182,10 @@ const ERRORES_FATALES = new Set(['not-allowed', 'service-not-allowed', 'audio-ca
  * veces sin razón. Mientras la llamada quiera escuchar, se vuelve a encender
  * el MISMO reconocedor (no pide permiso otra vez). Si se corta seguido sin oír
  * nada, espera cada vez más; si pasa muchas veces, se rinde y avisa una vez.
- * Sin permiso no se insiste nunca.
+ * Sin permiso no se insiste nunca. Con la pestaña oculta (`oculto()`), Chrome
+ * corta el reconocimiento: no se cuenta ni se reintenta hasta `reanudar()`.
  */
-export function crearOido({ Reconocimiento, idiomas = ['es-CO', 'es-ES'], relojes, maxCortes = 6 }) {
+export function crearOido({ Reconocimiento, idiomas = ['es-CO', 'es-ES'], relojes, maxCortes = 6, oculto = () => false }) {
   let rec = null;
   let quiere = false;
   let activo = false;
@@ -205,6 +206,10 @@ export function crearOido({ Reconocimiento, idiomas = ['es-CO', 'es-ES'], reloje
       if (activo || espera) return;
       cortes = 0;
       arrancar();
+    },
+    /** La pestaña volvió a verse: si la llamada quería escuchar, se enciende otra vez. */
+    reanudar() {
+      if (quiere && !activo && !espera) arrancar();
     },
     apagar() {
       quiere = false;
@@ -238,7 +243,7 @@ export function crearOido({ Reconocimiento, idiomas = ['es-CO', 'es-ES'], reloje
     };
     rec.onend = () => {
       activo = false;
-      if (!quiere) return;
+      if (!quiere || oculto()) return;
       const rapido = ultimoError === 'network' || (!oyoAlgo && relojes.ahora() - desde < 1500);
       cortes = rapido ? cortes + 1 : 0;
       if (cortes > maxCortes) {
