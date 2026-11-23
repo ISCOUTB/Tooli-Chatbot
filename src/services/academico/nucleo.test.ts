@@ -30,6 +30,8 @@ function armar(over: {
   cedula?: string | null;
   busquedaPermitida?: boolean;
   existeEnFuente?: boolean;
+  /** Sin TOOLI_ACADEMICO_CLAVE la cédula no se puede guardar. */
+  sinClave?: boolean;
 } = {}) {
   const llamadas: Llamadas = { notas: [], recibo: [], turno: [], horario: [], cursos: [] };
   const on = { notas: true, recibo: true, turno: true, horario: true, cursos: true, ...over.on };
@@ -59,6 +61,7 @@ function armar(over: {
     permitirBusqueda: async () => over.busquedaPermitida ?? true,
     regla: () => REGLA,
     ahora: () => AHORA,
+    puedeGuardarCedula: () => !over.sinClave,
   };
   return { api: crearAcademico(deps), llamadas };
 }
@@ -221,6 +224,16 @@ describe('turno y recibo exigen el código atado y comprobado', () => {
     const r = guardar(await api.consultar(ANA_TEL, 'recibo'));
     assert.equal(r.ok === false && r.motivo, 'sin_codigo');
     assert.equal(llamadas.recibo.length, 0);
+  });
+
+  it('recibo encendido SIN TOOLI_ACADEMICO_CLAVE: falla claro y no manda a vincular otra vez (no hay ciclo)', async () => {
+    // Antes: sin_codigo -> WhatsApp pedía vincular -> login Playwright -> la cédula no se guardaba -> sin_codigo…
+    const { api, llamadas } = armar({ cedula: null, sinClave: true });
+    const r = guardar(await api.consultar(ANA_TEL, 'recibo'));
+    assert.equal(r.ok === false && r.motivo, 'apagado');
+    assert.doesNotMatch(r.paraTexto, /vincular/i);
+    assert.match(r.paraTexto, /https?:\/\//, 'manda al portal oficial');
+    assert.equal(llamadas.recibo.length, 0, 'ni un login a Iceberg');
   });
 
   it('recibo: usa el código y la cédula del vínculo, dice el valor y la fecha, y entrega el PDF', async () => {

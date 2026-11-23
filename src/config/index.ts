@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { problemasConfigAcademica } from '../services/academico/interruptores';
 
 const schema = z.object({
   PORT: z.string().default('3000'),
@@ -201,3 +202,12 @@ export const config = {
     aiModel: env.VOICE_AI_MODEL || 'gpt-4o-mini',
   },
 };
+
+// Al arrancar se dice claro lo académico que está encendido sin lo que necesita (la misma regla que
+// tools/deploy-preflight.py, que además detiene el despliegue en los casos `bloqueo`). Ver .env.example.
+for (const problema of problemasConfigAcademica(process.env)) {
+  const linea = `[config] ${problema.nivel === 'bloqueo' ? 'ERROR' : 'AVISO'}: ${problema.mensaje}`;
+  if (problema.nivel === 'bloqueo') console.error(linea);
+  else console.warn(linea);
+}
+

@@ -12,6 +12,7 @@ import { caminoNotas, interruptoresDeEntorno } from '../services/academico/inter
 import { reglaNotas, leerNotasEscritas } from '../services/academico/calculos';
 import { armarCalculo } from '../services/academico/notasVista';
 import { normalizarCedula, normalizarCodigo } from '../services/academico/identidadAcademica';
+import { leerClave } from '../services/academico/cifrado';
 import { iniciarConsultaDeNotas } from './notas';
 import { RECURSOS_ACADEMICOS } from '../services/academicoLinks';
 
@@ -49,7 +50,8 @@ export async function sendMenuSemestre(from: string, area: FlowArea): Promise<vo
         ...(i.horario() ? [{ id: '2', title: '🗓️ Mi horario', description: 'Clases de hoy y de la semana' }] : []),
         ...(i.cursos() ? [{ id: '3', title: '📚 Cursos y tareas', description: 'Savio: cursos y entregas próximas' }] : []),
         ...(i.turno() ? [{ id: '4', title: '📋 Mi turno', description: 'Turno y fecha de matrícula' }] : []),
-        ...(i.recibo() ? [{ id: '5', title: '🧾 Mi recibo', description: 'Recibo de matrícula, valor y fecha límite' }] : []),
+        // Sin TOOLI_ACADEMICO_CLAVE la cédula no se guarda y el recibo no se puede bajar: no se ofrece.
+        ...(i.recibo() && leerClave() ? [{ id: '5', title: '🧾 Mi recibo', description: 'Recibo de matrícula, valor y fecha límite' }] : []),
         { id: '6', title: '🧮 ¿Cuánto necesito?', description: 'Qué nota te falta para pasar' },
         ...(sinCodigo && interruptoresDeEntorno.recibo()
           ? [{ id: '7', title: '🔗 Vincular mi código', description: 'Una sola vez: código estudiantil y cédula' }] : []),

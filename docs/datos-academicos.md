@@ -26,7 +26,7 @@ Voz (usa `academico`)           ┴─> academico.consultar(telefono, tipo)     
 |---|---|---|
 | Notas | `TOOLI_NOTAS_SSO_ENABLED=1` | Camino B por defecto. Probar antes con cuenta real (ver lista abajo). |
 | Notas camino A (opcional) | `TOOLI_NOTAS_CAMINO=A`, `TOOLI_ACADEMICO_CLAVE`, `TOOLI_NOTAS_SESION_HORAS` (1-72, def. 12) | Sin clave válida cae a B. Necesario para horario y para que la voz lea notas. |
-| Turno, recibo y comprobar código | `TOOLI_ACADEMIC_LOOKUP_ENABLED=1` | Un solo interruptor para las tres. Además `TOOLI_ACADEMICO_CLAVE` si se quiere guardar la cédula (recibo por voz). |
+| Turno, recibo y comprobar código | `TOOLI_ACADEMIC_LOOKUP_ENABLED=1` + `TOOLI_ACADEMICO_CLAVE` | Un solo interruptor para las tres. La clave es **obligatoria**: sin ella la cédula no se guarda y el recibo no se puede bajar (antes entraba en un ciclo «vincula tu código» con un login a Iceberg en cada vuelta). Sin clave, `tools/deploy-preflight.py` detiene el despliegue, el arranque lo dice (`[config] ERROR`), *Mi semestre* no ofrece el recibo y, si se pide, responde que se baje en el portal. |
 | Cursos y tareas (Savio) | `TOOLI_SAVIO_ENABLED=1`, `SAVIO_WS_TOKEN` | El servicio Moodle debe permitir además `mod_assign_get_assignments` y `mod_assign_get_submission_status`. |
 | Horario | `TOOLI_HORARIO_ENABLED=1` (+ camino A) | `TOOLI_HORARIO_PROVEEDOR=simulado` solo fuera de producción. |
 | Avisos proactivos | `TOOLI_AVISOS_ACADEMICOS_ENABLED=1` | Tareas a menos de 48 h y turno de hoy/mañana. Una corrida diaria tras las 8:00, nunca de noche, una vez por aviso, respeta «baja». Solo dentro de las 24 h de WhatsApp (fuera haría falta plantilla de Meta: pendiente). |

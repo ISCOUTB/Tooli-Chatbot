@@ -86,6 +86,8 @@ const depsReales: DepsNucleo = {
     if (!id?.cedulaCifrada || !clave) return null;
     try { return normalizarCedula(descifrar(id.cedulaCifrada, `cedula:${telefono}`, clave)); } catch { return null; }
   },
+  // Sin TOOLI_ACADEMICO_CLAVE la cédula no se guarda: el recibo falla claro (ver nucleo.ts y problemasConfigAcademica).
+  puedeGuardarCedula: () => leerClave() !== null,
   interruptores: interruptoresDeEntorno,
   proveedores: {
     notas: proveedorNotas,
