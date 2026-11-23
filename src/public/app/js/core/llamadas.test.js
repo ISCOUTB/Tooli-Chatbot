@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { duracionCorta, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario } from './llamadas.js';
+import { duracionCorta, etiquetaVerificacionNegada, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario } from './llamadas.js';
 
 describe('pantalla Llamadas: utilidades', () => {
   it('duración corta y porcentaje de uso', () => {
@@ -21,5 +21,8 @@ describe('pantalla Llamadas: utilidades', () => {
     assert.equal(resultadoLlamada('cita').label, 'Cita agendada');
     assert.equal(resultadoLlamada('raro').label, 'raro');
     assert.equal(rolLinea('c'), 'Persona');
+    assert.equal(etiquetaVerificacionNegada('espera'), 'Verificación en pausa');
+    assert.equal(etiquetaVerificacionNegada('bloqueado'), 'Verificación bloqueada');
+    assert.equal(etiquetaVerificacionNegada(null), '');
   });
 });

@@ -666,12 +666,21 @@ export function crearManejador(d: DepsManejador) {
             despuesDeHablar: accion === 'none' ? x.despuesDeHablar : accion,
             resumen: r.aviso ?? x.resumen,
             dictado: r.dictadoUsado ? '' : x.dictado,
+            verificacionNegada: r.verificacionNegada ?? x.verificacionNegada,
           };
         });
         if (!l) {
           // La frase puente ya sonó y no va nada detrás: su fin no debe esperar una respuesta que no llegará.
           if (puente && descartado) await actualizar(l0.id, (x) => (x.puentes > 0 ? { ...x, puentes: x.puentes - 1 } : null));
           return { handled: false, note: descartado === 'viejo' ? 'turno viejo descartado' : descartado ? 'turno descartado: otro turno cambió el diálogo' : 'llamada cerrada' };
+        }
+        if (r.verificacionNegada) {
+          d.avisarPanel?.({
+            tipo: 'otro', llamadaId: l.id, simulada: l.simulada,
+            texto: r.verificacionNegada === 'bloqueado'
+              ? 'Verificación por voz bloqueada 1 h por intentos fallidos'
+              : 'Verificación por voz en pausa: tope de códigos (puede durar hasta 24 h)',
+          });
         }
         if (r.aviso) {
           d.avisarPanel?.({

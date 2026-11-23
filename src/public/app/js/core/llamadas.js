@@ -52,6 +52,13 @@ export function textoAHorario(texto) {
   return { franjas, errores };
 }
 
+/** Etiqueta corta cuando la verificación por voz no se pudo ofrecer (tope de códigos o bloqueo). */
+export function etiquetaVerificacionNegada(motivo) {
+  if (motivo === 'bloqueado') return 'Verificación bloqueada';
+  if (motivo === 'espera') return 'Verificación en pausa';
+  return '';
+}
+
 /** Qué rol tiene cada línea de la transcripción en el simulador. */
 export function rolLinea(r) {
   return r === 'c' ? 'Persona' : r === 's' ? 'Sistema' : 'Línea';

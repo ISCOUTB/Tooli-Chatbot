@@ -4,7 +4,7 @@ import { icon } from '../core/icons.js';
 import { setPullToRefresh } from '../core/screen.js';
 import { sesion } from '../core/session.js';
 import {
-  duracionCorta, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
+  duracionCorta, etiquetaVerificacionNegada, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario,
 } from '../core/llamadas.js';
 
 /* ============= LLAMADAS (línea de voz con IA) =============
@@ -167,7 +167,9 @@ async function renderLlamadas(main) {
           <summary>
             <strong>${escapeHtml(telefonoBonito(l.telefono))}</strong> ${chipResultado(l.resultado)} ${l.simulada ? '<span class="badge">Simulada</span>' : ''}
             <span class="field-help">${escapeHtml(fechaCorta(l.iniciada))} · ${duracionCorta(l.duracionSeg)}${l.verificado ? ' · verificado' : ''}</span>
+            ${l.verificacionNegada ? `<span class="badge" style="background:#b453091a;color:#b45309;">${escapeHtml(etiquetaVerificacionNegada(l.verificacionNegada))}</span>` : ''}
           </summary>
+          ${l.verificacionNegadaTexto ? `<p class="field-help">${escapeHtml(l.verificacionNegadaTexto)}</p>` : ''}
           <div class="voz-transcripcion"><p class="field-help">Cargando transcripción…</p></div>
         </details>`).join('') : '<p class="field-help voz-vacio">Todavía no hay llamadas.</p>';
       $$('details[data-llamada]', box).forEach(det => det.addEventListener('toggle', async () => {

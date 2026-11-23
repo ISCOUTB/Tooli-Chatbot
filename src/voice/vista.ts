@@ -5,6 +5,19 @@ import { bogotaClock } from './horario';
 import { taparDictadoPartido } from './texto';
 import type { LineaTranscripcion, LlamadaVoz } from './tipos';
 
+/**
+ * Por qué no se pudo verificar por voz (#35). Los topes del código son por número que llama y por estudiante, por hora y
+ * por DÍA, compartidos entre el correo y el WhatsApp: con 10 envíos en un día (incluso pedidos por otra persona con el
+ * código de ese estudiante) la verificación por voz queda en pausa hasta 24 h. Se ofrece WhatsApp o un asesor.
+ */
+export function textoVerificacionNegada(motivo: LlamadaVoz['verificacionNegada']): string | null {
+  if (motivo === 'bloqueado') return 'Verificación por voz bloqueada 1 h: se agotaron los intentos del código varias veces.';
+  if (motivo === 'espera') {
+    return 'Verificación por voz en pausa: se alcanzó el tope de códigos (por hora o por día). Puede durar hasta 24 h; el estudiante puede verificarse por WhatsApp o con un asesor.';
+  }
+  return null;
+}
+
 export function vistaLlamada(l: LlamadaVoz, admin: boolean) {
   return {
     id: l.id,
@@ -18,6 +31,8 @@ export function vistaLlamada(l: LlamadaVoz, admin: boolean) {
     costoUsd: l.costoUsd,
     resumen: l.resumen,
     verificado: l.verificada || Boolean(l.dialogo.verificado),
+    verificacionNegada: l.verificacionNegada,
+    verificacionNegadaTexto: textoVerificacionNegada(l.verificacionNegada),
     devolucionHecha: l.devolucionHecha,
     devolucionNota: l.devolucionNota,
     devolucionPor: l.devolucionPor,

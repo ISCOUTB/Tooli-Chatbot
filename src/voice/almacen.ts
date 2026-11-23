@@ -126,6 +126,7 @@ export function nuevaLlamada(args: {
     pataContestada: false,
     segPata: null,
     minutosPata: 0,
+    verificacionNegada: null,
   };
 }
 

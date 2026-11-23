@@ -757,3 +757,40 @@ describe('punto 15: llaves y memoria que no crecen sin fin', () => {
     assert.deepEqual(await a.uso(new Date('2031-01-01T15:00:00Z')), { dia: 0, mes: 0 });
   });
 });
+
+describe('#35, diseño: el panel dice cuándo la verificación por voz quedó en pausa', () => {
+  it('con el tope de códigos al correo alcanzado, la llamada y la API lo indican (hasta 24 h)', async () => {
+    const base = academicoSimulado();
+    const academico: AcademicoApi = {
+      ...base,
+      iniciarVerificacionPorDato: async () => ({ estado: 'espera' }),
+      confirmarVerificacion: async () => ({ ok: false, motivo: 'vencido' }),
+    };
+    const avisos: string[] = [];
+    const x = montar({ academico, manejador: { avisarPanel: (a) => avisos.push(a.texto) } });
+    await contestar(x, 'cc1', '+573005550000');
+    await decir(x, 'quiero mis notas');
+    await decir(x, 'T00012345');
+    const l = await x.llamada();
+    assert.equal(l.verificacionNegada, 'espera');
+    const { vistaLlamada } = await import('./vista');
+    const v = vistaLlamada(l, false);
+    assert.equal(v.verificacionNegada, 'espera');
+    assert.match(v.verificacionNegadaTexto!, /24 h/);
+    assert.ok(avisos.some((t) => /verificación por voz/i.test(t)), avisos.join(' | '));
+  });
+
+  it('el bloqueo por intentos también queda marcado', async () => {
+    const x = montar({ ajustes: { maxLlamadasNumeroDia: 100 } });
+    for (let ronda = 0; ronda < 2; ronda++) {
+      await contestar(x, `k${ronda}`);
+      await decir(x, 'quiero mi turno', `k${ronda}`);
+      for (const malo of ['111111', '222222', '333333']) await decir(x, malo, `k${ronda}`);
+      await x.m.procesarEvento(ev('hangup', { callId: `k${ronda}`, durationSeconds: 30 }));
+      x.avanzar(61_000);
+    }
+    await contestar(x, 'k2');
+    await decir(x, 'quiero mi turno', 'k2');
+    assert.equal((await x.llamada('k2')).verificacionNegada, 'bloqueado');
+  });
+});
