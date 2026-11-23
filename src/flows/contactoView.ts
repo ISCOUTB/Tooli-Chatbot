@@ -258,7 +258,7 @@ export function correoEnTexto(texto: string): string | null {
 }
 
 const NO_LLAMAR = /\bno (me )?(llam|marqu|timbr)\w*/;
-const LLAMADA = /\b(llam\w*|telefon\w*|celular|marquen\w*|marcame|timbr\w*)\b/;
+const LLAMADA = /\b(llam\w*|telefon\w*|celular|mar(c|qu)(a|ar|ame|arme|en|enme|uen|uenme)|timbr\w*)\b/;
 const SIN_CORREO = /\b(no (tengo|uso|manejo|me se|recuerdo)( mi| el| un)? (correo|email|mail|gmail)|sin (correo|email|mail))\b/;
 const CORREO = /\b(correo\w*|e ?mail|mail|gmail|hotmail|outlook)\b/;
 const CHAT =
@@ -316,16 +316,19 @@ export function parseFranja(texto: string): Franja | null {
   if (/\b(agend\w*|agenda|cita)\b/.test(n)) return 'cita';
   if (/\b(cuando sea|cuando (puedan|quieran|gusten|pueda)|cualquier (hora|momento|rato|franja)|a cualquier|(me )?da igual|no importa|indiferente|todo el dia|cuando sea mejor|lo antes posible|ya mismo|ahora)\b/.test(n)) return 'cualquiera';
   // "A las 3 pm", "10 am": la hora dice la franja.
-  const hora = /\b(\d{1,2})(?:[:.]\d{2})?\s*(am|a\.?m|pm|p\.?m)\b/.exec(n);
+  const hora = /\b(\d{1,2})(?:[:.\s]\d{2})?\s*(am|a\.?m|pm|p\.?m)\b/.exec(n);
   if (hora) {
     const h = Number(hora[1]);
     if (hora[2].startsWith('a')) return h >= 1 && h <= 11 ? 'manana' : null;
     if (h === 12 || (h >= 1 && h < 6)) return 'tarde';
     if (h >= 6 && h <= 11) return 'noche';
   }
-  if (/\bnoche\w*\b/.test(n)) return 'noche';
+  if (/\bnoche\w*\b/.test(n) || /\bdespues del (trabajo|trabajar)\b/.test(n)) return 'noche';
+  // "Pasado mañana" es un día, no la mañana; el mediodía va con la tarde (como "12 pm").
+  if (/\bpasado manana\b/.test(n)) return null;
+  if (/\b(medio ?dia|despues del almuerzo|despues de almuerzo)\b/.test(n)) return 'tarde';
   if (/\btarde\w*\b/.test(n)) return 'tarde';
-  if (/\b(manana|temprano|mediodia)\b/.test(n)) return 'manana';
+  if (/\b(manana|temprano)\b/.test(n)) return 'manana';
   return null;
 }
 
@@ -358,8 +361,9 @@ export function parseRepetir(texto: string): RespuestaRepetir | null {
   if (t === 'contacto_igual') return 'igual';
   if (t === 'contacto_otro') return 'otro';
   const n = plano(t);
-  if (/^(si|sip|claro|dale|ok|okay|listo|correcto|de una|perfecto|igual|como la vez pasada|igual que antes|lo mismo)\b/.test(n) || /\b(igual|lo mismo)\b/.test(n) && !/\bno\b/.test(n)) return 'igual';
-  if (/^(no|nop|cambiar|otra|otro|de otra)\b/.test(n) || /\b(otra forma|otra manera|cambiar|diferente)\b/.test(n)) return 'otro';
+  // Un "no" en cualquier parte ("claro que no") pesa más que el "claro" del comienzo.
+  if (/^(nop|cambiar|otra|otro|de otra)\b/.test(n) || /\b(no|otra forma|otra manera|cambiar|diferente)\b/.test(n)) return 'otro';
+  if (/^(si|sip|claro|dale|ok|okay|listo|correcto|de una|perfecto|igual|como la vez pasada|igual que antes|lo mismo)\b/.test(n) || /\b(igual|lo mismo)\b/.test(n)) return 'igual';
   return null;
 }
 

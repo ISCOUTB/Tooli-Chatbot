@@ -208,7 +208,8 @@ async function atajos(from: string, text: string, session: Session | null): Prom
     return true;
   }
   if (pareceUnaPregunta(text) && !/^\d+$/.test(text.trim()) && !PASOS_CON_IA.has(step)) {
-    await responderPreguntaSuelta(from, data, text);
+    // En los pasos del canal de contacto, después de responder recuerda qué falta (sin esto, el texto genérico).
+    await responderPreguntaSuelta(from, data, text, DATO_QUE_FALTA[step]);
     return true;
   }
   return false;

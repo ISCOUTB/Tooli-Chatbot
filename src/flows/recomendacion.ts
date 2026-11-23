@@ -871,15 +871,15 @@ export async function handleRecoContactoRepetir(ctx: FlowContext): Promise<void>
   const { from, text, session } = ctx;
   const data = session?.data ?? {};
   if (await comandos(from, text, salirDelAsesor(from, data))) return;
+  // "Mejor llámenme" o "sí, pero por correo": el canal escrito vale como la elección de una vez.
+  const elegido = parseCanal(text);
+  if (elegido) return aplicarCanal(from, data, elegido);
   const respuesta = parseRepetir(text);
   const previo = contactoAnterior(data, from);
   if (respuesta === 'igual' && previo) {
     if (previo.canal !== 'llamada') return completarContacto(from, data, previo);
     return seguirLlamada(from, { ...data, ...camposContacto(previo), contactoFranja: previo.franja ?? '' });
   }
-  // "Mejor llámenme" en vez de "sí" o "no": vale como la elección de una vez.
-  const elegido = parseCanal(text);
-  if (elegido) return aplicarCanal(from, data, elegido);
   if (respuesta) return preguntarCanal(from, data);
   await registrarNoReconocido(PASO_REPETIR, text);
   if (!previo) return preguntarCanal(from, data);
