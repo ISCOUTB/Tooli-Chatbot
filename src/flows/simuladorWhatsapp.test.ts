@@ -20,6 +20,13 @@ class RedisMemoria {
   async set(k: string, v: string) { RedisMemoria.datos.set(k, v); return 'OK'; }
   async setex(k: string, _ttl: number, v: string) { RedisMemoria.datos.set(k, v); return 'OK'; }
   async del(...ks: string[]) { let n = 0; for (const k of ks) if (RedisMemoria.datos.delete(k)) n++; return n; }
+  async exists(...ks: string[]) { return ks.filter((k) => RedisMemoria.datos.has(k)).length; }
+  async expire() { return 1; }
+  async incr(k: string) { const n = Number(RedisMemoria.datos.get(k) ?? 0) + 1; RedisMemoria.datos.set(k, String(n)); return n; }
+  async lrange() { return []; }
+  async lpush() { return 1; }
+  async ltrim() { return 'OK'; }
+  async sismember() { return 0; }
   on() { return this; }
   once() { return this; }
   disconnect() {}
@@ -68,6 +75,18 @@ describe('simulador de WhatsApp con el flujo real', { skip: SIN_MOCKS }, () => {
     await handleMessage(SIM, 'hola');
     assert.deepEqual(alAdaptadorReal, []);
     assert.ok(sim.buzon.sacar(SIM).length > 0);
+  });
+
+  it('en el chat con la IA caída, «quiero hablar con un asesor» pasa al asesor sin pedir que escriba «asesor»', async () => {
+    for (const t of ['hola', 'Soy egresado UTB', 'Ingeniería de Sistemas', 'maestría', '¿tiene clases los sábados?']) {
+      await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, t));
+    }
+    const antes = JSON.stringify(sim.buzon.sacar(SIM));
+    assert.match(antes, /no está disponible/, 'sin OPENAI_API_KEY la IA está caída');
+    await sim.enZonaDePruebas(SIM, () => handleMessage(SIM, 'quiero hablar con un asesor'));
+    const despues = JSON.stringify(sim.buzon.sacar(SIM));
+    assert.doesNotMatch(despues, /Escribe \*asesor\*/, despues);
+    assert.notEqual(JSON.parse(RedisMemoria.datos.get(`session:${SIM}`) ?? '{}').step, 'chatting_with_ai', despues);
   });
 
   it('un número real NUNCA se captura: el mismo mensaje sale por el adaptador real', async () => {

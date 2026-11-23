@@ -7,6 +7,7 @@ import { iniciarConversacionAsesor, iniciarVerificacionIdentidad } from './agent
 import { parseGlobalCommand, resolveAiArea } from './commands';
 import { resumenOrientacion } from './programasCatalog';
 import { resumenRecomendacion } from './recomendacionView';
+import { esPedidoAsesor } from './conversacionView';
 
 const TURN_LIMIT_SUGGEST_AGENT = 15;
 
@@ -50,7 +51,9 @@ export async function handleChattingWithAI(ctx: FlowContext): Promise<void> {
     return;
   }
 
-  if (input === 'asesor' || input === 'humano' || input === 'agente') {
+  // «Quiero hablar con un asesor», «páseme con alguien»…: no solo la palabra sola. Si la IA está caída, el aviso
+  // pedía escribir «asesor» a quien ya lo había pedido con otras palabras.
+  if (input === 'asesor' || input === 'humano' || input === 'agente' || esPedidoAsesor(text)) {
     await track('ai_escalated_to_agent', { reason: 'user_requested' });
     await iniciarConversacionAsesor(from, session?.data ?? {}, { aiNoResolvio: true });
     return;
