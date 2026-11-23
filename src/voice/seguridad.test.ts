@@ -333,3 +333,72 @@ describe('#35 R3 y punto 13: se tapa con el mismo lector que entiende los dictad
     assert.deepEqual(v, ['mi cédula es [dígitos]', 'Perdona, no te entendí.', '[dígitos]', 'tengo 2', 'hijos']);
   });
 });
+
+/** Una compuerta: lo que la espera no sigue hasta `abrir()`. */
+function compuerta() {
+  let abrir: () => void = () => undefined;
+  const p = new Promise<void>((r) => { abrir = r; });
+  return { esperar: () => p, abrir };
+}
+const tic = () => new Promise((r) => setTimeout(r, 15));
+
+describe('punto 11: los efectos de un turno descartado no se pierden', () => {
+  it('OTP: el código acierta mientras llega un «ok»; queda verificada y se lo dice (no «ya venció»)', async () => {
+    const { crearCodigoWhatsAppVoz, pendientesVozEnMemoria } = await import('../services/academico/verificacionVoz');
+    const real = crearCodigoWhatsAppVoz(pendientesVozEnMemoria());
+    const g = compuerta();
+    const lenta = { ...real, confirmar: async (a: Parameters<typeof real.confirmar>[0]) => { const r = await real.confirmar(a); await g.esperar(); return r; } };
+    const x = montar({ turno: { codigoWhatsApp: lenta } });
+    await contestar(x);
+    await decir(x, 'quiero mi turno');
+    const codigo = decir(x, x.codigos.at(-1)!.codigo);
+    await tic();
+    await decir(x, 'ok');
+    g.abrir();
+    await codigo;
+    const l = await x.llamada();
+    assert.equal(l.dialogo.verificado, ESTUDIANTE_EJEMPLO.telefono, 'la verificación (que ya consumió el código) quedó guardada');
+    assert.match(x.dichos().at(-1)!, /quedaste verificado/);
+    await decir(x, 'y mi horario');
+    assert.doesNotMatch(x.dichos().at(-1)!, /venció|código/);
+  });
+
+  it('cita: queda reservada y la línea dice que quedó agendada (no «se acaba de ocupar»)', async () => {
+    const agenda = agendaSimulada(new Date('2026-11-23T15:00:00Z'));
+    const g = compuerta();
+    let primera = true;
+    const lenta = {
+      ...agenda,
+      reservar: async (a: Parameters<typeof agenda.reservar>[0]) => {
+        const r = await agenda.reservar(a);
+        if (primera) { primera = false; await g.esperar(); }
+        return r;
+      },
+    };
+    const x = montar({ turno: { agenda: lenta } });
+    await contestar(x);
+    await decir(x, 'quiero un asesor');
+    await decir(x, 'la primera');
+    const si = decir(x, 'sí');
+    await tic();
+    await decir(x, 'sí, confirmo');
+    g.abrir();
+    await si;
+    assert.equal(agenda.citas.length, 1);
+    const l = await x.llamada();
+    assert.equal(l.resultado, 'cita');
+    assert.match(x.dichos().at(-1)!, /Quedaste agendado/);
+  });
+
+  it('un turno viejo SIN efectos se sigue descartando', async () => {
+    let soltar: () => void = () => undefined;
+    const ia: ClienteIa = { clasificar: () => new Promise((r) => { soltar = () => r(JSON.stringify({ herramienta: 'listar_programas', nivel: 'maestria' })); }) };
+    const x = montar({ ia });
+    await contestar(x);
+    const viejo = decir(x, 'cuéntame algo bonito');
+    await tic();
+    await decir(x, 'cuánto vale el MBA');
+    soltar();
+    assert.equal((await viejo).note, 'turno viejo descartado');
+  });
+});

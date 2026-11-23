@@ -80,6 +80,7 @@ export function nuevaLlamada(args: {
     hablando: false,
     despuesDeHablar: null,
     frase: 0,
+    turnoAplicado: 0,
     puentes: 0,
     silencio: 0,
     actividad: args.ahora.getTime(),

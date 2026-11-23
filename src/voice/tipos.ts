@@ -124,6 +124,11 @@ export interface LlamadaVoz {
   despuesDeHablar: 'transfer' | 'hangup' | null;
   /** Número de la última frase final recibida (el turno de una frase vieja no se aplica). */
   frase: number;
+  /**
+   * Cuántos turnos se aplicaron al diálogo. Un turno calculado sobre un diálogo que otro turno ya cambió (y sin efectos
+   * propios) se descarta en vez de pisarlo.
+   */
+  turnoAplicado: number;
   /** Frases puente sonando: su `speak_ended` no dispara la acción pendiente (esa es de la respuesta que va detrás). */
   puentes: number;
   /** Etapa del control de silencio: 0 nada, 1 ya preguntó «¿sigues ahí?», 2 ya se despidió. */

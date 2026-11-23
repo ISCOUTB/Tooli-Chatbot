@@ -88,6 +88,45 @@ export function telefonoDeOrigen(from: string | null | undefined): string {
   return /^\d{7,15}$/.test(digitos) && !/^0+$/.test(digitos) ? digitos : '';
 }
 
+/**
+ * Envuelve las dependencias del turno para saber si tocó el mundo de afuera: un código enviado o un intento contado,
+ * una cita reservada, un WhatsApp enviado. Un turno así no se puede descartar aunque llegue otra frase en medio: lo
+ * que hizo ya pasó (punto 11). Lo que solo lee (consultar, franjas libres) no cuenta.
+ */
+type Prueba = (r: unknown) => boolean;
+function envolver<T extends object>(obj: T, efectos: Record<string, Prueba>, marcar: () => void): T {
+  return new Proxy(obj, {
+    get(t, p) {
+      const v = Reflect.get(t, p, t) as unknown;
+      if (typeof v !== 'function') return v;
+      const hubo = typeof p === 'string' ? efectos[p] : undefined;
+      if (!hubo) return v.bind(t);
+      return async (...a: unknown[]) => {
+        const r = await (v as (...x: unknown[]) => Promise<unknown>).apply(t, a);
+        if (hubo(r)) marcar();
+        return r;
+      };
+    },
+  });
+}
+export function conEfectos(deps: DepsTurno, marcar: () => void): DepsTurno {
+  const campo = (r: unknown, k: string) => (r && typeof r === 'object' ? (r as Record<string, unknown>)[k] : undefined);
+  return {
+    ...deps,
+    academico: deps.academico && envolver(deps.academico, {
+      iniciarVerificacionPorDato: (r) => campo(r, 'estado') === 'enviado',
+      confirmarVerificacion: (r) => campo(r, 'ok') === true || ['no_coincide', 'demasiados'].includes(String(campo(r, 'motivo'))),
+    }, marcar),
+    agenda: deps.agenda && envolver(deps.agenda, { reservar: (r) => campo(r, 'ok') === true, cancelar: (r) => r === true }, marcar),
+    codigoWhatsApp: deps.codigoWhatsApp && envolver(deps.codigoWhatsApp, {
+      iniciar: (r) => r === 'enviado',
+      confirmar: (r) => r === 'ok' || r === 'no_coincide' || r === 'demasiados',
+    }, marcar),
+    enviarCodigo: async (t, c) => { const ok = await deps.enviarCodigo(t, c); if (ok) marcar(); return ok; },
+    ...(deps.enviarWhatsApp ? { enviarWhatsApp: async (t: string, x: string) => { const ok = await deps.enviarWhatsApp!(t, x); if (ok) marcar(); return ok; } } : {}),
+  };
+}
+
 export const TEXTO_SE_ACABA_TRANSFER = 'Se nos acaba el tiempo de esta llamada. Te paso con un asesor para terminar.';
 export const TEXTO_SE_ACABA_COLGAR = 'Se nos acaba el tiempo de esta llamada. Si necesitas más, escríbenos por WhatsApp o vuelve a llamar. ¡Gracias!';
 
@@ -300,10 +339,14 @@ export function crearManejador(d: DepsManejador) {
         // Cada frase final se numera: si llega otra más nueva mientras esta piensa, la nueva gana. En el mismo paso se
         // juntan los dígitos de frases seguidas que son solo un dictado mientras se pide el código (punto 13).
         let miFrase = 0;
+        let miBase = 0;
+        let dialogoBase = l0.dialogo;
         let digitosPrevios = '';
         const dictadoSolo = soloDictado(texto);
         await actualizar(l0.id, (x) => {
           miFrase = (x.frase ?? 0) + 1;
+          miBase = x.turnoAplicado ?? 0;
+          dialogoBase = x.dialogo;
           const junta = x.dialogo.fase === 'pide_otp' && dictadoSolo;
           digitosPrevios = junta ? x.dictado ?? '' : '';
           const dictado = junta ? `${digitosPrevios}${digitosDictados(texto)}`.slice(-12) : '';
@@ -311,8 +354,9 @@ export function crearManejador(d: DepsManejador) {
         });
         const base = d.depsTurno(l0, a);
         // Código por WhatsApp: siempre por el almacén atómico compartido (topes y bloqueo valen para todas las instancias).
-        const deps: DepsTurno = { ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp };
-        const promesa = correrTurno(texto, l0.dialogo, deps, { digitosPrevios });
+        const efectos = { hubo: false };
+        const deps = conEfectos({ ...base, codigoWhatsApp: base.codigoWhatsApp ?? codigoWhatsApp }, () => { efectos.hubo = true; });
+        const promesa = correrTurno(texto, dialogoBase, deps, { digitosPrevios });
         let puente = false;
         let cancelarPuente: (() => void) | null = null;
         const tardo = await Promise.race([
@@ -330,22 +374,33 @@ export function crearManejador(d: DepsManejador) {
         }
         const r: ResultadoTurno = await promesa;
 
-        let descartado = false;
+        let descartado: 'viejo' | 'base' | null = null;
         const l = await actualizar(l0.id, (x) => {
+          descartado = null;
           if (x.estado !== 'activa') return null;
-          // Otro turno más nuevo ya se aplicó: este quedó viejo y no se dice (compare-and-set del diálogo).
-          if ((x.frase ?? 0) !== miFrase) { descartado = true; return null; }
+          // Llegó una frase más nueva, u otro turno cambió el diálogo sobre el que se calculó este: si no tocó nada
+          // afuera, quedó viejo y no se dice (compare-and-set del diálogo). Si ya verificó, gastó un intento, mandó un
+          // código o reservó una cita, se aplica y se dice igual: eso ya pasó (punto 11).
+          const vieja = (x.frase ?? 0) !== miFrase;
+          const otraBase = (x.turnoAplicado ?? 0) !== miBase;
+          if ((vieja || otraBase) && !efectos.hubo) { descartado = vieja ? 'viejo' : 'base'; return null; }
           const accion = r.accion === 'transfer' && !desvio ? 'hangup' : r.accion;
+          const dialogo = vieja || otraBase ? { ...r.estado, verificado: r.estado.verificado ?? x.dialogo.verificado } : r.estado;
           return {
             ...x,
-            dialogo: r.estado,
+            dialogo,
+            turnoAplicado: (x.turnoAplicado ?? 0) + 1,
             resultado: mejorResultado(x.resultado, r.resultado),
             despuesDeHablar: accion === 'none' ? x.despuesDeHablar : accion,
             resumen: r.aviso ?? x.resumen,
             dictado: r.dictadoUsado ? '' : x.dictado,
           };
         });
-        if (!l) return { handled: false, note: descartado ? 'turno viejo descartado' : 'llamada cerrada' };
+        if (!l) {
+          // La frase puente ya sonó y no va nada detrás: su fin no debe esperar una respuesta que no llegará.
+          if (puente && descartado) await actualizar(l0.id, (x) => (x.puentes > 0 ? { ...x, puentes: x.puentes - 1 } : null));
+          return { handled: false, note: descartado === 'viejo' ? 'turno viejo descartado' : descartado ? 'turno descartado: otro turno cambió el diálogo' : 'llamada cerrada' };
+        }
         if (r.aviso) {
           d.avisarPanel?.({
             tipo: r.accion === 'transfer' ? 'transferencia' : r.resultado === 'cita' ? 'cita' : r.resultado === 'devolver_llamada' ? 'devolucion' : 'otro',

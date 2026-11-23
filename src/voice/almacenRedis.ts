@@ -85,6 +85,7 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       ...o,
       silencioVence: Number.isFinite(o.silencioVence) ? o.silencioVence : null,
       dictado: typeof o.dictado === 'string' ? o.dictado.slice(0, 12) : '',
+      turnoAplicado: Number.isInteger(o.turnoAplicado) ? o.turnoAplicado : 0,
       dialogo: leerDialogo(o.dialogo),
     };
   } catch {
