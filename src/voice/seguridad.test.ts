@@ -235,3 +235,49 @@ describe('#34: la huella del código usa la clave usable de la voz, no JWT_SECRE
 });
 
 const VICTIMA_DE_EJEMPLO = ESTUDIANTE_EJEMPLO.telefono;
+
+describe('#35 R4: sin número que llama no se ofrece verificación', () => {
+  it('Telnyx manda «anonymous» o un URI SIP sin número: la llamada queda sin teléfono', async () => {
+    const { telefonoDeOrigen } = await import('./manejador');
+    for (const from of ['anonymous', 'Anonymous', '+anonymous', 'sip:anonymous@anonymous.invalid', 'sip:anonymous@192.168.10.20', 'Restricted', 'unknown', '', null]) {
+      assert.equal(telefonoDeOrigen(from), '', String(from));
+    }
+    assert.equal(telefonoDeOrigen('+573001112233'), '573001112233');
+    assert.equal(telefonoDeOrigen('sip:+573001112233@sip.telnyx.com'), '573001112233');
+    assert.equal(telefonoDeOrigen('sip:prueba@tooli.sip.telnyx.com'), '', 'un usuario SIP sin número no es un teléfono');
+  });
+
+  it('una llamada anónima que pide sus notas no recibe código ni gasta cupos de búsqueda', async () => {
+    let inicios = 0;
+    const base = academicoSimulado();
+    const academico: AcademicoApi = {
+      ...base,
+      iniciarVerificacionPorDato: async () => { inicios++; return { estado: 'enviado', emailEnmascarado: 'x' }; },
+      confirmarVerificacion: async () => ({ ok: false, motivo: 'vencido' }),
+    };
+    const x = montar({ academico });
+    await contestar(x, 'cc1', 'anonymous');
+    assert.equal((await x.llamada()).telefono, '');
+    await decir(x, 'quiero mis notas, mi código es T00012345');
+    await decir(x, 'T00012345');
+    assert.equal(inicios, 0, 'no se pidió ningún código al correo');
+    assert.equal(x.codigos.length, 0, 'ni al WhatsApp');
+    assert.match(x.dichos().join(' '), /no me aparece el número/i);
+  });
+
+  it('el núcleo académico no verifica (ni gasta el cupo global) con un número que llama vacío', async () => {
+    const { crearAcademico } = await import('../services/academico/nucleo');
+    let busquedas = 0;
+    const api = crearAcademico({
+      identidad: { obtener: async () => null, porCodigo: async () => ({ telefono: '573001112233', email: 'a@utb.edu.co' }), porCedula: async () => null },
+      existeCodigoEnFuente: async () => false, cedulaDe: async () => null,
+      interruptores: { notas: () => true, recibo: () => true, turno: () => true, horario: () => true, cursos: () => true },
+      proveedores: {}, permitirBusqueda: async () => { busquedas++; return true; },
+      regla: () => ({ notaMinima: 3, notaMaxima: 5, pesosCortes: [30, 30, 40], sinConfirmar: true }), ahora: () => new Date(),
+      verificacion: { enviarCorreo: async () => undefined, pendientes: { leer: async () => null, guardar: async () => undefined, borrar: async () => undefined }, secreto: 'secreto-de-prueba' },
+    });
+    assert.deepEqual(await api.iniciarVerificacionPorDato!('', { codigo: 'T00012345' }), { estado: 'error' });
+    assert.equal(busquedas, 0);
+    assert.deepEqual(await api.confirmarVerificacion!('', '123456'), { ok: false, motivo: 'vencido' });
+  });
+});

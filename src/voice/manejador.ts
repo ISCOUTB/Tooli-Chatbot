@@ -72,6 +72,22 @@ const RANGO: Record<Resultado, number> = {
 };
 export const mejorResultado = (a: Resultado, b: Resultado | undefined): Resultado => (b && RANGO[b] > RANGO[a] ? b : a);
 
+/**
+ * Teléfono de quien llama a partir del `from` del proveedor: solo dígitos (E.164 sin «+»), o '' si no hay número.
+ * Telnyx no documenta qué manda con el número oculto; en SIP lo habitual es «anonymous» o
+ * «sip:anonymous@anonymous.invalid», y también llegan «Restricted», «unknown» o un URI SIP con un usuario sin número.
+ * Nunca se toman los dígitos del dominio de un URI (sip:anonymous@192.168.1.1 no es el 19216811). Sin número no se
+ * ofrece verificación ni devolución, y no se comparten topes ni códigos entre llamadas anónimas (R4).
+ */
+export function telefonoDeOrigen(from: string | null | undefined): string {
+  const t = String(from ?? '').trim();
+  if (!t || /anonymous|anonimo|restricted|private|privado|unknown|unavailable|withheld/i.test(t)) return '';
+  const usuario = /^sips?:/i.test(t) ? t.replace(/^sips?:/i, '').split(/[@;]/)[0] : t;
+  if (!/^\+?[\d\s().-]+$/.test(usuario)) return '';
+  const digitos = usuario.replace(/\D/g, '');
+  return /^\d{7,15}$/.test(digitos) && !/^0+$/.test(digitos) ? digitos : '';
+}
+
 export const TEXTO_SE_ACABA_TRANSFER = 'Se nos acaba el tiempo de esta llamada. Te paso con un asesor para terminar.';
 export const TEXTO_SE_ACABA_COLGAR = 'Se nos acaba el tiempo de esta llamada. Si necesitas más, escríbenos por WhatsApp o vuelve a llamar. ¡Gracias!';
 
@@ -222,13 +238,13 @@ export function crearManejador(d: DepsManejador) {
         }
         const simulada = d.proveedor.id === 'simulador';
         const r = await d.almacen.reservarLlamada({
-          proveedor: d.proveedor.id, proveedorCallId: ev.callId, telefono: ev.from ?? '', simulada, topes: a, ahora: ahora(),
+          proveedor: d.proveedor.id, proveedorCallId: ev.callId, telefono: telefonoDeOrigen(ev.from), simulada, topes: a, ahora: ahora(),
         });
         if (!r.ok) {
           if (r.motivo === 'duplicada') return { handled: false, note: 'llamada repetida' };
           // Queda en el registro (sin gastar cupo) para que entre a la cola de devoluciones.
           const reg = await d.almacen.reservarLlamada({
-            proveedor: d.proveedor.id, proveedorCallId: `${ev.callId}#sin-cupo`, telefono: ev.from ?? '', simulada, topes: a, ahora: ahora(), soloRegistro: true,
+            proveedor: d.proveedor.id, proveedorCallId: `${ev.callId}#sin-cupo`, telefono: telefonoDeOrigen(ev.from), simulada, topes: a, ahora: ahora(), soloRegistro: true,
           });
           if (reg.ok) await d.almacen.guardar({ ...reg.llamada, estado: 'cerrada', resultado: 'sin_cupo', cerrada: ahora().toISOString(), minutosPermitidos: 0 });
           if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-cap`));

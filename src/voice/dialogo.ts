@@ -345,6 +345,13 @@ async function herramientaDatos(tipo: TipoConsulta | null, s: EstadoDialogo, dep
     return ofrecerAsesor(s, deps, 'En este momento no puedo consultar datos de estudiantes por teléfono.', fin);
   }
   if (s.verificado) return leerConsulta(s.verificado, tipo, s, deps, fin);
+  // Sin número que llama (oculto o anónimo) no hay a qué atar el código ni sus topes: no se ofrece verificación (R4).
+  if (!/^\d{7,15}$/.test(digitos(deps.telefonoLlamante))) {
+    return ofrecerAsesor(
+      { ...s, fase: 'libre', consultaPendiente: null, codigoDictado: null }, deps,
+      'No me aparece el número desde el que llamas, y sin él no puedo verificarte por teléfono para darte datos de estudiante. Puedes llamar desde tu celular o escribirle a Tooli por WhatsApp.', fin,
+    );
+  }
   s = { ...s, consultaPendiente: tipo };
   // El número que llama: si está vinculado a un estudiante verificado, se le manda el código ahí mismo.
   let vinculado: Awaited<ReturnType<AcademicoApi['estudianteDe']>> = null;
