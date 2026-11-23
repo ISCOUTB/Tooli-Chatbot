@@ -15,6 +15,7 @@ node tools/qa-panel-all.cjs
 node tools/qa-panel-atencion-movil.cjs
 node tools/qa-panel-ficha.cjs
 node tools/qa-panel-voz-agenda.cjs
+node tools/qa-panel-probar-bot.cjs
 npm run lint
 npm run build
 npm test
@@ -33,6 +34,8 @@ npm test
 El flujo de acciones comprueba que Recordatorios advierta según la **hora programada** cuando el adaptador es Meta, y que un teléfono mal formado llegue al validador del servidor sin perder caracteres. También comprueba que Conversaciones conserve el borrador cuando Meta rechaza texto libre sin un mensaje entrante reciente verificable. Posgrados muestra la conversión como no disponible si faltan eventos de inicio, y explica los gráficos de programas sin datos.
 
 En CRM, actualizar el Sheet borra una selección activa: el orden de las filas puede cambiar y una posición anterior no identifica al mismo destinatario. La barra de broadcast muestra números únicos y separa los contactos sin WhatsApp válido de los números repetidos. `qa-panel-actions.cjs` simula un reordenamiento y comprueba que no se pueda enviar con la selección antigua.
+
+`qa-panel-probar-bot.cjs` revisa el simulador de WhatsApp («Probar el bot») a 320, 375, 800 y 1280 píxeles: enviar con Enter, la lista desplegable (foco atrapado, Escape, flechas y Enviar), los botones de respuesta rápida, la imagen, las palomitas que pasan a azul, las notas de prueba, que el chat no baje solo si se subió a leer y «Empezar de nuevo», además de desbordes y botones de menos de 44 píxeles. El mock tarda `MOCK_SIM_ESPERA_MS` (1.200 ms por defecto) en responder, para poder ver el «escribiendo…». Con `QA_CAPTURAS=<carpeta>` guarda capturas. Detalles del simulador: `docs/simulador-whatsapp.md`.
 
 Para comprobar el rol asesor, detener el mock e iniciarlo en PowerShell con:
 
