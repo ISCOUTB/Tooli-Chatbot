@@ -606,9 +606,9 @@ export function parseAccionFicha(input: string): AccionFicha | null {
 
 // ── Paso 6: asesor con consentimiento ───────────────────────────────────────
 
-/** Mismo texto que el flujo de evento de Posgrados. */
+/** El correo ya no es obligatorio (#31): el asesor puede escribir por este chat o llamar. */
 export const PEDIR_CONSENTIMIENTO =
-  '👤 Para que un asesor de Posgrados te contacte necesito tu nombre y tu correo.\n\n' +
+  '👤 Para que un asesor de Posgrados te contacte necesito tu nombre y saber cómo prefieres que te contacte.\n\n' +
   '🔒 ¿Autorizas que un asesor de la UTB te contacte y el tratamiento de tus datos personales conforme a la *Ley 1581 de 2012*?';
 
 // ── ¿Te sirvió? ─────────────────────────────────────────────────────────────
