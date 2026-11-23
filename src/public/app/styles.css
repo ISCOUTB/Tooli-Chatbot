@@ -3129,3 +3129,70 @@ button.asis-evento:active, .ini-pending-row:active, .ini-tarea:active, button.pl
 .ag-fila { align-items: end; }
 .voz-costo { text-align: left; }
 #vozAjustes h2, #vozSimulador h2 { margin-bottom: 10px; }
+
+/* ===== Revisión de diseño 23-nov: Llamadas, Agenda y Métricas ===== */
+/* Llamadas: estado de cada pieza de la línea (solo administrador). */
+.voz-conexion { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--text-muted); }
+.voz-con-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.voz-con-item strong { color: var(--text); font-weight: 600; }
+.voz-con-punto { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--success); transform: translateY(-1px); }
+.voz-con-item.falta .voz-con-punto { background: #b45309; }
+.voz-con-item code, .voz-aviso code { font-size: 11.5px; padding: 1px 5px; border-radius: 5px; background: rgba(0, 48, 135, .07); color: var(--text); overflow-wrap: anywhere; }
+.voz-avisos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.voz-aviso time { font-weight: 600; color: var(--text); margin-right: 4px; white-space: nowrap; }
+/* Registro: la flecha dice que la fila se abre y gira al abrirla. */
+.voz-llamada summary { list-style: none; border-radius: var(--radius-sm); transition: background-color .15s var(--ease-out); }
+.voz-llamada summary::-webkit-details-marker { display: none; }
+.voz-llamada summary:hover { background: rgba(0, 48, 135, .03); }
+.voz-chevron { margin-left: auto; display: inline-flex; color: var(--text-muted); transition: transform .2s var(--ease-out); }
+.voz-llamada[open] .voz-chevron { transform: rotate(90deg); }
+/* Ajustes por grupos y, en pantallas anchas, los números en columnas. */
+.voz-grupo { border: 0; margin: 0; padding: 0; min-width: 0; }
+.voz-grupo + .voz-grupo { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.voz-grupo legend { float: left; width: 100%; padding: 0; margin-bottom: 12px; font-size: 13px; font-weight: 700; color: var(--utb-blue); }
+.voz-campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 0 16px; align-items: start; }
+#ajAlerta:empty { display: none; }
+#ajAlerta { margin-bottom: 12px; }
+
+/* La leyenda flota para que el borde del grupo pase por encima y no la atraviese. */
+.voz-grupo legend + * { clear: both; }
+/* Agenda: 44 px también en escritorio dentro de los formularios. */
+.ag-modal .segmented button, .ag-chips .atn-dia, .ag-agregar,
+.ag-modal input:not([type="checkbox"]), .ag-modal select, .ag-modal .rem-input:not(textarea),
+.ag-tramo .rem-input, .ag-excepcion .rem-input { min-height: 44px; }
+.ag-quitar { min-width: 44px; min-height: 44px; padding: 0; display: inline-grid; place-items: center; color: var(--text-muted); }
+.ag-quitar:hover { color: var(--danger); background: rgba(197, 34, 31, .06); }
+.ag-agregar { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font-size: 13px; }
+.ag-sin-corte { white-space: nowrap; }
+.ag-sin-rec { white-space: nowrap; }
+/* Las que ya empezaron y no dicen si la persona asistió. */
+.ag-cita.ag-por-marcar { border-color: rgba(180, 83, 9, .4); box-shadow: inset 3px 0 0 #b45309; }
+.ag-cita.ag-por-marcar:hover { box-shadow: inset 3px 0 0 #b45309, var(--shadow-md); }
+/* Confirmar la cancelación: la pregunta en una tarjeta, no suelta sobre el fondo borroso. */
+.ag-confirmar .sheet-header { background: var(--surface); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 8px; box-shadow: var(--shadow-float); }
+.ag-confirmar .sheet-title { font-size: 15px; font-weight: 700; }
+.ag-confirmar .sheet-subtitle { font-size: 13px; margin-top: 4px; line-height: 1.45; }
+@media (max-width: 640px) {
+  /* Nueva cita arriba y a lo ancho; Actualizar queda como botón cuadrado. */
+  .ag-acciones #agNueva { order: -1; flex: 1 1 100%; }
+  .ag-acciones #agRefrescar { flex: 0 0 44px; padding: 0; }
+  .ag-acciones .btn:not(#agNueva):not(#agRefrescar) { flex: 1 1 auto; white-space: nowrap; }
+  /* La insignia baja debajo del nombre: a 320 px «Sin nombre · ****0101» se cortaba. */
+  .ag-lista .ag-cita { grid-template-columns: 72px minmax(0, 1fr); align-items: start; row-gap: 6px; }
+  .ag-lista .ag-cita .ag-hora { grid-row: span 2; padding-top: 1px; }
+  .ag-lista .ag-cita > .badge { grid-column: 2; justify-self: start; }
+}
+
+@media (max-width: 360px) {
+  /* A 320 px «Mi disponibilidad» se partía en dos renglones dentro del botón. */
+  .ag-acciones .btn:not(#agNueva):not(#agRefrescar) { padding-left: 10px; padding-right: 10px; font-size: 13px; }
+  #agDisponibilidad .icon-svg { display: none; }
+}
+/* Métricas */
+#metRangeWrap .segmented button { min-height: 44px; }
+@media (max-width: 640px) {
+  .met-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .met-stats .stat-card { padding: 14px; }
+  .met-stats .stat-card .label { font-size: 11px; overflow-wrap: anywhere; }
+  .met-stats .stat-card .value { font-size: 24px; }
+}

@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { duracionCorta, etiquetaVerificacionNegada, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea, textoAHorario } from './llamadas.js';
+import {
+  dolares, duracionCorta, etiquetaVerificacionNegada, faseLegible, horarioATexto, porcentajeUso, resultadoLlamada, rolLinea,
+  telefonosLegibles, textoAHorario,
+} from './llamadas.js';
 
 describe('pantalla Llamadas: utilidades', () => {
   it('duración corta y porcentaje de uso', () => {
@@ -24,5 +27,21 @@ describe('pantalla Llamadas: utilidades', () => {
     assert.equal(etiquetaVerificacionNegada('espera'), 'Verificación en pausa');
     assert.equal(etiquetaVerificacionNegada('bloqueado'), 'Verificación bloqueada');
     assert.equal(etiquetaVerificacionNegada(null), '');
+  });
+  it('fase del simulador en palabras, sin claves internas', () => {
+    assert.equal(faseLegible('pide_codigo_estudiantil'), 'pide el código estudiantil');
+    assert.equal(faseLegible('libre'), 'conversación libre');
+    // Una fase que el panel todavía no conoce no muestra guiones bajos.
+    assert.equal(faseLegible('fase_nueva_rara'), 'fase nueva rara');
+    assert.equal(faseLegible(undefined), '—');
+  });
+  it('teléfonos de los avisos y dólares como en el resto del panel', () => {
+    assert.equal(telefonosLegibles('Llamada 573005550141: pidió que le devuelvan la llamada.'), 'Llamada +57 300 555 0141: pidió que le devuelvan la llamada.');
+    assert.equal(telefonosLegibles('la llamada 573005550145 quedó'), 'la llamada +57 300 555 0145 quedó');
+    // Ni enmascarados, ni ya escritos, ni números más largos.
+    assert.equal(telefonosLegibles('****0101 y +573005550141'), '****0101 y +573005550141');
+    assert.equal(telefonosLegibles('id 15730055501419'), 'id 15730055501419');
+    assert.equal(dolares(1.68), '1,68');
+    assert.equal(dolares('x'), '0,00');
   });
 });
