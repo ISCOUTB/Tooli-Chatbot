@@ -2,6 +2,8 @@
 
 Issue guía: [#25](https://github.com/ISCOUTB/Tooli-Chatbot/issues/25). Cada issue tiene la causa con archivo:línea y lo que se hizo.
 
+Lo que se hizo el 23-nov, commit por commit, y lo que queda: [`HANDOFF.md`](HANDOFF.md).
+
 ## Estado
 Todo está unido en `integracion` (PR #40 hacia `main`): **1.547 pruebas, 0 fallan, 7 saltadas; tsc y lint limpios.** Las pruebas contra Redis real también pasan (12 de identidad y voz, 8 de agenda).
 
