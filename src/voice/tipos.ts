@@ -6,7 +6,7 @@ import type { TipoConsulta } from '../contratos/academico';
 
 export type Resultado =
   | 'en_curso' | 'consulta' | 'datos_estudiante' | 'transferida' | 'cita' | 'devolver_llamada'
-  | 'sin_cupo' | 'fuera_de_horario' | 'colgo' | 'error' | 'silencio';
+  | 'sin_cupo' | 'fuera_de_horario' | 'linea_apagada' | 'colgo' | 'error' | 'silencio';
 
 export type Fase =
   | 'libre'
@@ -173,6 +173,8 @@ export interface LlamadaVoz {
    * o 'bloqueado' (intentos agotados, 1 h). El panel lo muestra (#35).
    */
   verificacionNegada: 'espera' | 'bloqueado' | null;
+  /** Llegó con la línea apagada y sin desvío: solo se le dice que no está disponible y se cuelga (punto 17). */
+  apagada: boolean;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];

@@ -6,7 +6,7 @@ import { VOICE_COP_PER_USD } from './caps';
 import type { LlamadaVoz } from './tipos';
 
 export const HUMAN_HOURLY_COP_DEFAULT = 12_000;
-export const CALLBACK_OUTCOMES = ['devolver_llamada', 'sin_cupo', 'fuera_de_horario', 'colgo', 'error', 'silencio'] as const;
+export const CALLBACK_OUTCOMES = ['devolver_llamada', 'sin_cupo', 'fuera_de_horario', 'linea_apagada', 'colgo', 'error', 'silencio'] as const;
 const RESOLVING = new Set(['consulta', 'datos_estudiante', 'cita', 'transferida']);
 export const CALLBACK_WINDOW_DAYS = 3;
 const MIN_HANGUP_SECONDS = 8;
@@ -53,6 +53,7 @@ export const OUTCOME_WHY: Record<string, string> = {
   devolver_llamada: 'Pidió que lo llamen',
   sin_cupo: 'Se acabaron los minutos',
   fuera_de_horario: 'Llamó fuera de horario',
+  linea_apagada: 'Llamó con la línea apagada',
   colgo: 'Colgó esperando',
   error: 'Se cortó la llamada',
   silencio: 'Se quedó en silencio',

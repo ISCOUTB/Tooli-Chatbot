@@ -10,6 +10,7 @@ const RESULTADOS = {
   devolver_llamada: { label: 'Pidió devolución', color: '#b45309' },
   sin_cupo: { label: 'Sin minutos', color: '#c5221f' },
   fuera_de_horario: { label: 'Fuera de horario', color: '#64748b' },
+  linea_apagada: { label: 'Línea apagada', color: '#64748b' },
   colgo: { label: 'Colgó', color: '#64748b' },
   silencio: { label: 'En silencio', color: '#64748b' },
   error: { label: 'Se cortó', color: '#c5221f' },

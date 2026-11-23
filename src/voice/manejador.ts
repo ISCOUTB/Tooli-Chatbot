@@ -67,7 +67,7 @@ export interface DepsManejador {
 export interface Nota { handled: boolean; note: string }
 
 const RANGO: Record<Resultado, number> = {
-  en_curso: 0, error: 1, colgo: 1, silencio: 1, fuera_de_horario: 2, sin_cupo: 2, consulta: 3, devolver_llamada: 4,
+  en_curso: 0, error: 1, colgo: 1, silencio: 1, fuera_de_horario: 2, linea_apagada: 2, sin_cupo: 2, consulta: 3, devolver_llamada: 4,
   datos_estudiante: 5, cita: 6, transferida: 7,
 };
 export const mejorResultado = (a: Resultado, b: Resultado | undefined): Resultado => (b && RANGO[b] > RANGO[a] ? b : a);
@@ -136,6 +136,10 @@ export const TEXTO_NO_CONTESTO_CON_NUMERO =
   'No pude comunicarte con un asesor: no contestó. Dejé tu número para que un asesor te devuelva la llamada en horario de atención. ¿Te ayudo con algo más?';
 export const TEXTO_NO_CONTESTO_SIN_NUMERO =
   'No pude comunicarte con un asesor en este momento. Puedes volver a llamar o escribirnos por WhatsApp. ¿Te ayudo con algo más?';
+
+/** Con la línea apagada y sin número de desvío: se contesta con esto y se cuelga (antes solo timbraba, punto 17). */
+export const TEXTO_LINEA_APAGADA =
+  'Hola, gracias por llamar a Posgrados de la UTB. En este momento esta línea no está disponible. Escríbenos por WhatsApp o vuelve a llamar más tarde. ¡Gracias!';
 
 export const TEXTO_SE_ACABA_TRANSFER = 'Se nos acaba el tiempo de esta llamada. Te paso con un asesor para terminar.';
 export const TEXTO_SE_ACABA_COLGAR = 'Se nos acaba el tiempo de esta llamada. Si necesitas más, escríbenos por WhatsApp o vuelve a llamar. ¡Gracias!';
@@ -517,6 +521,27 @@ export function crearManejador(d: DepsManejador) {
     }
   }
 
+  /**
+   * Línea apagada y sin desvío (punto 17): queda en el registro sin gastar cupo (para devolverla), se contesta, se dice
+   * que la línea no está disponible y se cuelga al terminar. El tope duro la cuelga si algo de eso no llega.
+   */
+  async function contestarApagada(ev: VoiceEvent, a: AjustesVoz): Promise<Nota> {
+    const r = await d.almacen.reservarLlamada({
+      proveedor: d.proveedor.id, proveedorCallId: ev.callId, telefono: telefonoDeOrigen(ev.from), simulada: false, topes: a, ahora: ahora(), soloRegistro: true,
+    });
+    if (!r.ok) return { handled: false, note: 'llamada repetida' };
+    // No apartó minutos: lo cobrado se suma al uso al cerrarla.
+    const l = await d.almacen.guardar({ ...r.llamada, apagada: true, resultado: 'linea_apagada', minutosPermitidos: 0 });
+    if (!l) return { handled: false, note: 'llamada cerrada' };
+    await d.almacen.vigilar(l.id, plazoDuro(l));
+    if (await d.almacen.fueColgada(d.proveedor.id, ev.callId)) {
+      await cerrarLlamada(l.id, a, 0);
+      return { handled: true, note: 'colgó antes de contestar' };
+    }
+    await cmd('answer', (c) => d.proveedor.answer(c, ev.callId, `${ev.eventId}-answer`));
+    return { handled: true, note: 'apagada: contesta y avisa' };
+  }
+
   async function despachar(ev: VoiceEvent): Promise<Nota> {
     const a = await d.ajustes();
     const desvio = a.numeroDesvio;
@@ -526,8 +551,11 @@ export function crearManejador(d: DepsManejador) {
         // Nunca se transfiere sin tope (Telnyx deja hasta 4 h por defecto): tampoco con la línea apagada o sin cupo.
         const conTope = { limiteSeg: a.maxMinutosTransferencia * 60 };
         if (!a.activo) {
-          if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-fwd`, conTope));
-          return { handled: true, note: 'apagado' };
+          if (desvio) {
+            await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-fwd`, conTope));
+            return { handled: true, note: 'apagado' };
+          }
+          return contestarApagada(ev, a);
         }
         const ruta = decideRouteNow(a.reglasRuteo, Boolean(desvio), ahora());
         if (ruta.effective === 'person' && desvio) {
@@ -567,6 +595,16 @@ export function crearManejador(d: DepsManejador) {
       case 'answered': {
         const l0 = await d.almacen.porProveedor(d.proveedor.id, ev.callId);
         if (!l0) return (await eventoDePata(ev, a)) ?? { handled: false, note: 'llamada desconocida' };
+        if (l0.apagada) {
+          // Línea apagada: solo el aviso y colgar al terminar (sin escuchar ni transcribir).
+          const l = await actualizar(l0.id, (x) => (x.estado === 'activa'
+            ? { ...x, contestada: x.contestada ?? ahora().toISOString(), despuesDeHablar: 'hangup', actividad: tick(x) }
+            : null));
+          if (!l) return { handled: false, note: 'llamada cerrada' };
+          await d.almacen.vigilar(l.id, plazoDuro(l));
+          await decir(l, a, TEXTO_LINEA_APAGADA, `${ev.eventId}-apagada`);
+          return { handled: true, note: 'aviso de línea apagada' };
+        }
         const texto = textoSaludo({ saludo: a.saludo, nombreAgente: a.nombreAgente, grabar: a.grabar, retencionDias: a.retencionDias, genero: generoDeVoz(a.voz) });
         const l = await actualizar(l0.id, (x) => ({ ...x, contestada: x.contestada ?? ahora().toISOString(), actividad: tick(x), dialogo: { ...x.dialogo, ultimaRespuesta: texto } }));
         if (!l) return { handled: false, note: 'llamada cerrada' };

@@ -845,3 +845,36 @@ describe('punto 18: voz masculina por defecto y textos que cuadran con el géner
     assert.match(mujer.dichos().at(-1)!, /la asistente virtual/);
   });
 });
+
+describe('punto 17: con la línea apagada y sin desvío, contesta, avisa y cuelga (antes solo timbraba)', () => {
+  it('contesta, dice que la línea no está disponible y cuelga al terminar; queda para devolver la llamada', async () => {
+    const x = montar({ ajustes: { activo: false, numeroDesvio: null } });
+    assert.equal((await x.m.procesarEvento(ev('incoming', { from: '+573005550000' }))).note, 'apagada: contesta y avisa');
+    assert.deepEqual(x.cmds.map((c) => c.accion), ['answer']);
+    await x.m.procesarEvento(ev('answered'));
+    assert.match(x.dichos().at(-1)!, /no está disponible/);
+    assert.match(x.dichos().at(-1)!, /guasap/);
+    assert.equal(x.cmds.some((c) => c.accion === 'listen'), false, 'no escucha ni transcribe');
+    await x.m.procesarEvento(ev('speak_ended'));
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 12 }));
+    const l = await x.llamada();
+    assert.equal(l.resultado, 'linea_apagada');
+    assert.equal(l.minutosCobrados, 1);
+    const { pendingCallbacks } = await import('./devoluciones');
+    assert.deepEqual(pendingCallbacks([l], new Date(x.ahora())).map((p) => p.id), [l.id]);
+  });
+
+  it('si el aviso no suena, cuelga igual; y si nada llega, el barrido la cuelga', async () => {
+    const x = montar({ ajustes: { activo: false, numeroDesvio: null }, fallarSpeak: () => true });
+    await x.m.procesarEvento(ev('incoming'));
+    await x.m.procesarEvento(ev('answered'));
+    assert.equal(x.cmds.at(-1)!.accion, 'hangup');
+    const y = montar({ ajustes: { activo: false, numeroDesvio: null } });
+    await y.m.procesarEvento(ev('incoming'));
+    await y.m.procesarEvento(ev('answered'));
+    y.avanzar(31_000);
+    assert.equal(await y.m.barrerPlazos(), 1);
+    assert.equal(y.cmds.at(-1)!.accion, 'hangup');
+  });
+});
