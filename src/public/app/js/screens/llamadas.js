@@ -255,6 +255,8 @@ async function renderLlamadas(main) {
         ${num('ajTopeDia', 'Tope de minutos por día', a.topeMinutosDia, '', 'min="0"')}
         ${num('ajTopeMes', 'Tope de minutos por mes', a.topeMinutosMes, '', 'min="0"')}
         ${num('ajMax', 'Máximo de minutos por llamada', a.maxMinutosLlamada, '', 'min="1" max="30"')}
+        ${num('ajMaxTransfer', 'Máximo de minutos con el asesor', a.maxMinutosTransferencia, 'Tope de la llamada pasada a un asesor (también el desvío con la línea apagada o sin minutos). La parte con el asesor también se cobra.', 'min="1" max="240"')}
+        ${num('ajPorNumero', 'Llamadas por día desde un mismo número', a.maxLlamadasNumeroDia, 'Así un solo número no gasta los minutos del día. Las llamadas sin número cuentan juntas.', 'min="1" max="100"')}
         ${num('ajCosto', 'Costo por minuto (US$)', a.costoMinutoUsd, 'Solo para estimar el costo del mes.', 'min="0" step="0.001"')}
         ${num('ajSim', 'Tope de simulaciones por día', a.topeSimulacionesDia, '', 'min="0"')}
         <div id="ajAlerta" role="alert"></div>
@@ -273,6 +275,7 @@ async function renderLlamadas(main) {
         saludo: $('#ajSaludo', box).value, numeroDesvio: $('#ajDesvio', box).value.trim() || null, horarioAsesores: horario.franjas,
         grabar: $('#ajGrabar', box).checked, retencionDias: Number($('#ajRetencion', box).value), topeMinutosDia: Number($('#ajTopeDia', box).value),
         topeMinutosMes: Number($('#ajTopeMes', box).value), maxMinutosLlamada: Number($('#ajMax', box).value), costoMinutoUsd: Number($('#ajCosto', box).value),
+        maxMinutosTransferencia: Number($('#ajMaxTransfer', box).value), maxLlamadasNumeroDia: Number($('#ajPorNumero', box).value),
         topeSimulacionesDia: Number($('#ajSim', box).value),
       };
       try {

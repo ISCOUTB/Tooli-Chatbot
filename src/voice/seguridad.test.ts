@@ -675,3 +675,61 @@ describe('punto 9 y 16: después de transferir, el bot deja de atender; si el as
     assert.equal(e?.clientState, 'tooli-pata:abc');
   });
 });
+
+describe('punto 14: costo de la transferencia y tope por número', () => {
+  const DESVIO = '+573001112233';
+  async function transferidaYContestada() {
+    const x = montar({ ajustes: { numeroDesvio: DESVIO }, asesoresEnVivo: true });
+    await contestar(x);
+    await decir(x, 'quiero hablar con un asesor');
+    await x.m.procesarEvento(ev('speak_ended'));
+    const estadoPata = x.cmds.find((c) => c.accion === 'transfer')!.pata!;
+    await x.m.procesarEvento(ev('answered', { callId: 'pata-b', clientState: estadoPata }));
+    return { x, estadoPata };
+  }
+
+  it('la pata saliente del asesor se cobra y cuenta en el uso', async () => {
+    const { x, estadoPata } = await transferidaYContestada();
+    await x.m.procesarEvento(ev('hangup', { callId: 'pata-b', clientState: estadoPata, durationSeconds: 300 }));
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 400 }));
+    const l = await x.llamada();
+    assert.equal(l.minutosCobrados, 7 + 5, 'entrante (400 s) + pata del asesor (300 s)');
+    assert.equal(l.costoUsd, 0.84);
+    assert.deepEqual(await x.almacen.uso(new Date(x.ahora())), { dia: 12, mes: 12 });
+  });
+
+  it('si la pata cuelga después de la llamada, el costo se corrige con su duración real', async () => {
+    const { x, estadoPata } = await transferidaYContestada();
+    x.avanzar(400_000);
+    await x.m.procesarEvento(ev('hangup', { durationSeconds: 400 }));
+    const estimada = (await x.llamada()).minutosCobrados;
+    assert.ok(estimada >= 7 + 6, `se estima la pata con el tiempo desde la transferencia (${estimada})`);
+    await x.m.procesarEvento(ev('hangup', { callId: 'pata-b', clientState: estadoPata, durationSeconds: 120 }));
+    const l = await x.llamada();
+    assert.equal(l.minutosCobrados, 7 + 2);
+    assert.deepEqual(await x.almacen.uso(new Date(x.ahora())), { dia: 9, mes: 9 });
+  });
+
+  it('un solo número no gasta el cupo del día: tope de llamadas por número', async () => {
+    const x = montar({ ajustes: { maxLlamadasNumeroDia: 3 } as Partial<AjustesVoz> });
+    const notas: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      notas.push((await x.m.procesarEvento(ev('incoming', { callId: `n${i}`, from: '+573005550000' }))).note);
+      await x.m.procesarEvento(ev('hangup', { callId: `n${i}`, durationSeconds: 30 }));
+    }
+    assert.deepEqual(notas, ['contestada', 'contestada', 'contestada', 'tope de llamadas de ese número']);
+    assert.equal(x.cmds.filter((c) => c.callId === 'n3' && c.accion === 'answer').length, 0);
+    assert.equal((await x.m.procesarEvento(ev('incoming', { callId: 'otro', from: '+573005550001' }))).note, 'contestada', 'otro número sí entra');
+    x.avanzar(86_400_000);
+    assert.equal((await x.m.procesarEvento(ev('incoming', { callId: 'n-manana', from: '+573005550000' }))).note, 'contestada', 'al otro día vuelve a entrar');
+  });
+
+  it('con la línea apagada o sin cupo, el desvío va con tope de duración', async () => {
+    const apagada = montar({ ajustes: { activo: false, numeroDesvio: DESVIO } });
+    await apagada.m.procesarEvento(ev('incoming', { callId: 'ap' }));
+    assert.equal(apagada.cmds.find((c) => c.accion === 'transfer')?.limiteSeg, 30 * 60);
+    const sin = montar({ ajustes: { topeMinutosDia: 0, numeroDesvio: DESVIO } });
+    await sin.m.procesarEvento(ev('incoming', { callId: 'sc' }));
+    assert.equal(sin.cmds.find((c) => c.accion === 'transfer')?.limiteSeg, 30 * 60);
+  });
+});

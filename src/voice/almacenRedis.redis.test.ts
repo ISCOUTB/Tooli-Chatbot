@@ -38,7 +38,7 @@ test('almacén de voz en Redis: idempotencia, cupo atómico, compare-and-set y r
   } finally {
     const keys = await redis.keys(`voz:*${p}*`);
     if (keys.length) await redis.del(...keys);
-    await redis.del('voz:uso:dia:2031-01-15', 'voz:uso:mes:2031-01');
+    await redis.del('voz:uso:dia:2031-01-15', 'voz:uso:mes:2031-01', 'voz:uso:num:2031-01-15:573001');
     redis.disconnect();
   }
 });

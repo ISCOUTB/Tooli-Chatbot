@@ -297,7 +297,24 @@ export function crearManejador(d: DepsManejador) {
       return { handled: true, note: 'el asesor contestó' };
     }
     if (ev.kind !== 'hangup') return { handled: false, note: 'evento de la pata saliente' };
+    const segPata = ev.durationSeconds ?? null;
+    if (l.estado === 'cerrada' && l.transferidaEn && l.segPata == null && segPata != null && !l.simulada) {
+      // La llamada se cerró antes y estimó la pata: se corrige con su duración real (costo y uso del día y el mes).
+      let delta = 0;
+      const c = await actualizar(id, (x) => {
+        if (x.segPata != null) return null;
+        const minutosPata = billedMinutes(segPata);
+        delta = minutosPata - x.minutosPata;
+        return {
+          ...x, segPata, minutosPata, minutosCobrados: x.minutosCobrados + delta,
+          costoUsd: estimatedCostUsd(x.duracionSeg, a.costoMinutoUsd) + estimatedCostUsd(segPata, a.costoMinutoUsd),
+        };
+      });
+      if (c && delta) await d.almacen.ajustarUso(c.usoDia, c.usoMes, delta);
+      return { handled: true, note: 'pata colgada: costo corregido' };
+    }
     if (l.estado !== 'activa' || !l.transferidaEn) return { handled: false, note: 'pata colgada' };
+    if (segPata != null && l.pataContestada) await actualizar(id, (x) => ({ ...x, segPata }));
     if (l.pataContestada) {
       // Terminó la charla con el asesor: el bot no retoma una llamada que ya atendió una persona.
       await cmd('hangup', (c) => d.proveedor.hangup(c, l.proveedorCallId, `${ev.eventId}-fin`));
@@ -405,13 +422,21 @@ export function crearManejador(d: DepsManejador) {
   async function cerrarLlamada(id: string, a: AjustesVoz, seg: number): Promise<LlamadaVoz | null> {
     cancelarLocal(id);
     const s = Math.max(0, Math.min(86_400, Math.round(seg)));
-    const l = await actualizar(id, (x) => (x.estado === 'cerrada' ? null : {
+    const fin = ahora();
+    const l = await actualizar(id, (x) => {
+      if (x.estado === 'cerrada') return null;
+      // La pata del asesor también se cobra (punto 14): su duración real si llegó su call.hangup; si no, se estima
+      // desde la transferencia y se corrige cuando llegue.
+      const segPata = x.segPata ?? (x.transferidaEn ? Math.max(0, Math.round((fin.getTime() - Date.parse(x.transferidaEn)) / 1000)) : 0);
+      const minutosPata = x.simulada ? 0 : billedMinutes(segPata);
+      return {
       ...x,
       estado: 'cerrada',
-      cerrada: ahora().toISOString(),
+      cerrada: fin.toISOString(),
       duracionSeg: s,
-      minutosCobrados: x.simulada ? 0 : billedMinutes(s),
-      costoUsd: x.simulada ? 0 : estimatedCostUsd(s, a.costoMinutoUsd),
+      minutosPata,
+      minutosCobrados: x.simulada ? 0 : billedMinutes(s) + minutosPata,
+      costoUsd: x.simulada ? 0 : estimatedCostUsd(s, a.costoMinutoUsd) + estimatedCostUsd(segPata, a.costoMinutoUsd),
       resultado: x.resultado === 'en_curso' ? (x.contestada ? 'colgo' : 'error') : x.resultado,
       hablando: false,
       despuesDeHablar: null,
@@ -419,7 +444,8 @@ export function crearManejador(d: DepsManejador) {
       dictado: '',
       verificada: x.verificada || Boolean(x.dialogo.verificado),
       dialogo: { ...x.dialogo, ultimaRespuesta: null, ultimaDatos: null, verificacion: null, codigoDictado: null, verificado: null },
-    }));
+      };
+    });
     if (!l) return null;
     // Lo apartado al contestar se cambia por lo cobrado (el uso del día/mes queda con minutos reales).
     if (!l.simulada) await d.almacen.ajustarUso(l.usoDia, l.usoMes, l.minutosCobrados - l.minutosPermitidos);
@@ -497,13 +523,15 @@ export function crearManejador(d: DepsManejador) {
     switch (ev.kind) {
       case 'incoming': {
         if (ev.direction && ev.direction !== 'incoming') return { handled: false, note: 'saliente' };
+        // Nunca se transfiere sin tope (Telnyx deja hasta 4 h por defecto): tampoco con la línea apagada o sin cupo.
+        const conTope = { limiteSeg: a.maxMinutosTransferencia * 60 };
         if (!a.activo) {
-          if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-fwd`));
+          if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-fwd`, conTope));
           return { handled: true, note: 'apagado' };
         }
         const ruta = decideRouteNow(a.reglasRuteo, Boolean(desvio), ahora());
         if (ruta.effective === 'person' && desvio) {
-          await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-sched`));
+          await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-sched`, conTope));
           return { handled: true, note: 'horario: atiende una persona' };
         }
         const simulada = d.proveedor.id === 'simulador';
@@ -512,12 +540,17 @@ export function crearManejador(d: DepsManejador) {
         });
         if (!r.ok) {
           if (r.motivo === 'duplicada') return { handled: false, note: 'llamada repetida' };
+          // Ese número ya llamó las veces del día: no se contesta ni se transfiere (cada transferencia también cuesta).
+          if (r.motivo === 'tope_numero') {
+            await cmd('hangup', (c) => d.proveedor.hangup(c, ev.callId, `${ev.eventId}-tope-numero`));
+            return { handled: true, note: 'tope de llamadas de ese número' };
+          }
           // Queda en el registro (sin gastar cupo) para que entre a la cola de devoluciones.
           const reg = await d.almacen.reservarLlamada({
             proveedor: d.proveedor.id, proveedorCallId: `${ev.callId}#sin-cupo`, telefono: telefonoDeOrigen(ev.from), simulada, topes: a, ahora: ahora(), soloRegistro: true,
           });
           if (reg.ok) await d.almacen.guardar({ ...reg.llamada, estado: 'cerrada', resultado: 'sin_cupo', cerrada: ahora().toISOString(), minutosPermitidos: 0 });
-          if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-cap`));
+          if (desvio) await cmd('transfer', (c) => d.proveedor.transfer(c, ev.callId, desvio, `${ev.eventId}-cap`, conTope));
           else await cmd('hangup', (c) => d.proveedor.hangup(c, ev.callId, `${ev.eventId}-cap`));
           return { handled: true, note: 'sin cupo' };
         }

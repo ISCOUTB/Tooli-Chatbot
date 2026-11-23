@@ -164,6 +164,10 @@ export interface LlamadaVoz {
   transferidaHasta: number | null;
   /** La pata saliente (asesor) contestó. */
   pataContestada: boolean;
+  /** Duración real de la pata del asesor (s), cuando llegó su call.hangup; null = no llegó (al cerrar se estima). */
+  segPata: number | null;
+  /** Minutos cobrados de la pata del asesor (incluidos en `minutosCobrados`, punto 14). */
+  minutosPata: number;
 }
 
 const TIPOS_CONSULTA: readonly TipoConsulta[] = ['notas', 'recibo', 'turno', 'horario', 'cursos'];

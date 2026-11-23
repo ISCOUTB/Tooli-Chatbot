@@ -7,7 +7,7 @@
 // Retención (Ley 1581): la llamada y su transcripción vencen solas (PEXPIREAT) a los `retencionDias`.
 import Redis from 'ioredis';
 import { bogotaClock } from './horario';
-import { ESPERA_CONTESTAR_MS, MARGEN_TOPE_MS, nuevaLlamada, recortarLinea, type AlmacenVoz } from './almacen';
+import { ESPERA_CONTESTAR_MS, MARGEN_TOPE_MS, claveNumero, nuevaLlamada, recortarLinea, type AlmacenVoz } from './almacen';
 import { MAX_LINEAS, leerDialogo, type LineaTranscripcion, type LlamadaVoz } from './tipos';
 
 const K = {
@@ -16,6 +16,7 @@ const K = {
   prov: (p: string, cid: string) => `voz:prov:${p}:${cid}`,
   dia: (d: string) => `voz:uso:dia:${d}`,
   mes: (m: string) => `voz:uso:mes:${m}`,
+  numero: (d: string, tel: string) => `voz:uso:num:${d}:${claveNumero(tel)}`,
   indice: 'voz:llamadas',
   lineas: (id: string) => `voz:lineas:${id}`,
   sim: (d: string) => `voz:sim:${d}`,
@@ -39,6 +40,8 @@ export const RESERVAR_SCRIPT = `
 if redis.call('EXISTS', KEYS[3]) == 1 then return {0, 'duplicada'} end
 local permitido = tonumber(ARGV[1])
 if ARGV[4] ~= '1' then
+  -- Tope de llamadas por día de un mismo número (punto 14): uno solo no gasta el cupo del día.
+  if tonumber(redis.call('GET', KEYS[7]) or '0') >= tonumber(ARGV[11]) then return {0, 'tope_numero'} end
   local d = tonumber(redis.call('GET', KEYS[1]) or '0')
   local m = tonumber(redis.call('GET', KEYS[2]) or '0')
   permitido = math.floor(math.min(permitido, tonumber(ARGV[2]) - d, tonumber(ARGV[3]) - m))
@@ -47,6 +50,8 @@ if ARGV[4] ~= '1' then
   redis.call('EXPIRE', KEYS[1], 259200)
   redis.call('INCRBY', KEYS[2], permitido)
   redis.call('EXPIRE', KEYS[2], 3456000)
+  redis.call('INCR', KEYS[7])
+  redis.call('EXPIRE', KEYS[7], 172800)
 end
 local json = string.gsub(ARGV[6], '"minutosPermitidos":%-1', '"minutosPermitidos":' .. permitido, 1)
 redis.call('SET', KEYS[4], json)
@@ -98,6 +103,8 @@ function deserializar(raw: string | null): LlamadaVoz | null {
       transferidaEn: typeof o.transferidaEn === 'string' ? o.transferidaEn : null,
       transferidaHasta: Number.isFinite(o.transferidaHasta) ? o.transferidaHasta : null,
       pataContestada: o.pataContestada === true,
+      segPata: Number.isFinite(o.segPata) ? o.segPata : null,
+      minutosPata: Number.isFinite(o.minutosPata) ? o.minutosPata : 0,
       dialogo: leerDialogo(o.dialogo),
     };
   } catch {
@@ -117,13 +124,13 @@ export function almacenRedis(redis: Redis): AlmacenVoz {
       const base = nuevaLlamada({ proveedor, proveedorCallId, telefono, simulada, minutosPermitidos: -1, ahora, retencionDias: topes.retencionDias });
       const { day, month } = bogotaClock(ahora);
       const r = (await redis.eval(
-        RESERVAR_SCRIPT, 6,
-        K.dia(day), K.mes(month), K.prov(proveedor, proveedorCallId), K.llamada(base.id), K.indice, K.plazos,
+        RESERVAR_SCRIPT, 7,
+        K.dia(day), K.mes(month), K.prov(proveedor, proveedorCallId), K.llamada(base.id), K.indice, K.plazos, K.numero(day, telefono),
         String(topes.maxMinutosLlamada), String(topes.topeMinutosDia), String(topes.topeMinutosMes), simulada || soloRegistro ? '1' : '0',
         base.id, serializar(base), String(base.expira), String(ahora.getTime()),
-        String(MARGEN_TOPE_MS + ESPERA_CONTESTAR_MS), soloRegistro ? '0' : '1',
+        String(MARGEN_TOPE_MS + ESPERA_CONTESTAR_MS), soloRegistro ? '0' : '1', String(topes.maxLlamadasNumeroDia),
       )) as [number, string];
-      if (r[0] !== 1) return { ok: false, motivo: r[1] === 'duplicada' ? 'duplicada' : 'sin_cupo' };
+      if (r[0] !== 1) return { ok: false, motivo: r[1] === 'duplicada' || r[1] === 'tope_numero' ? r[1] : 'sin_cupo' };
       return { ok: true, llamada: { ...base, minutosPermitidos: Number(r[1]) } };
     },
     async porProveedor(p, cid) {

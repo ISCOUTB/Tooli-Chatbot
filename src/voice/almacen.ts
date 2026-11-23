@@ -12,9 +12,14 @@ export interface TopesReserva {
   topeMinutosMes: number;
   maxMinutosLlamada: number;
   retencionDias: number;
+  /** Llamadas por día desde un mismo número (las anónimas cuentan juntas). */
+  maxLlamadasNumeroDia: number;
 }
 
-export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' };
+export type Reserva = { ok: true; llamada: LlamadaVoz } | { ok: false; motivo: 'sin_cupo' | 'duplicada' | 'tope_numero' };
+
+/** Llave del conteo diario por número que llama (las anónimas, juntas). */
+export const claveNumero = (telefono: string) => telefono.replace(/\D/g, '') || 'anonimo';
 
 /** Tope duro (punto 8): pasado el máximo de la llamada y este margen, el barrido la cuelga aunque nada más lo haga. */
 export const MARGEN_TOPE_MS = 30_000;
@@ -119,6 +124,8 @@ export function nuevaLlamada(args: {
     transferidaEn: null,
     transferidaHasta: null,
     pataContestada: false,
+    segPata: null,
+    minutosPata: 0,
   };
 }
 
@@ -138,6 +145,7 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
   const silencios = new Map<string, number>();
   const plazos = new Map<string, number>();
   const colgadas = new Set<string>();
+  const porNumero = new Map<string, number>();
   const clon = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const vigente = (l: LlamadaVoz | undefined) => (l && l.expira > reloj() ? l : null);
   return {
@@ -154,7 +162,9 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
       if (porProv.has(k)) return { ok: false, motivo: 'duplicada' };
       const { day, month } = bogotaClock(ahora);
       let minutos = topes.maxMinutosLlamada;
+      const kNum = `${day}:${claveNumero(telefono)}`;
       if (!simulada && !soloRegistro) {
+        if ((porNumero.get(kNum) ?? 0) >= topes.maxLlamadasNumeroDia) return { ok: false, motivo: 'tope_numero' };
         minutos = allowedMinutesForNewCall(
           { dailyMinutesCap: topes.topeMinutosDia, monthlyMinutesCap: topes.topeMinutosMes, maxCallMinutes: topes.maxMinutosLlamada, costPerMinuteUsd: 0 },
           usoDia.get(day) ?? 0, usoMes.get(month) ?? 0,
@@ -162,6 +172,7 @@ export function almacenMemoria(reloj: () => number = Date.now): AlmacenVoz & { _
         if (minutos < 1) return { ok: false, motivo: 'sin_cupo' };
         usoDia.set(day, (usoDia.get(day) ?? 0) + minutos);
         usoMes.set(month, (usoMes.get(month) ?? 0) + minutos);
+        porNumero.set(kNum, (porNumero.get(kNum) ?? 0) + 1);
       }
       const llamada = nuevaLlamada({ proveedor, proveedorCallId, telefono, simulada, minutosPermitidos: minutos, ahora, retencionDias: topes.retencionDias });
       llamadas.set(llamada.id, clon(llamada));

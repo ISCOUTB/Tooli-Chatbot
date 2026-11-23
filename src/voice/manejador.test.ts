@@ -514,7 +514,8 @@ describe('códigos por WhatsApp: espera y tope (almacén atómico del correo, #3
     const enviados: string[] = [];
     const { p, cmds } = espia();
     const m = crearManejador({
-      almacen, proveedor: p, credenciales: () => CREDS, ajustes: async () => ({ ...AJUSTES_DEFECTO, activo: true }),
+      // Sin tope por número: aquí se prueba el del código, llamando muchas veces desde el mismo.
+      almacen, proveedor: p, credenciales: () => CREDS, ajustes: async () => ({ ...AJUSTES_DEFECTO, activo: true, maxLlamadasNumeroDia: 100 }),
       programador: null, puenteMs: 200, log: () => undefined, ahora: () => new Date(reloj),
       depsTurno: (l): DepsTurno => ({
         academico: academicoSimulado(ESTUDIANTE_EJEMPLO, { numeroVinculado: true }), agenda: null, ia: null,

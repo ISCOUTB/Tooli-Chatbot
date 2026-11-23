@@ -25,6 +25,11 @@ export interface AjustesVoz {
    */
   maxMinutosTransferencia: number;
   costoMinutoUsd: number;
+  /**
+   * Llamadas por día que atiende la línea desde un mismo número (las anónimas cuentan juntas): uno solo no puede
+   * gastar el cupo de minutos del día (punto 14).
+   */
+  maxLlamadasNumeroDia: number;
   /** Cuándo hay asesores para transferir en vivo. */
   horarioAsesores: FranjaAsesores[];
   /** Reglas de ruteo de FastFood: horas en que la llamada pasa directo a una persona. */
@@ -49,6 +54,7 @@ export const AJUSTES_DEFECTO: AjustesVoz = {
   maxMinutosLlamada: 10,
   maxMinutosTransferencia: 30,
   costoMinutoUsd: 0.07,
+  maxLlamadasNumeroDia: 3,
   horarioAsesores: HORARIO_ASESORES_DEFECTO,
   reglasRuteo: SCHEDULE_OFF,
   topeSimulacionesDia: 60,
@@ -95,6 +101,7 @@ export function leerAjustes(raw: unknown, base: AjustesVoz = AJUSTES_DEFECTO): A
     topeMinutosMes: has('topeMinutosMes') ? entero(o.topeMinutosMes, 0, 100_000, base.topeMinutosMes) : base.topeMinutosMes,
     maxMinutosLlamada: has('maxMinutosLlamada') ? entero(o.maxMinutosLlamada, 1, 30, base.maxMinutosLlamada) : base.maxMinutosLlamada,
     maxMinutosTransferencia: has('maxMinutosTransferencia') ? entero(o.maxMinutosTransferencia, 1, 240, base.maxMinutosTransferencia) : base.maxMinutosTransferencia,
+    maxLlamadasNumeroDia: has('maxLlamadasNumeroDia') ? entero(o.maxLlamadasNumeroDia, 1, 100, base.maxLlamadasNumeroDia) : base.maxLlamadasNumeroDia,
     costoMinutoUsd: has('costoMinutoUsd') && Number.isFinite(Number(o.costoMinutoUsd)) ? Math.min(5, Math.max(0, Number(o.costoMinutoUsd))) : base.costoMinutoUsd,
     horarioAsesores: has('horarioAsesores') ? leerHorarioAsesores(o.horarioAsesores) : base.horarioAsesores,
     reglasRuteo: has('reglasRuteo') ? readScheduleRules(o.reglasRuteo) : base.reglasRuteo,
